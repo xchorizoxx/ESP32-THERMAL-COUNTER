@@ -1,0 +1,35 @@
+# ESP-IDF specific
+build/
+sdkconfig.old
+sdkconfig
+managed_components/
+dependencies.lock
+
+# VS Code specific
+.vscode/
+.vscode/*.log
+.vscode/ipch/
+.vscode/launch.json
+.vscode/settings.json
+.vscode/tasks.json
+
+# Local / OS specific
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+*.swp
+
+# Compiler generated
+*.o
+*.d
+*.a
+*.so
+*.obj
+*.exe
+*.dll
+
+# Binary outputs
+*.bin
+*.elf
+*.map

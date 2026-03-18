@@ -1,0 +1,475 @@
+#include "http_server.hpp"
+#include "web_ui_html.h"
+#include "esp_log.h"
+#include "cJSON.h"
+#include "nvs_flash.h"
+#include "nvs.h"
+#include "esp_ota_ops.h"
+#include "esp_app_format.h"
+#include <sys/param.h>  // Para usar MIN()
+
+static const char *TAG        = "HTTP_SERVER";
+static const char *NVS_NS     = "thcfg";   ///< NVS namespace for thermal config
+
+httpd_handle_t HttpServer::server_ = NULL;
+static QueueHandle_t s_configQueue = NULL;
+
+// =============================================================================
+//  NVS HELPERS  (Core 0, called only from HTTP task context)
+// =============================================================================
+
+/**
+ * @brief Load persisted configuration from NVS and apply to ThermalConfig globals.
+ *        Called once during HttpServer::start().
+ */
+static void loadConfigFromNvs(void) {
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NS, NVS_READONLY, &h);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(TAG, "NVS: sin configuración guardada — usando valores por defecto");
+        return;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "NVS: no se pudo abrir namespace (%s)", esp_err_to_name(err));
+        return;
+    }
+
+    // Helper: read a float stored as int32 (value × 1000)
+    auto readFloat = [&](const char *key, float &dest) {
+        int32_t raw = 0;
+        if (nvs_get_i32(h, key, &raw) == ESP_OK) {
+            dest = (float)raw / 1000.0f;
+        }
+    };
+    auto readInt = [&](const char *key, int &dest) {
+        int32_t raw = 0;
+        if (nvs_get_i32(h, key, &raw) == ESP_OK) {
+            dest = (int)raw;
+        }
+    };
+
+    readFloat("temp_bio",   ThermalConfig::TEMP_BIOLOGICO_MIN);
+    readFloat("delta_t",    ThermalConfig::DELTA_T_FONDO);
+    readFloat("alpha_ema",  ThermalConfig::EMA_ALPHA);
+    readInt  ("line_entry", ThermalConfig::DEFAULT_LINE_ENTRY_Y);
+    readInt  ("line_exit",  ThermalConfig::DEFAULT_LINE_EXIT_Y);
+    readInt  ("nms_center", ThermalConfig::NMS_RADIUS_CENTER_SQ);
+    readInt  ("nms_edge",   ThermalConfig::NMS_RADIUS_EDGE_SQ);
+    readInt  ("view_mode",  ThermalConfig::VIEW_MODE);
+
+    nvs_close(h);
+    ESP_LOGI(TAG, "NVS: configuración cargada — temp_bio=%.1f delta_t=%.1f alpha=%.2f entry=%d exit=%d nms_c=%d nms_e=%d mode=%d",
+             ThermalConfig::TEMP_BIOLOGICO_MIN, ThermalConfig::DELTA_T_FONDO,
+             ThermalConfig::EMA_ALPHA,
+             ThermalConfig::DEFAULT_LINE_ENTRY_Y, ThermalConfig::DEFAULT_LINE_EXIT_Y,
+             ThermalConfig::NMS_RADIUS_CENTER_SQ, ThermalConfig::NMS_RADIUS_EDGE_SQ,
+             ThermalConfig::VIEW_MODE);
+}
+
+/**
+ * @brief Persist current ThermalConfig globals to NVS flash.
+ *        Called when client sends {"cmd":"SAVE_CONFIG"}.
+ *
+ * @return ESP_OK on success.
+ */
+static esp_err_t saveConfigToNvs(void) {
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS: no se pudo abrir para escritura (%s)", esp_err_to_name(err));
+        return err;
+    }
+
+    // Store floats as int32 (value × 1000) — NVS has no float type
+    nvs_set_i32(h, "temp_bio",   (int32_t)(ThermalConfig::TEMP_BIOLOGICO_MIN * 1000.0f));
+    nvs_set_i32(h, "delta_t",    (int32_t)(ThermalConfig::DELTA_T_FONDO      * 1000.0f));
+    nvs_set_i32(h, "alpha_ema",  (int32_t)(ThermalConfig::EMA_ALPHA          * 1000.0f));
+    nvs_set_i32(h, "line_entry", (int32_t) ThermalConfig::DEFAULT_LINE_ENTRY_Y);
+    nvs_set_i32(h, "line_exit",  (int32_t) ThermalConfig::DEFAULT_LINE_EXIT_Y);
+    nvs_set_i32(h, "nms_center", (int32_t) ThermalConfig::NMS_RADIUS_CENTER_SQ);
+    nvs_set_i32(h, "nms_edge",   (int32_t) ThermalConfig::NMS_RADIUS_EDGE_SQ);
+    nvs_set_i32(h, "view_mode",  (int32_t) ThermalConfig::VIEW_MODE);
+
+    err = nvs_commit(h);
+    nvs_close(h);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "NVS: configuración guardada exitosamente");
+    } else {
+        ESP_LOGE(TAG, "NVS: error al confirmar escritura (%s)", esp_err_to_name(err));
+    }
+    return err;
+}
+
+/**
+ * @brief Send a JSON text frame back to the requesting WebSocket client.
+ */
+static void wsSendJson(httpd_req_t *req, cJSON *root) {
+    char *str = cJSON_PrintUnformatted(root);
+    if (!str) return;
+    httpd_ws_frame_t pkt;
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.type    = HTTPD_WS_TYPE_TEXT;
+    pkt.payload = (uint8_t *)str;
+    pkt.len     = strlen(str);
+    httpd_ws_send_frame(req, &pkt);
+    free(str);
+}
+
+// =============================================================================
+//  HTTP HANDLERS
+// =============================================================================
+
+esp_err_t HttpServer::indexGetHandler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "text/html");
+    // WEB_UI_HTML is a null-terminated raw string defined in web_ui_html.h
+    return httpd_resp_send(req, WEB_UI_HTML, HTTPD_RESP_USE_STRLEN);
+}
+
+// =============================================================================
+//  OTA POST HANDLER (/update)
+// =============================================================================
+
+esp_err_t HttpServer::otaPostHandler(httpd_req_t *req) {
+    esp_ota_handle_t ota_handle = 0;
+    const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
+
+    if (update_partition == NULL) {
+        ESP_LOGE(TAG, "No se encontró partición OTA");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA Partition Not Found");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Iniciando OTA en partición: %s", update_partition->label);
+
+    esp_err_t err = esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_begin falló (%s)", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA Begin Failed");
+        return err;
+    }
+
+    int remaining = req->content_len;
+    char buf[1024];
+
+    while (remaining > 0) {
+        int recv_len = httpd_req_recv(req, buf, MIN(remaining, sizeof(buf)));
+        if (recv_len <= 0) {
+            if (recv_len == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
+            ESP_LOGE(TAG, "Error recibiendo datos OTA");
+            esp_ota_abort(ota_handle);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA Receive Failed");
+            return ESP_FAIL;
+        }
+        
+        err = esp_ota_write(ota_handle, buf, recv_len);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_write falló (%s)", esp_err_to_name(err));
+            esp_ota_abort(ota_handle);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA Write Failed");
+            return err;
+        }
+        remaining -= recv_len;
+    }
+
+    err = esp_ota_end(ota_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_end falló (%s)", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA End Failed");
+        return err;
+    }
+
+    err = esp_ota_set_boot_partition(update_partition);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_set_boot_partition falló (%s)", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA Set Boot Failed");
+        return err;
+    }
+
+    ESP_LOGI(TAG, "Flasheo OTA exitoso. Reiniciando en 1s...");
+    httpd_resp_sendstr(req, "OTA Success");
+
+    // Retrasar para permitir que la respuesta HTTP se envíe completamente
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    esp_restart();
+
+    return ESP_OK;
+}
+
+// =============================================================================
+//  WEBSOCKET — INCOMING MESSAGE HANDLER
+// =============================================================================
+
+void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_pkt) {
+    if (ws_pkt->type != HTTPD_WS_TYPE_TEXT) return;
+
+    cJSON *root = cJSON_Parse((const char *)ws_pkt->payload);
+    if (!root) {
+        ESP_LOGE(TAG, "JSON WS inválido");
+        return;
+    }
+
+    cJSON *cmd = cJSON_GetObjectItem(root, "cmd");
+    if (!cJSON_IsString(cmd)) {
+        cJSON_Delete(root);
+        return;
+    }
+
+    // -------------------------------------------------------------------------
+    //  GET_CONFIG — devuelve la configuración actual como JSON
+    // -------------------------------------------------------------------------
+    if (strcmp(cmd->valuestring, "GET_CONFIG") == 0) {
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "type",       "config");
+        cJSON_AddNumberToObject(resp, "temp_bio",   (double)ThermalConfig::TEMP_BIOLOGICO_MIN);
+        cJSON_AddNumberToObject(resp, "delta_t",    (double)ThermalConfig::DELTA_T_FONDO);
+        cJSON_AddNumberToObject(resp, "alpha_ema",  (double)ThermalConfig::EMA_ALPHA);
+        cJSON_AddNumberToObject(resp, "line_entry", (double)ThermalConfig::DEFAULT_LINE_ENTRY_Y);
+        cJSON_AddNumberToObject(resp, "line_exit",  (double)ThermalConfig::DEFAULT_LINE_EXIT_Y);
+        cJSON_AddNumberToObject(resp, "nms_center", (double)ThermalConfig::NMS_RADIUS_CENTER_SQ);
+        cJSON_AddNumberToObject(resp, "nms_edge",   (double)ThermalConfig::NMS_RADIUS_EDGE_SQ);
+        cJSON_AddNumberToObject(resp, "view_mode",  (double)ThermalConfig::VIEW_MODE);
+        wsSendJson(req, resp);
+        cJSON_Delete(resp);
+    }
+
+    // -------------------------------------------------------------------------
+    //  SET_PARAM — aplica un parámetro individual
+    // -------------------------------------------------------------------------
+    else if (strcmp(cmd->valuestring, "SET_PARAM") == 0) {
+        cJSON *param = cJSON_GetObjectItem(root, "param");
+        cJSON *val   = cJSON_GetObjectItem(root, "val");
+        if (cJSON_IsString(param) && cJSON_IsNumber(val)) {
+            AppConfigCmd cfgCmd;
+            bool send = true;
+            if      (strcmp(param->valuestring, "temp_bio")   == 0) { cfgCmd.type = ConfigCmdType::SET_TEMP_BIO;  cfgCmd.value = (float)val->valuedouble; }
+            else if (strcmp(param->valuestring, "delta_t")    == 0) { cfgCmd.type = ConfigCmdType::SET_DELTA_T;   cfgCmd.value = (float)val->valuedouble; }
+            else if (strcmp(param->valuestring, "alpha_ema")  == 0) { cfgCmd.type = ConfigCmdType::SET_EMA_ALPHA; cfgCmd.value = (float)val->valuedouble; }
+            else if (strcmp(param->valuestring, "line_entry") == 0) { cfgCmd.type = ConfigCmdType::SET_LINE_ENTRY; cfgCmd.value = (float)val->valuedouble; }
+            else if (strcmp(param->valuestring, "line_exit")  == 0) { cfgCmd.type = ConfigCmdType::SET_LINE_EXIT;  cfgCmd.value = (float)val->valuedouble; }
+            else if (strcmp(param->valuestring, "nms_center") == 0) { cfgCmd.type = ConfigCmdType::SET_NMS_CENTER; cfgCmd.value = (float)val->valuedouble; }
+            else if (strcmp(param->valuestring, "nms_edge")   == 0) { cfgCmd.type = ConfigCmdType::SET_NMS_EDGE;   cfgCmd.value = (float)val->valuedouble; }
+            else if (strcmp(param->valuestring, "view_mode")  == 0) { cfgCmd.type = ConfigCmdType::SET_VIEW_MODE;  cfgCmd.value = (float)val->valuedouble; }
+            else { send = false; }
+
+            if (send && s_configQueue) {
+                xQueueSend(s_configQueue, &cfgCmd, 0);
+                ESP_LOGI(TAG, "Config encolada: %s = %.3f", param->valuestring, val->valuedouble);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    //  SAVE_CONFIG — persiste la configuración actual en NVS
+    // -------------------------------------------------------------------------
+    else if (strcmp(cmd->valuestring, "SAVE_CONFIG") == 0) {
+        esp_err_t err = saveConfigToNvs();
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "type", "config_saved");
+        cJSON_AddBoolToObject  (resp, "ok",   (err == ESP_OK));
+        wsSendJson(req, resp);
+        cJSON_Delete(resp);
+    }
+
+    // -------------------------------------------------------------------------
+    //  RESET_COUNTS
+    // -------------------------------------------------------------------------
+    else if (strcmp(cmd->valuestring, "RESET_COUNTS") == 0) {
+        if (s_configQueue) {
+            AppConfigCmd cfgCmd { ConfigCmdType::RESET_COUNTS, 0.0f };
+            xQueueSend(s_configQueue, &cfgCmd, 0);
+        }
+        ESP_LOGI(TAG, "RESET_COUNTS solicitado");
+    }
+
+    // -------------------------------------------------------------------------
+    //  RETRY_SENSOR
+    // -------------------------------------------------------------------------
+    else if (strcmp(cmd->valuestring, "RETRY_SENSOR") == 0) {
+        if (s_configQueue) {
+            AppConfigCmd cfgCmd { ConfigCmdType::RETRY_SENSOR, 0.0f };
+            xQueueSend(s_configQueue, &cfgCmd, 0);
+        }
+        ESP_LOGI(TAG, "RETRY_SENSOR solicitado");
+    }
+
+    cJSON_Delete(root);
+}
+
+// =============================================================================
+//  WEBSOCKET URI HANDLER
+// =============================================================================
+
+esp_err_t HttpServer::wsHandler(httpd_req_t *req) {
+    if (req->method == HTTP_GET) {
+        ESP_LOGI(TAG, "Nueva conexión WebSocket");
+        return ESP_OK;
+    }
+
+    httpd_ws_frame_t ws_pkt;
+    uint8_t *buf = NULL;
+    memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
+    ws_pkt.type = HTTPD_WS_TYPE_TEXT;
+
+    esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
+    if (ret != ESP_OK) return ret;
+
+    if (ws_pkt.len > 0) {
+        buf = (uint8_t *)calloc(1, ws_pkt.len + 1);
+        if (!buf) return ESP_ERR_NO_MEM;
+        ws_pkt.payload = buf;
+        ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
+        if (ret == ESP_OK) {
+            handleWebSocketMessage(req, &ws_pkt);
+        }
+        free(buf);
+    }
+    return ret;
+}
+
+// =============================================================================
+//  START / STOP
+// =============================================================================
+
+esp_err_t HttpServer::start(QueueHandle_t configQueue) {
+    if (server_ != NULL) return ESP_ERR_INVALID_STATE;
+
+    s_configQueue = configQueue;
+
+    // Load saved parameters from NVS before starting (NVS already init'd in main)
+    loadConfigFromNvs();
+
+    httpd_config_t config      = HTTPD_DEFAULT_CONFIG();
+    config.core_id             = 0;   // PRO_CPU (Core 0)
+    config.max_open_sockets    = 4;
+    config.stack_size          = 16384;  // Aumentado para OTA: escrituras de firmware consumen stack extra
+
+    ESP_LOGI(TAG, "Iniciando HTTP server en puerto %d", config.server_port);
+    esp_err_t ret = httpd_start(&server_, &config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Error al iniciar server: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    const httpd_uri_t uri_get = {
+        .uri                   = "/",
+        .method                = HTTP_GET,
+        .handler               = indexGetHandler,
+        .user_ctx              = NULL,
+        .is_websocket          = false,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+    };
+    httpd_register_uri_handler(server_, &uri_get);
+
+    const httpd_uri_t ws_uri = {
+        .uri                   = "/ws",
+        .method                = HTTP_GET,
+        .handler               = wsHandler,
+        .user_ctx              = NULL,
+        .is_websocket          = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+    };
+    httpd_register_uri_handler(server_, &ws_uri);
+
+    const httpd_uri_t ota_uri = {
+        .uri                   = "/update",
+        .method                = HTTP_POST,
+        .handler               = otaPostHandler,
+        .user_ctx              = NULL,
+        .is_websocket          = false,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+    };
+    httpd_register_uri_handler(server_, &ota_uri);
+
+    return ESP_OK;
+}
+
+void HttpServer::stop() {
+    if (server_) {
+        httpd_stop(server_);
+        server_ = NULL;
+    }
+}
+
+// =============================================================================
+//  BROADCAST FRAME  (called from TelemetryTask at 16 Hz)
+// =============================================================================
+
+void HttpServer::broadcastFrame(const PayloadImagen &img, const PayloadTelemetria &tel, bool sensor_ok) {
+    if (!server_) return;
+
+    size_t clients_max = 4;
+    int    client_fds[4];
+    size_t clients = clients_max;
+
+    if (httpd_get_client_list(server_, &clients, client_fds) != ESP_OK) return;
+    if (clients == 0) return;
+
+    // Layout: Header(1) SensorOk(1) Ta(4) CountIn(2) CountOut(2) NumTracks(1)
+    //         [TrackInfo × N (9 bytes cada uno)] Pixels(768×2)
+    const size_t tracks_size = tel.num_tracks * 9;
+    const size_t payload_len = 1 + 1 + 4 + 2 + 2 + 1 + tracks_size + (ThermalConfig::TOTAL_PIXELS * 2);
+
+    // Static buffer — avoids heap allocation at 16 Hz
+    static uint8_t ws_buffer[2048];
+    if (payload_len > sizeof(ws_buffer)) {
+        ESP_LOGW(TAG, "broadcastFrame: payload demasiado grande (%zu)", payload_len);
+        return;
+    }
+
+    uint8_t *p   = ws_buffer;
+    size_t   ofs = 0;
+
+    p[ofs++] = 0x11;                             // Header
+    p[ofs++] = sensor_ok ? 1u : 0u;              // SensorOk
+
+    // Ambient Temp (float IEEE 754 LE - 4 bytes)
+    uint8_t *ta_ptr = (uint8_t*)&tel.ambient_temp;
+    p[ofs++] = ta_ptr[0];
+    p[ofs++] = ta_ptr[1];
+    p[ofs++] = ta_ptr[2];
+    p[ofs++] = ta_ptr[3];
+
+    // CountIn (uint16 LE)
+    p[ofs++] = (uint8_t)(tel.count_in  & 0xFF);
+    p[ofs++] = (uint8_t)(tel.count_in  >> 8);
+
+    // CountOut (uint16 LE)
+    p[ofs++] = (uint8_t)(tel.count_out & 0xFF);
+    p[ofs++] = (uint8_t)(tel.count_out >> 8);
+
+    // Tracks
+    p[ofs++] = tel.num_tracks;
+    for (int i = 0; i < tel.num_tracks; i++) {
+        p[ofs++] = tel.tracks[i].id;
+        p[ofs++] = (uint8_t)(tel.tracks[i].x_100 & 0xFF);
+        p[ofs++] = (uint8_t)(tel.tracks[i].x_100 >> 8);
+        p[ofs++] = (uint8_t)(tel.tracks[i].y_100 & 0xFF);
+        p[ofs++] = (uint8_t)(tel.tracks[i].y_100 >> 8);
+        p[ofs++] = (uint8_t)(tel.tracks[i].v_x_100 & 0xFF);
+        p[ofs++] = (uint8_t)(tel.tracks[i].v_x_100 >> 8);
+        p[ofs++] = (uint8_t)(tel.tracks[i].v_y_100 & 0xFF);
+        p[ofs++] = (uint8_t)(tel.tracks[i].v_y_100 >> 8);
+    }
+
+    // Pixel block: 768 × int16_t (temperature × 100)
+    memcpy(&p[ofs], img.pixels, ThermalConfig::TOTAL_PIXELS * sizeof(int16_t));
+
+    httpd_ws_frame_t ws_pkt;
+    memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
+    ws_pkt.type    = HTTPD_WS_TYPE_BINARY;
+    ws_pkt.payload = p;
+    ws_pkt.len     = payload_len;
+
+    for (size_t i = 0; i < clients; i++) {
+        const int fd = client_fds[i];
+        if (httpd_ws_get_fd_info(server_, fd) == HTTPD_WS_CLIENT_WEBSOCKET) {
+            httpd_ws_send_frame_async(server_, fd, &ws_pkt);
+        }
+    }
+}

@@ -1,0 +1,37 @@
+#pragma once
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "esp_err.h"
+#include "esp_http_server.h"
+#include "thermal_types.hpp"
+
+
+class HttpServer {
+public:
+    /**
+     * @brief Initialize and start the HTTP and WebSocket server.
+     */
+    static esp_err_t start(QueueHandle_t configQueue = NULL);
+
+    /**
+     * @brief Stop the server and clean up resources.
+     */
+    static void stop();
+
+    /**
+     * @brief Broadcast a frame containing image and telemetry data to all connected WebSocket clients.
+     */
+    static void broadcastFrame(const PayloadImagen& img, const PayloadTelemetria& tel, bool sensor_ok = true);
+
+private:
+    static httpd_handle_t server_;
+
+    // HTTP Handlers
+    static esp_err_t indexGetHandler(httpd_req_t *req);
+    static esp_err_t wsHandler(httpd_req_t *req);
+    static esp_err_t otaPostHandler(httpd_req_t *req);
+    
+    // Internal handler for incoming WebSocket JSON messages
+    static void handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_pkt);
+};
