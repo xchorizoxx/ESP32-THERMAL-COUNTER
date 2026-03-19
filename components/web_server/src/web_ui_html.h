@@ -11,7 +11,7 @@ const char *WEB_UI_HTML = R"rawliteral(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>THERMAL COUNTER</title>
+    <title>THERMAL COUNTERR</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
@@ -24,7 +24,7 @@ const char *WEB_UI_HTML = R"rawliteral(
             --bg-panel:      #0d1526;
             --bg-panel-gls:  rgba(13, 21, 38, 0.85);
             --border-dim:    #1e2d4a;
-            --border-glow:   #1a3a6e;
+            --border-glow:   #1f6b1dff;
             --text-primary:  #c8d8f0;
             --text-muted:    #4a6080;
             --text-mono:     'JetBrains Mono', monospace;
@@ -781,7 +781,7 @@ const char *WEB_UI_HTML = R"rawliteral(
      TOP BAR
      ========================================================================= -->
 <div id="top-bar">
-    <h1>&#9651; THERMAL COUNTER HUD</h1>
+    <h1>&#9651; THERMAL COUNTER </h1>
     <div class="top-badges">
         <div class="badge" id="ws-badge">
             <div class="dot" id="ws-dot"></div>
@@ -805,16 +805,16 @@ const char *WEB_UI_HTML = R"rawliteral(
          ----------------------------------------------------------------------- -->
     <div id="panel-metrics">
 
-        <!-- ENTRADAS -->
+        <!-- IN -->
         <div class="counter-card in">
-            <div class="counter-label">&#8645; ENTRADAS</div>
+            <div class="counter-label">&#8645; IN </div>
             <span class="counter-value" id="count-in">0</span>
             <div class="counter-sublabel">personas detectadas</div>
         </div>
 
-        <!-- SALIDAS -->
+        <!-- OUT -->
         <div class="counter-card out">
-            <div class="counter-label">&#8645; SALIDAS</div>
+            <div class="counter-label">&#8645; OUT </div>
             <span class="counter-value" id="count-out">0</span>
             <div class="counter-sublabel">personas detectadas</div>
         </div>

@@ -39,19 +39,25 @@ esp_err_t Mlx90640Sensor::init()
              addr_, sda_, scl_);
 
     // 1. Configurar y arrancar I2C
-    // NOTA DATASHEET: Fast Mode Plus (1MHz) exige pull-ups muy fuertes y cables cortos.
-    // Usamos Fast Mode (400kHz) por seguridad de integridad de datos (evita que EEPROM
-    // o subpáginas fallen y provoquen la cuadrícula de píxeles muertos a 0°C).
+    // NOTA: Revertimos a 400kHz por solicitud del usuario para mayor estabilidad.
     MLX90640_I2CSetConfig(port_, sda_, scl_, 400000);
     MLX90640_I2CInit();
 
-    // 2. Configurar modo Chess
-    int status = MLX90640_SetChessMode(addr_);
-    if (status != 0) {
-        ESP_LOGE(TAG, "Fallo al configurar Chess Mode (status=%d)", status);
-        return ESP_FAIL;
+    // 2. Configurar modo Chess (con reintentos)
+    int status = -1;
+    for (int i = 0; i < 3; i++) {
+        status = MLX90640_SetChessMode(addr_);
+        if (status == 0) break;
+        ESP_LOGW(TAG, "Reintentando configuración Chess Mode (%d/3)...", i + 1);
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
-    ESP_LOGI(TAG, "Modo Chess configurado");
+
+    if (status != 0) {
+        ESP_LOGE(TAG, "Fallo crítico: No se pudo configurar Chess Mode (status=%d)", status);
+        // Si falla el modo chess, la imagen se verá con rejilla. Intentamos seguir pero marcamos error.
+    } else {
+        ESP_LOGI(TAG, "Modo Chess configurado correctamente");
+    }
 
     // 3. Leer EEPROM del sensor
     status = MLX90640_DumpEE(addr_, eeData_);
@@ -115,7 +121,10 @@ esp_err_t Mlx90640Sensor::readFrame(float* outBuffer)
         }
     }
 
-    // Calcular temperatura ambiente (Ta)
+    // Identificar qué subpágina acabamos de leer
+    lastSubPageID_ = MLX90640_GetSubPageNumber(frameData_);
+    
+    // Calcula la temperatura ambiente
     ambientTemp_ = MLX90640_GetTa(frameData_, &params_);
     float tr = ambientTemp_ - 8.0f; // Aproximación estándar reflectada
     

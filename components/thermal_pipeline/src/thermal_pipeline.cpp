@@ -146,22 +146,32 @@ void ThermalPipeline::run()
                     if (val > max_temp) max_temp = val;
                     if (val < min_temp) min_temp = val;
 
-                    // Simple spatial median/outlier filter to remove "starts" or black dots
-                    if (r > 0 && r < ThermalConfig::MLX_ROWS - 1 && c > 0 && c < ThermalConfig::MLX_COLS - 1) {
-                        float up    = frame_actual_[(r-1) * ThermalConfig::MLX_COLS + c];
-                        float down  = frame_actual_[(r+1) * ThermalConfig::MLX_COLS + c];
-                        float left  = frame_actual_[r * ThermalConfig::MLX_COLS + (c-1)];
-                        float right = frame_actual_[r * ThermalConfig::MLX_COLS + (c+1)];
-                        float avg_neighbors = (up + down + left + right) / 4.0f;
-                        
-                        // De-Chess Pattern: El MLX90640 lee térmicas en patrón de ajedrez (subpáginas). 
-                        // Suavizamos fundiendo cada píxel con sus 4 vecinos ortogonales (que pertenecen a la otra subpágina)
-                        // para eliminar la malla visual. Mantenemos la protección contra picos extremos.
-                        if (val > avg_neighbors + 3.0f || val < avg_neighbors - 3.0f) {
-                            val = avg_neighbors; // Reemplazar picos extremos (Salt & Pepper)
-                        } else {
-                            // Blending suave preservando detalles (2 partes el centro, 4 partes alrededor)
-                            val = (val * 2.0f + up + down + left + right) / 6.0f;
+                    // --- RECONSTRUCCIÓN ESPACIAL (Interpolación para evitar Ajedrez) ---
+                    // Determinamos si este píxel pertenece a la subpágina que acaba de llegar.
+                    // En Chess Mode: (r+c)%2 == lastSubPageID
+                    bool is_new_pixel = ((r + c) % 2) == sensor_.getLastSubPageID();
+
+                    if (!is_new_pixel) {
+                        // Es un píxel de la subpágina "vieja". Lo estimamos promediando sus 4 vecinos "nuevos".
+                        if (r > 0 && r < ThermalConfig::MLX_ROWS - 1 && c > 0 && c < ThermalConfig::MLX_COLS - 1) {
+                            float up    = frame_actual_[(r-1) * ThermalConfig::MLX_COLS + c];
+                            float down  = frame_actual_[(r+1) * ThermalConfig::MLX_COLS + c];
+                            float left  = frame_actual_[r * ThermalConfig::MLX_COLS + (c-1)];
+                            float right = frame_actual_[r * ThermalConfig::MLX_COLS + (c+1)];
+                            val = (up + down + left + right) / 4.0f;
+                        }
+                    } else {
+                        // Es un píxel "nuevo". Aplicamos Filtro de Outliers (Salt & Pepper)
+                        if (r > 0 && r < ThermalConfig::MLX_ROWS - 1 && c > 0 && c < ThermalConfig::MLX_COLS - 1) {
+                            float up    = frame_actual_[(r-1) * ThermalConfig::MLX_COLS + c];
+                            float down  = frame_actual_[(r+1) * ThermalConfig::MLX_COLS + c];
+                            float left  = frame_actual_[r * ThermalConfig::MLX_COLS + (c-1)];
+                            float right = frame_actual_[r * ThermalConfig::MLX_COLS + (c+1)];
+                            float avg_neighbors = (up + down + left + right) / 4.0f;
+                            
+                            if (val > avg_neighbors + 2.5f || val < avg_neighbors - 2.5f) {
+                                val = avg_neighbors; 
+                            }
                         }
                     }
                     filtered_frame[idx] = val;
@@ -174,19 +184,10 @@ void ThermalPipeline::run()
             }
 
             // ============================================================
-            // PASO 0.6: Filtro Temporal EMA para Display (solo visualización)
+            // PASO 0.6: Imagen para Display (Sin filtros temporales para evitar blur)
             // ============================================================
-            constexpr float DISPLAY_EMA_ALPHA = 0.4f; // Suavizado inter-frame
-            if (!displayInit_) {
-                memcpy(frame_display_, frame_actual_, sizeof(frame_display_));
-                displayInit_ = true;
-            } else {
-                const float oneMinusA = 1.0f - DISPLAY_EMA_ALPHA;
-                for (int i = 0; i < ThermalConfig::TOTAL_PIXELS; i++) {
-                    frame_display_[i] = DISPLAY_EMA_ALPHA * frame_actual_[i]
-                                      + oneMinusA * frame_display_[i];
-                }
-            }
+            // Copiar directamente el frame actual al de display para máxima nitidez en movimiento.
+            memcpy(frame_display_, frame_actual_, sizeof(frame_display_));
 
             // ============================================================
             // PASO 1: Fondo Dinámico — EMA Selectiva
@@ -273,11 +274,18 @@ void ThermalPipeline::run()
         packet.imagen.frame_id = frame_id_;
         if (ThermalConfig::VIEW_MODE == 1) { // Modo Sustractor
             for (int i = 0; i < ThermalConfig::TOTAL_PIXELS; i++) {
-                packet.imagen.pixels[i] = (int16_t)((frame_actual_[i] - mapa_fondo_[i]) * 100.0f);
+                float diff = frame_actual_[i] - mapa_fondo_[i];
+                // Noise Gate: Ignorar ruido térmico menor a 0.6°C
+                if (diff < 0.6f && diff > -0.6f) diff = 0.0f;
+                packet.imagen.pixels[i] = (int16_t)(diff * 100.0f);
             }
         } else { // Modo Normal
             for (int i = 0; i < ThermalConfig::TOTAL_PIXELS; i++) {
-                packet.imagen.pixels[i] = (int16_t)(frame_display_[i] * 100.0f);
+                float val = frame_display_[i];
+                float bg = mapa_fondo_[i];
+                // Noise Gate en modo normal: Si la diferencia con el fondo es mínima, mostrar fondo puro
+                if (val - bg < 0.4f && val - bg > -0.4f) val = bg; 
+                packet.imagen.pixels[i] = (int16_t)(val * 100.0f);
             }
         }
 

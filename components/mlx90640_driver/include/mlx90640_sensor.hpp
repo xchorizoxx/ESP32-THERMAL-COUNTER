@@ -65,9 +65,11 @@ public:
     float getAmbientTemp();
 
     /**
-     * @brief Verifica si el sensor fue correctamente inicializado.
-     * @return true si el sensor está listo para operar.
+     * @brief Obtiene el ID de la última subpágina leída (0 o 1).
+     * @return ID de la subpágina.
      */
+    int getLastSubPageID() const { return lastSubPageID_; }
+
     bool isInitialized() const { return initialized_; }
 
 
@@ -77,6 +79,7 @@ private:
     gpio_num_t scl_;
     uint8_t    addr_;
     float      ambientTemp_;
+    int        lastSubPageID_;
     bool       initialized_;
 
     // Buffers estáticos (no se allocan en runtime)

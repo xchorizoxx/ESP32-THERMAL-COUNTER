@@ -34,7 +34,10 @@ CONFIG_LWIP_SO_RCVBUF=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
 # --- Tamaño de stack del loop principal ---
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
+# --- Tamaño de stack del loop principal ---
+# Se incrementa a 32KB para garantizar estabilidad durante la orquestación 
+# inicial y la compleja extracción de parámetros del MLX90640.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768
 
 # --- I2C (usar driver nativo, no el legado) ---
 CONFIG_I2C_ENABLE_DEBUG_LOG=n
