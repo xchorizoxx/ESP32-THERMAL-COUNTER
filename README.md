@@ -71,7 +71,9 @@ The highest priority core. It executes the mathematical processing loop at **16 
 
 ### Core 0: Communications and Telemetry (`TelemetryTask`)
 Manages the system's external layer.
-- **SoftAP & Web Server:** Handles a WiFi access point and serves the tactical Dashboard.
+- **SoftAP & Web Server:** Handles a WiFi access point and serves the tactical Dashboard. Default values:
+SSDI; Thermal Counter
+Password: counter1234
 - **Binary WebSockets:** Packages processed data into C `packed` structures for efficient transmission.
 - **NVS Flash:** Manages calibration persistence so settings survive power outages.
 
