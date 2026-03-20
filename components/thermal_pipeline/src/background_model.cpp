@@ -1,20 +1,20 @@
 #include "background_model.hpp"
 #include <cstring>
 
-void BackgroundModel::update(const float* frame, float* fondo,
-                             const uint8_t* mascara, int totalPixels, float alpha)
+void BackgroundModel::update(const float* frame, float* background,
+                             const uint8_t* mask, int totalPixels, float alpha)
 {
     const float oneMinusAlpha = 1.0f - alpha;
 
     for (int i = 0; i < totalPixels; i++) {
-        if (mascara[i] == 0) {
-            fondo[i] = alpha * frame[i] + oneMinusAlpha * fondo[i];
+        if (mask[i] == 0) {
+            background[i] = alpha * frame[i] + oneMinusAlpha * background[i];
         }
-        // Si mascara[i] == 1 (bloqueado por track), fondo[i] permanece inmutable
+        // If mask[i] == 1 (blocked by track), background[i] remains immutable
     }
 }
 
-void BackgroundModel::initialize(const float* frame, float* fondo, int totalPixels)
+void BackgroundModel::initialize(const float* frame, float* background, int totalPixels)
 {
-    memcpy(fondo, frame, totalPixels * sizeof(float));
+    memcpy(background, frame, totalPixels * sizeof(float));
 }

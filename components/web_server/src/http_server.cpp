@@ -6,10 +6,10 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_ota_ops.h"
-#include "esp_system.h" // Para esp_restart
+#include "esp_system.h" // For esp_restart
 #include <string.h>
 #include "esp_app_format.h"
-#include <sys/param.h>  // Para usar MIN()
+#include <sys/param.h>  // For MIN()
 
 static const char *TAG        = "HTTP_SERVER";
 static const char *NVS_NS     = "thcfg";   ///< NVS namespace for thermal config
@@ -17,7 +17,7 @@ static const char *NVS_NS     = "thcfg";   ///< NVS namespace for thermal config
 httpd_handle_t HttpServer::server_ = NULL;
 static QueueHandle_t s_configQueue = NULL;
 
-// Inicialización de buffers estáticos para WebSocket
+// Initialization of static buffers for WebSocket
 uint8_t HttpServer::ws_buffers_[WS_BUFFER_COUNT][WS_BUFFER_SIZE];
 int     HttpServer::ws_buffer_ref_counts_[WS_BUFFER_COUNT] = {0, 0};
 static portMUX_TYPE s_ws_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -34,11 +34,11 @@ static void loadConfigFromNvs(void) {
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NS, NVS_READONLY, &h);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGI(TAG, "NVS: sin configuración guardada — usando valores por defecto");
+        ESP_LOGI(TAG, "NVS: no saved configuration — using default values");
         return;
     }
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS: no se pudo abrir namespace (%s)", esp_err_to_name(err));
+        ESP_LOGW(TAG, "NVS: could not open namespace (%s)", esp_err_to_name(err));
         return;
     }
 
@@ -66,7 +66,7 @@ static void loadConfigFromNvs(void) {
     readInt  ("view_mode",  ThermalConfig::VIEW_MODE);
 
     nvs_close(h);
-    ESP_LOGI(TAG, "NVS: configuración cargada — temp_bio=%.1f delta_t=%.1f alpha=%.2f entry=%d exit=%d nms_c=%d nms_e=%d mode=%d",
+    ESP_LOGI(TAG, "NVS: configuration loaded — temp_bio=%.1f delta_t=%.1f alpha=%.2f entry=%d exit=%d nms_c=%d nms_e=%d mode=%d",
              ThermalConfig::TEMP_BIOLOGICO_MIN, ThermalConfig::DELTA_T_FONDO,
              ThermalConfig::EMA_ALPHA,
              ThermalConfig::DEFAULT_LINE_ENTRY_Y, ThermalConfig::DEFAULT_LINE_EXIT_Y,
@@ -84,7 +84,7 @@ static esp_err_t saveConfigToNvs(void) {
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &h);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "NVS: no se pudo abrir para escritura (%s)", esp_err_to_name(err));
+        ESP_LOGE(TAG, "NVS: could not open for writing (%s)", esp_err_to_name(err));
         return err;
     }
 
@@ -102,9 +102,9 @@ static esp_err_t saveConfigToNvs(void) {
     nvs_close(h);
 
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "NVS: configuración guardada exitosamente");
+        ESP_LOGI(TAG, "NVS: configuration saved successfully");
     } else {
-        ESP_LOGE(TAG, "NVS: error al confirmar escritura (%s)", esp_err_to_name(err));
+        ESP_LOGE(TAG, "NVS: error committing write (%s)", esp_err_to_name(err));
     }
     return err;
 }
@@ -143,16 +143,16 @@ esp_err_t HttpServer::otaPostHandler(httpd_req_t *req) {
     const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
 
     if (update_partition == NULL) {
-        ESP_LOGE(TAG, "No se encontró partición OTA");
+        ESP_LOGE(TAG, "OTA partition not found");
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA Partition Not Found");
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Iniciando OTA en partición: %s", update_partition->label);
+    ESP_LOGI(TAG, "Starting OTA on partition: %s", update_partition->label);
 
     esp_err_t err = esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ota_begin falló (%s)", esp_err_to_name(err));
+        ESP_LOGE(TAG, "esp_ota_begin failed (%s)", esp_err_to_name(err));
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA Begin Failed");
         return err;
     }
@@ -166,7 +166,7 @@ esp_err_t HttpServer::otaPostHandler(httpd_req_t *req) {
             if (recv_len == HTTPD_SOCK_ERR_TIMEOUT) {
                 continue;
             }
-            ESP_LOGE(TAG, "Error recibiendo datos OTA");
+            ESP_LOGE(TAG, "Error receiving OTA data");
             esp_ota_abort(ota_handle);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA Receive Failed");
             return ESP_FAIL;
@@ -174,7 +174,7 @@ esp_err_t HttpServer::otaPostHandler(httpd_req_t *req) {
         
         err = esp_ota_write(ota_handle, buf, recv_len);
         if (err != ESP_OK) {
-            ESP_LOGE(TAG, "esp_ota_write falló (%s)", esp_err_to_name(err));
+            ESP_LOGE(TAG, "esp_ota_write failed (%s)", esp_err_to_name(err));
             esp_ota_abort(ota_handle);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA Write Failed");
             return err;
@@ -184,22 +184,22 @@ esp_err_t HttpServer::otaPostHandler(httpd_req_t *req) {
 
     err = esp_ota_end(ota_handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ota_end falló (%s)", esp_err_to_name(err));
+        ESP_LOGE(TAG, "esp_ota_end failed (%s)", esp_err_to_name(err));
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA End Failed");
         return err;
     }
 
     err = esp_ota_set_boot_partition(update_partition);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ota_set_boot_partition falló (%s)", esp_err_to_name(err));
+        ESP_LOGE(TAG, "esp_ota_set_boot_partition failed (%s)", esp_err_to_name(err));
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA Set Boot Failed");
         return err;
     }
 
-    ESP_LOGI(TAG, "Flasheo OTA exitoso. Reiniciando en 1s...");
+    ESP_LOGI(TAG, "OTA flash successful. Restarting in 1s...");
     httpd_resp_sendstr(req, "OTA Success");
 
-    // Retrasar para permitir que la respuesta HTTP se envíe completamente
+    // Delay to allow HTTP response to be fully sent
     vTaskDelay(pdMS_TO_TICKS(1000));
     esp_restart();
 
@@ -215,7 +215,7 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
 
     cJSON *root = cJSON_Parse((const char *)ws_pkt->payload);
     if (!root) {
-        ESP_LOGE(TAG, "JSON WS inválido");
+        ESP_LOGE(TAG, "Invalid WS JSON");
         return;
     }
 
@@ -226,7 +226,7 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
     }
 
     // -------------------------------------------------------------------------
-    //  GET_CONFIG — devuelve la configuración actual como JSON
+    //  GET_CONFIG — returns current configuration as JSON
     // -------------------------------------------------------------------------
     if (strcmp(cmd->valuestring, "GET_CONFIG") == 0) {
         cJSON *resp = cJSON_CreateObject();
@@ -244,7 +244,7 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
     }
 
     // -------------------------------------------------------------------------
-    //  SET_PARAM — aplica un parámetro individual
+    //  SET_PARAM — applies an individual parameter
     // -------------------------------------------------------------------------
     else if (strcmp(cmd->valuestring, "SET_PARAM") == 0) {
         cJSON *param = cJSON_GetObjectItem(root, "param");
@@ -264,13 +264,13 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
 
             if (send && s_configQueue) {
                 xQueueSend(s_configQueue, &cfgCmd, 0);
-                ESP_LOGI(TAG, "Config encolada: %s = %.3f", param->valuestring, val->valuedouble);
+                ESP_LOGI(TAG, "Config queued: %s = %.3f", param->valuestring, val->valuedouble);
             }
         }
     }
 
     // -------------------------------------------------------------------------
-    //  SAVE_CONFIG — persiste la configuración actual en NVS
+    //  SAVE_CONFIG — persists current configuration in NVS
     // -------------------------------------------------------------------------
     else if (strcmp(cmd->valuestring, "SAVE_CONFIG") == 0) {
         esp_err_t err = saveConfigToNvs();
@@ -289,7 +289,7 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
             AppConfigCmd cfgCmd { ConfigCmdType::RESET_COUNTS, 0.0f };
             xQueueSend(s_configQueue, &cfgCmd, 0);
         }
-        ESP_LOGI(TAG, "RESET_COUNTS solicitado");
+        ESP_LOGI(TAG, "RESET_COUNTS requested");
     }
 
     // -------------------------------------------------------------------------
@@ -300,7 +300,7 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
             AppConfigCmd cfgCmd { ConfigCmdType::RETRY_SENSOR, 0.0f };
             xQueueSend(s_configQueue, &cfgCmd, 0);
         }
-        ESP_LOGI(TAG, "RETRY_SENSOR solicitado");
+        ESP_LOGI(TAG, "RETRY_SENSOR requested");
     }
 
     cJSON_Delete(root);
@@ -312,7 +312,7 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
 
 esp_err_t HttpServer::wsHandler(httpd_req_t *req) {
     if (req->method == HTTP_GET) {
-        ESP_LOGI(TAG, "Nueva conexión WebSocket");
+        ESP_LOGI(TAG, "New WebSocket connection");
         return ESP_OK;
     }
 
@@ -352,12 +352,12 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
     httpd_config_t config      = HTTPD_DEFAULT_CONFIG();
     config.core_id             = 0;   // PRO_CPU (Core 0)
     config.max_open_sockets    = 4;
-    config.stack_size          = 16384;  // Aumentado para OTA: escrituras de firmware consumen stack extra
+    config.stack_size          = 16384;  // Increased for OTA: firmware writes consume extra stack
 
-    ESP_LOGI(TAG, "Iniciando HTTP server en puerto %d", config.server_port);
+    ESP_LOGI(TAG, "Starting HTTP server on port %d", config.server_port);
     esp_err_t ret = httpd_start(&server_, &config);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Error al iniciar server: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Error starting server: %s", esp_err_to_name(ret));
         return ret;
     }
 
@@ -383,7 +383,7 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
     };
     httpd_register_uri_handler(server_, &ws_uri);
 
-    // Registro de endpoint OTA
+    // OTA endpoint registration
     httpd_uri_t ota_uri = {
         .uri      = "/update",
         .method   = HTTP_POST,
@@ -395,7 +395,7 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
     };
     httpd_register_uri_handler(server_, &ota_uri);
 
-    // Registro de endpoint REBOOT
+    // REBOOT endpoint registration
     httpd_uri_t reboot_uri = {
         .uri      = "/reboot",
         .method   = HTTP_POST,
@@ -412,7 +412,7 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
     };
     httpd_register_uri_handler(server_, &reboot_uri);
 
-    ESP_LOGI(TAG, "Web Server iniciado con WS, OTA y Reboot");
+    ESP_LOGI(TAG, "Web Server started with WS, OTA, and Reboot");
 
     return ESP_OK;
 }
@@ -431,15 +431,15 @@ void HttpServer::stop() {
 void HttpServer::broadcastFrame(const PayloadImagen &img, const PayloadTelemetria &tel, bool sensor_ok) {
     if (!server_) return;
 
-    // Optimización 8Hz
+    // 8Hz Optimization (send every other frame to browser)
     if (tel.frame_id % 2 != 0) return;
 
-    // 1. Encontrar un buffer libre (ref_count == 0)
+    // 1. Find a free buffer (ref_count == 0)
     int buf_idx = -1;
     portENTER_CRITICAL(&s_ws_mux);
     for (int i = 0; i < (int)WS_BUFFER_COUNT; i++) {
         if (ws_buffer_ref_counts_[i] == 0) {
-            ws_buffer_ref_counts_[i] = -1; // Marcado como "en llenado" (reservado)
+            ws_buffer_ref_counts_[i] = -1; // Marked as "filling" (reserved)
             buf_idx = i;
             break;
         }
@@ -447,11 +447,11 @@ void HttpServer::broadcastFrame(const PayloadImagen &img, const PayloadTelemetri
     portEXIT_CRITICAL(&s_ws_mux);
 
     if (buf_idx == -1) {
-        // Todos los buffers ocupados (red lenta), saltamos este frame
+        // All buffers busy (slow network), skipping this frame
         return;
     }
 
-    // 2. Llenar el buffer reservado
+    // 2. Fill the reserved buffer
     uint8_t *p   = ws_buffers_[buf_idx];
     size_t   ofs = 0;
 
@@ -478,14 +478,14 @@ void HttpServer::broadcastFrame(const PayloadImagen &img, const PayloadTelemetri
     memcpy(&p[ofs], img.pixels, ThermalConfig::TOTAL_PIXELS * sizeof(int16_t));
     const size_t total_len = ofs + (ThermalConfig::TOTAL_PIXELS * sizeof(int16_t));
 
-    // 3. Obtener lista de clientes y preparar envío
+    // 3. Get client list and prepare transmission
     size_t clients_max = 4;
     int    client_fds[4];
     size_t clients = clients_max;
     int    ws_clients_count = 0;
 
     if (httpd_get_client_list(server_, &clients, client_fds) == ESP_OK) {
-        // Contar cuántos son realmente WebSockets
+        // Count how many are actually WebSockets
         for (size_t i = 0; i < clients; i++) {
             if (httpd_ws_get_fd_info(server_, client_fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
                 ws_clients_count++;
@@ -495,12 +495,12 @@ void HttpServer::broadcastFrame(const PayloadImagen &img, const PayloadTelemetri
 
     if (ws_clients_count == 0) {
         portENTER_CRITICAL(&s_ws_mux);
-        ws_buffer_ref_counts_[buf_idx] = 0; // Liberar inmediatamente
+        ws_buffer_ref_counts_[buf_idx] = 0; // Release immediately
         portEXIT_CRITICAL(&s_ws_mux);
         return;
     }
 
-    // 4. Iniciar envíos asíncronos
+    // 4. Start asynchronous transmissions
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
     ws_pkt.type    = HTTPD_WS_TYPE_BINARY;
@@ -514,11 +514,11 @@ void HttpServer::broadcastFrame(const PayloadImagen &img, const PayloadTelemetri
 
     for (size_t i = 0; i < clients; i++) {
         if (httpd_ws_get_fd_info(server_, client_fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
-            // Pasamos el índice del buffer como argumento (cast a void*)
+            // Pass buffer index as argument (cast to void*)
             esp_err_t err = httpd_ws_send_data_async(server_, client_fds[i], &ws_pkt, 
                                                     wsAsyncCompletionCb, (void*)(uintptr_t)buf_idx);
             if (err != ESP_OK) {
-                // Si falla el encolado, decrementamos el contador manualmente
+                // If queuing fails, decrement counter manually
                 wsAsyncCompletionCb(err, client_fds[i], (void*)(uintptr_t)buf_idx);
             }
         }

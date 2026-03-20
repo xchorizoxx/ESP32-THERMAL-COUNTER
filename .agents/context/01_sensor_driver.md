@@ -1,14 +1,14 @@
-# Tarea: Driver del Sensor y Adquisición I2C
+# Task: Sensor Driver and I2C Acquisition
 
-## Objetivo
-Implementar una capa de abstracción C++ para el sensor MLX90640 que garantice estabilidad en el bus I2C y entrega determinista de frames.
+## Objective
+Implement a C++ abstraction layer for the MLX90640 sensor that ensures I2C bus stability and deterministic frame delivery.
 
-## Requisitos Técnicos
-1. **Capa OO**: Clase `MLX90640_Sensor` que oculte las llamadas a la API de Melexis.
-2. **Bus I2C**: Configurar a 400kHz (Fast Mode) para mayor estabilidad ante ruidos. 
-3. **DMA/Interrupts**: Si es posible, usar el driver avanzado de ESP-IDF para evitar bloqueos del Core 1.
-4. **Resilencia**: Si el sensor falla en el arranque, NO debe bloquear el resto del sistema (WiFi/Web). Debe intentar re-inicializarse o mostrar error en el HUD.
+## Technical Requirements
+1. **OO Layer**: `MLX90640_Sensor` class to hide calls to the Melexis API.
+2. **I2C Bus**: Configure at 400kHz (Fast Mode) for greater stability against noise. 
+3. **DMA/Interrupts**: If possible, use the advanced ESP-IDF driver to avoid Core 1 stalls.
+4. **Resilience**: If the sensor fails at startup, it must NOT block the rest of the system (WiFi/Web). It should attempt to re-initialize or show an error on the HUD.
 
-## Referencias
+## References
 - `lib/mlx90640-library-master/`
-- `sdkconfig.defaults` (Configuración de I2C)
+- `sdkconfig.defaults` (I2C configuration)

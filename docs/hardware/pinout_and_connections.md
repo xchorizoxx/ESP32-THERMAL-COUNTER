@@ -1,12 +1,10 @@
-# Hardware: Esquema de Conexiones y Pines
+# Hardware: Pinout and Connections
 
-## 1. Sensor MLX90640 (Termopila)
+## 🔌 Connection Diagram (Pinout)
 
-Este sistema basa## 🔌 Esquema de Conexión (Pinout)
+The system uses the I2C bus for communication with the MLX90640 sensor. The ESP32-S3 handles power and processing.
 
-El sistema utiliza el bus I2C para la comunicación con el sensor MLX90640. El ESP32-S3 se encarga de la alimentación y procesamiento.
-
-### Diagrama de Cableado
+### Wiring Diagram
 
 ```mermaid
 graph LR
@@ -31,33 +29,34 @@ graph LR
     SCL --- SCL_S
 ```
 
-### Requerimientos de Energía
-- **Voltaje**: 3.3V estable (el sensor es sensible a fluctuaciones).
-- **Consumo Pico**: 150mA (durante transmisión WiFi). Se recomienda un capacitor de desacople de **100nF + 10uF** entre VCC y GND cerca del sensor si los cables son largos (>15cm).
+### Power Requirements
+- **Voltage**: Stable 3.3V (the sensor is sensitive to fluctuations).
+- **Peak Consumption**: 150mA (during WiFi transmission). A decoupling capacitor of **100nF + 10uF** between VCC and GND near the sensor is recommended if cables are long (>15cm).
 
 ---
- su percepción espacial en una matriz de 768 píxeles. El sensor se comunica puramente por **I2C**.
 
-| Pin Sensor | Pin ESP32-S3 | Rol | Notas Críticas |
+The system bases its spatial perception on a 768-pixel matrix. The sensor communicates purely via **I2C**.
+
+| Sensor Pin | ESP32-S3 Pin | Role | Critical Notes |
 | :--- | :--- | :--- | :--- |
-| `VCC` | `3.3V` | Energía | Asegurar regulador LDO estable. Picos de 23mA. |
-| `GND` | `GND` | Tierra | Conexión corta al microcontrolador. |
-| `SDA` | `GPIO 8` | Datos (I2C) | Resistencias Pull-Up de 2.2kΩ - 4.7kΩ obligatorias si el módulo no las trae. |
-| `SCL` | `GPIO 9` | Reloj (I2C) | Configurado a 400kHz (Fast Mode) o 1MHz (Fast Mode Plus). |
+| `VCC` | `3.3V` | Power | Ensure a stable LDO regulator. 23mA peaks. |
+| `GND` | `GND` | Ground | Short connection to the microcontroller. |
+| `SDA` | `GPIO 8` | Data (I2C) | 2.2kΩ - 4.7kΩ Pull-up resistors mandatory if the module lacks them. |
+| `SCL` | `GPIO 9` | Clock (I2C) | Configured at 400kHz (Fast Mode) or 1MHz (Fast Mode Plus). |
 
-## 2. Telemetría a Receptor Separado (Comunicación Lógica)
-Actualmente, todo va embebido en el ESP32, pero el Core 0 de este sistema empuja paquetes de telemetría UDP a un segundo ESP32 (si existe).
+## 2. Telemetry to Separate Receiver (Logical Communication)
+Currently, everything is embedded in the ESP32, but Core 0 of this system pushes UDP telemetry packets to a second ESP32 (if one exists).
 
-| IP Creador (SoftAP) | Puerto UDP Emisor | Rol en Sistema | Destino (Dispositivo 2) |
+| Producer IP (SoftAP) | Sender UDP Port | System Role | Destination (Device 2) |
 | :--- | :--- | :--- | :--- |
-| `192.168.4.1` | `4210` | Envío de Paquetes RAW y Counts | `192.168.4.255:4210` (Broadcast) |
+| `192.168.4.1` | `4210` | Sending RAW packets and Counts | `192.168.4.255:4210` (Broadcast) |
 
-## 3. Extensiones SD y RTC (Futuras)
+## 3. SD and RTC Extensions (Future)
 
-De requerirse grabación a SD, los módulos se anexan de la siguiente manera:
+If SD recording is required, the modules are attached as follows:
 
-*   **Reloj RTC (DS3231)**: Se colgará del mismo bus **SDA (GPIO 8)** y **SCL (GPIO 9)**. Posee otra dirección esclava (`0x68`) y responderá independientemente de la cámara térmica.
-*   **Adaptador MicroSD (SPI)**: Usará preferiblemente los buses digitales nativos del S3, por ejemplo `MISO: 19, MOSI: 23, SCK: 18, CS: 32`.
+*   **RTC Clock (DS3231)**: Will hang from the same **SDA (GPIO 8)** and **SCL (GPIO 9)** bus. It has another slave address (`0x68`) and will respond independently of the thermal camera.
+*   **MicroSD Adapter (SPI)**: Will preferably use the S3's native digital buses, for example `MISO: 19, MOSI: 23, SCK: 18, CS: 32`.
 
-### Regla de Oro (Strapping Pins)
-**Bajo ninguna circunstancia** utilice los pines `GPIO 0, 2, 5, 12, 15` para cablear sensores Lógicos (High/Low) que puedan mantener estado durante el arranque. Causa Bootloops del chip Espressif completos.
+### Golden Rule (Strapping Pins)
+**Under no circumstances** use pins `GPIO 0, 2, 5, 12, 15` to wire logic sensors (High/Low) that can maintain state during boot. This causes complete Espressif chip bootloops.

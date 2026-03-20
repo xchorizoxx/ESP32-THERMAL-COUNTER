@@ -1,13 +1,13 @@
-# Tarea: Tipos Globales y Configuración
+# Task: Global Types and Configuration
 
-## Objetivo
-Centralizar todos los parámetros y estructuras de datos para garantizar coherencia en el sistema.
+## Objective
+Centralize all parameters and data structures to ensure system consistency.
 
-## Requisitos Técnicos
-1. **Tipos**: `thermal_types.hpp` con structs empaquetados (`__attribute__((packed))`) para facilitar la transmisión binaria.
-2. **Configuración**: `thermal_config.hpp` con constantes `constexpr` para hardware (pines) y software (umbrales).
-3. **NVS**: Implementar una clase `ConfigManager` que lea de NVS en el booteo y actualice los valores del pipeline en runtime.
+## Technical Requirements
+1. **Types**: `thermal_types.hpp` with packed structs (`__attribute__((packed))`) to facilitate binary transmission.
+2. **Configuration**: `thermal_config.hpp` with `constexpr` constants for hardware (pins) and software (thresholds).
+3. **NVS**: Implement a `ConfigManager` class that reads from NVS at boot and updates pipeline values at runtime.
 
-## Reglas
-- No usar valores mágicos (hardcoded) en los archivos `.cpp`.
-- Todo parámetro que sea ajustable debe tener un `default` y persistencia.
+## Rules
+- Do not use magic values (hardcoded) in `.cpp` files.
+- Every adjustable parameter must have a `default` and persistence.

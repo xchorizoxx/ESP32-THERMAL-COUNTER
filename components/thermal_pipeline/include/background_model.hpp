@@ -1,10 +1,10 @@
 #pragma once
 /**
  * @file background_model.hpp
- * @brief Paso 1 — Actualización de Fondo Dinámico (EMA Selectiva).
+ * @brief Step 1 — Dynamic Background Update (Selective EMA).
  *
- * Actualiza el mapa de fondo usando promedio móvil exponencial,
- * solo en las zonas no bloqueadas por la máscara de tracks activos.
+ * Updates the background map using exponential moving average,
+ * only in zones not blocked by the active tracks mask.
  */
 
 #include <cstdint>
@@ -12,24 +12,24 @@
 class BackgroundModel {
 public:
     /**
-     * @brief Actualiza el mapa de fondo con EMA selectiva.
-     * @param frame       Frame actual de temperaturas [TOTAL_PIXELS]
-     * @param fondo       Mapa de fondo a actualizar in-place [TOTAL_PIXELS]
-     * @param mascara     Máscara de bloqueo (0=libre, 1=ocupado) [TOTAL_PIXELS]
-     * @param totalPixels Número total de píxeles (768)
-     * @param alpha       Constante EMA (ej. 0.05)
+     * @brief Updates the background map with selective EMA.
+     * @param frame       Current temperature frame [TOTAL_PIXELS]
+     * @param background  Background map to update in-place [TOTAL_PIXELS]
+     * @param mask        Block mask (0=free, 1=occupied) [TOTAL_PIXELS]
+     * @param totalPixels Total number of pixels (768)
+     * @param alpha       EMA constant (e.g., 0.05)
      *
-     * Fórmula: fondo[i] = alpha * frame[i] + (1 - alpha) * fondo[i]
-     * Solo se aplica donde mascara[i] == 0.
+     * Formula: background[i] = alpha * frame[i] + (1 - alpha) * background[i]
+     * Only applied where mask[i] == 0.
      */
-    static void update(const float* frame, float* fondo,
-                       const uint8_t* mascara, int totalPixels, float alpha);
+    static void update(const float* frame, float* background,
+                       const uint8_t* mask, int totalPixels, float alpha);
 
     /**
-     * @brief Inicializa el mapa de fondo copiando el primer frame.
-     * @param frame  Frame de temperaturas [TOTAL_PIXELS]
-     * @param fondo  Mapa de fondo a inicializar [TOTAL_PIXELS]
-     * @param totalPixels Número total de píxeles
+     * @brief Initializes the background map by copying the first frame.
+     * @param frame       Temperature frame [TOTAL_PIXELS]
+     * @param background  Background map to initialize [TOTAL_PIXELS]
+     * @param totalPixels Total number of pixels
      */
-    static void initialize(const float* frame, float* fondo, int totalPixels);
+    static void initialize(const float* frame, float* background, int totalPixels);
 };

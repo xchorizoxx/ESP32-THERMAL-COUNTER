@@ -1,71 +1,71 @@
-# Extracción de Fondo y EMA Selectiva
+# Background Extraction and Selective EMA
 
-El primer paso y el más crucial del pipeline es saber qué es "suelo vacío" frente a qué es "una persona". Como la temperatura del ambiente cambia a lo largo del día, no podemos tener una temperatura fija preprogramada.
+The first and most crucial step of the pipeline is distinguishing between the "empty floor" and "a person." Since ambient temperature changes throughout the day, we cannot have a fixed pre-programmed temperature.
 
 ## EMA (Exponential Moving Average)
 
-EMA significa **Media Móvil Exponencial**. Es un algoritmo que mezcla el valor "histórico" (lo que aprendió en el pasado) con el valor "nuevo" (el frame actual del sensor).
+EMA stands for **Exponential Moving Average**. It is an algorithm that blends the "historical" value (what it learned in the past) with the "new" value (the current frame from the sensor).
 
-En el código se controla con `EMA_ALPHA`:
-* `NuevoValorFondo = (Actual * EMA_ALPHA) + (FondoAnterior * (1 - EMA_ALPHA))`
+In the code, it is controlled by `EMA_ALPHA`:
+* `NewBackgroundValue = (Actual * EMA_ALPHA) + (PreviousBackground * (1 - EMA_ALPHA))`
 
-### ¿Cómo calibrar `EMA_ALPHA`?
-`EMA_ALPHA` determina la **velocidad de adaptación**:
-* **Si `EMA_ALPHA` es cercano a 0 (ej. 0.01):** El fondo cambia muy, muy lento. Es altamente estable frente al ruido, pero si dejan una caja caliente en el suelo, el sistema tardará mucho tiempo en "acostumbrarse" a la caja y dejar de verla como una persona estática.
-* **Si `EMA_ALPHA` es grande (ej. 0.20):** El fondo se adapta casi al instante. Esto es problemático porque una persona que se quede quieta por 2 segundos se volverá "invisible" (absorbida por el fondo).
-* **Valor recomendado (0.05 a 0.10):** Permite adaptarse a las corrientes de aire rápido sin absorber a personas en movimiento normal.
+### How to calibrate `EMA_ALPHA`?
+`EMA_ALPHA` determines the **adaptation speed**:
+* **If `EMA_ALPHA` is near 0 (e.g., 0.01):** The background changes very, very slowly. It is highly stable against noise, but if a hot box is left on the floor, the system will take a long time to "get used" to the box and stop seeing it as a static person.
+* **If `EMA_ALPHA` is large (e.g., 0.20):** The background adapts almost instantly. This is problematic because a person who stands still for 2 seconds will become "invisible" (absorbed by the background).
+* **Recommended value (0.05 to 0.10):** Allows for fast adaptation to air currents without absorbing people in normal movement.
 
-## Selectividad y Máscara de Bloqueo
+## Selectivity and Feedback Mask
 
-Para evitar que una persona que camina muy lento (o se detiene a hablar debajo del sensor) sea aprendida como "suelo", usamos la **Máscara de Bloqueo**.
+To prevent a person who walks very slowly (or stops to talk beneath the sensor) from being learned as "floor," we use the **Feedback Mask**.
 
-El Paso 5 del pipeline (después de identificar a las personas) proyecta un cuadrado de exclusión (controlado por `MASK_HALF_SIZE`) alrededor de cada persona. 
-Cuando llega el siguiente frame, el actualizador de fondo (Paso 1) **ignora por completo** los píxeles que están cubiertos por esta máscara. Para esos píxeles, `NuevoValorFondo = FondoAnterior`. 
+Step 5 of the pipeline (after identifying people) projects an exclusion square (controlled by `MASK_HALF_SIZE`) around each person. 
+When the next frame arrives, the background updater (Step 1) **completely ignores** the pixels covered by this mask. For those pixels, `NewBackgroundValue = PreviousBackground`. 
 
-Esto asegura que el suelo solo se actualice con información de áreas donde estamos 100% seguros de que no hay nadie.
+This ensures the floor is only updated with information from areas where we are 100% sure no one is present.
 
-## Contraste (Delta T)
+## Contrast (Delta T)
 
-El parámetro `DELTA_T_FONDO` representa cuántos grados Celsius por encima de la temperatura del "fondo aprendido" tiene que estar algo para llamar nuestra atención.
-* **Si `DELTA_T_FONDO` es muy bajo (ej. 0.5 °C):** Generará excesivo ruido térmico y "falsos fantasmas".
-* **Si `DELTA_T_FONDO` es muy alto (ej. 3.0 °C):** Ignorará cosas calientes. Si una persona tiene pelo grueso o una gorra fría (ej. a 22°C) y el suelo está a 20°C, la diferencia es solo de 2°C, y no la detectaríamos.
-* **Valor recomendado (1.0 a 1.5):** Equilibrio perfecto para rechazar fluctuaciones normales del sensor y aun así captar calor biológico.
+The `DELTA_T_FONDO` parameter represents how many degrees Celsius above the "learned background" temperature something must be to catch our attention.
+* **If `DELTA_T_FONDO` is very low (e.g., 0.5 °C):** Excessive thermal noise and "ghost false positives" will occur.
+* **If `DELTA_T_FONDO` is very high (e.g., 3.0 °C):** Hot objects will be ignored. If a person has thick hair or a cold hat (e.g., 22°C) and the floor is 20°C, the difference is only 2°C, and we would not detect them.
+* **Recommended value (1.0 to 1.5):** Perfect balance to reject normal sensor fluctuations while still capturing biological heat.
 
-## 🧪 El Modelo de Fondo Dinámico
+## 🧪 The Dynamic Background Model
 
-Para detectar objetos calientes (personas), el sistema necesita saber qué temperatura tiene el entorno en reposo. Utilizamos un modelo de **Media Móvil Exponencial (EMA)**.
+To detect hot objects (people), the system needs to know the ambient temperature at rest. We use an **Exponential Moving Average (EMA)** model.
 
-### La Ecuación EMA
-Para cada píxel $(x, y)$, el modelo de fondo $B$ se actualiza en cada frame $t$ según:
+### The EMA Equation
+For each pixel $(x, y)$, the background model $B$ is updated in each frame $t$ according to:
 
 $$B_{t} = (1 - \alpha) \cdot B_{t-1} + \alpha \cdot I_{t}$$
 
-Donde:
-- $B_t$: Nuevo valor del fondo.
-- $B_{t-1}$: Fondo anterior.
-- $I_t$: Imagen térmica actual capturada.
-- $\alpha$: Factor de aprendizaje (`LEARNING_RATE`). Un $\alpha$ alto aprende rápido (útil en entornos muy cambiantes), un $\alpha$ bajo es más estable frente al ruido.
+Where:
+- $B_t$: New background value.
+- $B_{t-1}$: Previous background.
+- $I_t$: Current captured thermal image.
+- $\alpha$: Learning factor (`LEARNING_RATE`). A high $\alpha$ learns quickly (useful in highly changing environments), a low $\alpha$ is more stable against noise.
 
-### Aprendizaje Selectivo (Feedback Loop)
-El gran desafío de un modelo EMA simple es que, si una persona se queda quieta, "desaparece" porque el fondo acaba aprendiendo su temperatura. Para evitarlo, implementamos un **Filtro de Exclusión de Tracks**:
+### Selective Learning (Feedback Loop)
+The major challenge with a simple EMA model is that if a person stands still, they "disappear" because the background eventually learns their temperature. To prevent this, we implement a **Track Exclusion Filter**:
 
 ```cpp
 if (pixel_is_tracked[x][y]) {
-    // Congelar aprendizaje: no actualizar el fondo en esta coordenada
+    // Freeze learning: do not update the background at this coordinate
     new_background[x][y] = old_background[x][y];
 } else {
-    // Aplicar EMA normal
+    // Apply normal EMA
     new_background[x][y] = apply_ema(old_background[x][y], current_frame[x][y]);
 }
 ```
 
-Este mecanismo garantiza que los tracks activos mantengan su contraste contra el fondo sin importar cuánto tiempo pasen en una misma posición.
+This mechanism ensures that active tracks maintain their contrast against the background regardless of how long they stay in the same position.
 
 ---
 
-## Modo Radar (Sustracción)
-El sistema permite visualizar directamente el resultado de la resta: `ImagenActual - ImagenFondo`. 
-En la interfaz visual, esto se conoce como "Modo Radar". Es útil para:
-1. **Verificar el Nivel de Ruido:** Si el fondo está bien aprendido, la imagen debería verse mayormente negra en las áreas vacías.
-2. **Detectar Obras o "Obstáculos Calientes":** Si hay un objeto que parpadea o emite calor intermitente, se verá claramente en este modo.
-3. **Depuración de Fantasmas:** Si una persona fue "absorbida" por el fondo por error, al levantarse dejará un "hueco de frío" (un fantasma azul) en el modo sustracción.
+## Radar Mode (Subtraction)
+The system allows direct visualization of the subtraction result: `CurrentImage - BackgroundImage`. 
+In the visual interface, this is known as "Radar Mode." It is useful for:
+1. **Verifying Noise Level:** If the background is well-learned, the image should appear mostly black in empty areas.
+2. **Detecting Work or "Hot Obstacles":** If there is an object that flickers or emits intermittent heat, it will be clearly visible in this mode.
+3. **Ghost Debugging:** If a person was mistakenly "absorbed" by the background, picking them up will leave a "cold hole" (a blue ghost) in subtraction mode.

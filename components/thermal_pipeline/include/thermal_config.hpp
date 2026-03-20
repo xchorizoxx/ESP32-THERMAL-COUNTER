@@ -1,11 +1,11 @@
 #pragma once
 /**
  * @file thermal_config.hpp
- * @brief Centro neurálgico de parámetros configurables del sistema.
+ * @brief Neural center of configurable system parameters.
  *
- * TODOS los valores que dependen del entorno, sensor, o instalación
- * se centralizan aquí. Para adaptar el sistema a una nueva puerta,
- * solo hay que editar este archivo.
+ * ALL values depending on the environment, sensor, or installation
+ * are centralized here. To adapt the system to a new door,
+ * only this file needs to be edited.
  */
 
 #include <cstdint>
@@ -13,89 +13,87 @@
 namespace ThermalConfig {
 
 // =========================================================================
-//  HARDWARE I2C
+//  I2C HARDWARE
 // =========================================================================
-constexpr int I2C_SDA_PIN = 8;      // GPIO para SDA del MLX90640
-constexpr int I2C_SCL_PIN = 9;      // GPIO para SCL del MLX90640
-constexpr uint8_t MLX_ADDR = 0x33;  // Dirección I2C por defecto
+constexpr int I2C_SDA_PIN = 8;      // GPIO for SDA of MLX90640
+constexpr int I2C_SCL_PIN = 9;      // GPIO for SCL of MLX90640
+constexpr uint8_t MLX_ADDR = 0x33;  // Default I2C address
 constexpr int I2C_FREQ_HZ = 400000; // 400 kHz Fast Mode
 
 // =========================================================================
-//  ENTORNO FÍSICO (editar según instalación)
+//  PHYSICAL ENVIRONMENT (edit according to installation)
 // =========================================================================
-constexpr float DOOR_HEIGHT_M = 3.6f;    // Altura del sensor sobre el suelo [m]
-constexpr float DOOR_WIDTH_M = 4.0f;     // Anchura de la puerta [m]
-constexpr float FLOOR_TEMP_MIN_C = 7.0f; // Temp. mínima esperada del suelo [°C]
-constexpr float FLOOR_TEMP_MAX_C =
-    26.0f; // Temp. máxima esperada del suelo [°C]
+constexpr float DOOR_HEIGHT_M = 3.6f;    // Sensor height above floor [m]
+constexpr float DOOR_WIDTH_M = 4.0f;     // Door width [m]
+constexpr float FLOOR_TEMP_MIN_C = 7.0f; // Expected minimum floor temp [°C]
+constexpr float FLOOR_TEMP_MAX_C = 26.0f; // Expected maximum floor temp [°C]
 
 // =========================================================================
-//  SENSOR MLX90640
+//  MLX90640 SENSOR
 // =========================================================================
 constexpr int MLX_COLS = 32;
 constexpr int MLX_ROWS = 24;
 constexpr int TOTAL_PIXELS = MLX_COLS * MLX_ROWS; // 768
-constexpr float SENSOR_FOV_DEG = 110.0f;          // Campo de visión [grados]
-constexpr float EMISSIVITY = 0.95f;               // Emisividad para piel humana
+constexpr float SENSOR_FOV_DEG = 110.0f;          // Field of View [degrees]
+constexpr float EMISSIVITY = 0.95f;               // Emissivity for human skin
 
 // =========================================================================
-//  PASO 1 — FONDO DINÁMICO (EMA Selectiva)
+//  STEP 1 — DYNAMIC BACKGROUND (Selective EMA)
 // =========================================================================
-extern float EMA_ALPHA; // Velocidad de adaptación del fondo
-                        // Menor = fondo más estable
-                        // Mayor = se adapta más rápido
+extern float EMA_ALPHA; // Background adaptation speed
+                        // Lower = more stable background
+                        // Higher = adapts faster
 
 // =========================================================================
-//  PASO 2 — DETECCIÓN DE PICOS (Topología)
+//  STEP 2 — PEAK DETECTION (Topology)
 // =========================================================================
-extern float TEMP_BIOLOGICO_MIN;       // Umbral mínimo de detección [°C]
-extern float DELTA_T_FONDO;            // Contraste mínimo vs fondo [°C]
-constexpr float NOISE_MARGIN_C = 0.5f; // Margen de ruido del sensor [°C]
+extern float TEMP_BIOLOGICO_MIN;       // Minimum detection threshold [°C]
+extern float DELTA_T_FONDO;            // Minimum contrast vs background [°C]
+constexpr float NOISE_MARGIN_C = 0.5f; // Sensor noise margin [°C]
 
 // =========================================================================
-//  PASO 3 — NMS (Supresión de No-Máximos) Adaptativa
+//  STEP 3 — NMS (Non-Maximum Suppression) Adaptive
 // =========================================================================
-extern int NMS_RADIUS_CENTER_SQ;     // Radio² en zona central (=radio 4)
-extern int NMS_RADIUS_EDGE_SQ;       // Radio² en bordes (=radio 2)
-constexpr int NMS_CENTER_X_MIN = 8;  // Límite izq. zona central del lente
-constexpr int NMS_CENTER_X_MAX = 23; // Límite der. zona central del lente
+extern int NMS_RADIUS_CENTER_SQ;     // Squared radius in central zone (=radius 4)
+extern int NMS_RADIUS_EDGE_SQ;       // Squared radius at edges (=radius 2)
+constexpr int NMS_CENTER_X_MIN = 8;  // Left limit of lens central zone
+constexpr int NMS_CENTER_X_MAX = 23; // Right limit of lens central zone
 
 // =========================================================================
-//  PASO 4 — TRACKING (Filtro Alpha-Beta) + CONTEO
+//  STEP 4 — TRACKING (Alpha-Beta Filter) + COUNTING
 // =========================================================================
-constexpr float ALPHA_TRK = 0.85f;    // Peso de la posición medida
-constexpr float BETA_TRK = 0.05f;     // Peso de la velocidad estimada
-constexpr int MAX_MATCH_DIST_SQ = 25; // Distancia² máx. para emparejar (=5px)
-constexpr int TRACK_MAX_AGE = 5;      // Frames sin actualización → eliminar
+constexpr float ALPHA_TRK = 0.85f;    // Weight of measured position
+constexpr float BETA_TRK = 0.05f;     // Weight of estimated velocity
+constexpr int MAX_MATCH_DIST_SQ = 25; // Max. squared distance to match (=5px)
+constexpr int TRACK_MAX_AGE = 5;      // Frames without update → remove
 
-// --- Zonas de Conteo (Histéresis Y) ---
-// Valores iniciales como líneas rectas horizontales.
-// TODO: Expandir a array por columna tras calibración visual para
-//       manejar la geometría no-lineal del FOV 110° sobre puerta ancha.
-extern int DEFAULT_LINE_ENTRY_Y; // Línea virtual superior (entrada)
-extern int DEFAULT_LINE_EXIT_Y;  // Línea virtual inferior (salida)
+// --- Counting Zones (Y-Hysteresis) ---
+// Initial values as straight horizontal lines.
+// TODO: Expand to per-column array after visual calibration to
+//       handle non-linear FOV 110° geometry on wide doors.
+extern int DEFAULT_LINE_ENTRY_Y; // Virtual upper line (entrance)
+extern int DEFAULT_LINE_EXIT_Y;  // Virtual lower line (exit)
 
-// --- Comandos UI ---
-extern int VIEW_MODE;         // 0 = Normal, 1 = Sustractor de Fondo
-extern bool APP_RESET_COUNTS; // Flag para resetear contadores desde Web
-extern bool APP_RETRY_SENSOR; // Flag para reintentar inicializar sensor
-
-// =========================================================================
-//  PASO 5 — MÁSCARA DE RETROALIMENTACIÓN
-// =========================================================================
-constexpr int MASK_HALF_SIZE = 1; // Radio del cuadrado (1 = 3×3 px)
+// --- UI Commands ---
+extern int VIEW_MODE;         // 0 = Normal, 1 = Background Subtraction
+extern bool APP_RESET_COUNTS; // Flag to reset counters from Web
+extern bool APP_RETRY_SENSOR; // Flag to retry sensor initialization
 
 // =========================================================================
-//  SISTEMA Y CAPACIDAD
+//  STEP 5 — FEEDBACK MASK
 // =========================================================================
-constexpr int PIPELINE_FREQ_HZ = 16; // Frecuencia del pipeline [Hz]
-constexpr int MAX_OBJETIVOS = 15;    // Máx. picos crudos por frame
-constexpr int MAX_TRACKS = 15;       // Máx. personas rastreadas simultáneas
-constexpr int IPC_QUEUE_DEPTH =
-    15; // Profundidad de la queue FreeRTOS (aumentada para estabilidad)
+constexpr int MASK_HALF_SIZE = 1; // Square radius (1 = 3×3 px)
 
 // =========================================================================
-//  RED (SoftAP + UDP)
+//  SYSTEM AND CAPACITY
+// =========================================================================
+constexpr int PIPELINE_FREQ_HZ = 16; // Pipeline frequency [Hz]
+constexpr int MAX_OBJETIVOS = 15;    // Max. raw peaks per frame
+constexpr int MAX_TRACKS = 15;       // Max. simultaneous tracked persons
+constexpr int IPC_QUEUE_DEPTH = 15; // FreeRTOS queue depth (increased for stability)
+
+// =========================================================================
+//  NETWORK (SoftAP + UDP)
 // =========================================================================
 constexpr const char *SOFTAP_SSID = "ThermalCounter";
 constexpr const char *SOFTAP_PASS = "counter1234";
@@ -105,7 +103,7 @@ constexpr int UDP_PORT = 4210;
 constexpr const char *UDP_BROADCAST_IP = "192.168.4.255";
 
 // =========================================================================
-//  PROTOCOLO UDP — Tipos de Paquete
+//  UDP PROTOCOL — Packet Types
 // =========================================================================
 constexpr uint8_t UDP_PACKET_TELEMETRY = 0x01;
 constexpr uint8_t UDP_PACKET_IMAGE = 0x02;

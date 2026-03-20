@@ -1,13 +1,13 @@
 #pragma once
 
 // =============================================================================
-//  web_ui_html.h  —  Dashboard HUD Táctico Térmico
-//  Generado para ESP32-S3 + MLX90640 — Detector de Puerta
+//  web_ui_html.h  —  Tactical Thermal HUD Dashboard
+//  Generated for ESP32-S3 + MLX90640 — Door Detector
 // =============================================================================
 
 const char *WEB_UI_HTML = R"rawliteral(
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -785,11 +785,11 @@ const char *WEB_UI_HTML = R"rawliteral(
     <div class="top-badges">
         <div class="badge" id="ws-badge">
             <div class="dot" id="ws-dot"></div>
-            <span id="ws-status">DESCONECTADO</span>
+            <span id="ws-status">DISCONNECTED</span>
         </div>
         <div class="badge" id="sensor-badge">
             <div class="dot warning" id="sensor-dot"></div>
-            <span id="sensor-label">SENSOR ··</span>
+            <span id="sensor-label">SENSOR --</span>
         </div>
         <div id="fps-display">-- FPS</div>
     </div>
@@ -809,14 +809,14 @@ const char *WEB_UI_HTML = R"rawliteral(
         <div class="counter-card in">
             <div class="counter-label">&#8645; IN </div>
             <span class="counter-value" id="count-in">0</span>
-            <div class="counter-sublabel">personas detectadas</div>
+            <div class="counter-sublabel">persons detected</div>
         </div>
 
         <!-- OUT -->
         <div class="counter-card out">
             <div class="counter-label">&#8645; OUT </div>
             <span class="counter-value" id="count-out">0</span>
-            <div class="counter-sublabel">personas detectadas</div>
+            <div class="counter-sublabel">persons detected</div>
         </div>
 
         <!-- SENSOR ALERTA -->
@@ -829,7 +829,7 @@ const char *WEB_UI_HTML = R"rawliteral(
          CENTER — TACTICAL VIEWER
          ----------------------------------------------------------------------- -->
     <div id="panel-viewer" class="panel">
-        <div class="panel-title">VISOR TÁCTICO  — 32×24 @ 16 Hz</div>
+        <div class="panel-title">TACTICAL VIEWER  — 32×24 @ 16 Hz</div>
 
         <!-- Canvas frame -->
         <div class="canvas-frame" id="canvas-frame">
@@ -839,7 +839,7 @@ const char *WEB_UI_HTML = R"rawliteral(
             <div class="corner-br"></div>
             <div id="no-signal">
                 <span>&#9612;</span>
-                <p>SIN SEÑAL — CONECTANDO...</p>
+                <p>NO SIGNAL — CONNECTING...</p>
             </div>
         </div>
 
@@ -870,7 +870,7 @@ const char *WEB_UI_HTML = R"rawliteral(
             <label class="toggle-item active" id="tgl-lines">
                 <input type="checkbox" id="cb-lines" checked>
                 <div class="toggle-dot"></div>
-                LÍNEAS
+                LINES
             </label>
         </div>
     </div>
@@ -879,15 +879,15 @@ const char *WEB_UI_HTML = R"rawliteral(
          RIGHT — CALIBRATION PANEL
          ----------------------------------------------------------------------- -->
     <div id="panel-calib" class="panel">
-        <div class="panel-title">CALIBRACIÓN</div>
+        <div class="panel-title">CALIBRATION</div>
 
         <!-- Detection params -->
         <div class="calib-section">
-            <div class="calib-section-title">Detección</div>
+            <div class="calib-section-title">Detection</div>
 
             <div class="slider-group">
                 <div class="slider-header">
-                    <span class="slider-label">Temp. Biológica Mín</span>
+                    <span class="slider-label">Min. Biological Temp</span>
                     <span class="slider-value" id="disp-temp_bio">25.0</span>
                 </div>
                 <input type="range" id="sl-temp_bio" min="20.0" max="35.0" step="0.5" value="25.0">
@@ -895,7 +895,7 @@ const char *WEB_UI_HTML = R"rawliteral(
 
             <div class="slider-group">
                 <div class="slider-header">
-                    <span class="slider-label">Delta Fondo (°C)</span>
+                    <span class="slider-label">Background Delta (°C)</span>
                     <span class="slider-value" id="disp-delta_t">1.5</span>
                 </div>
                 <input type="range" id="sl-delta_t" min="0.5" max="5.0" step="0.1" value="1.5">
@@ -903,7 +903,7 @@ const char *WEB_UI_HTML = R"rawliteral(
 
             <div class="slider-group">
                 <div class="slider-header">
-                    <span class="slider-label">Adaptación EMA</span>
+                    <span class="slider-label">EMA Adaptation</span>
                     <span class="slider-value" id="disp-alpha_ema">0.05</span>
                 </div>
                 <input type="range" id="sl-alpha_ema" min="0.01" max="0.50" step="0.01" value="0.05">
@@ -911,7 +911,7 @@ const char *WEB_UI_HTML = R"rawliteral(
 
             <div class="slider-group">
                 <div class="slider-header">
-                    <span class="slider-label" style="color:var(--neon-amber)">Radio NMS Centro</span>
+                    <span class="slider-label" style="color:var(--neon-amber)">NMS Center Radius</span>
                     <span class="slider-value" id="disp-nms_center">16</span>
                 </div>
                 <input type="range" id="sl-nms_center" min="1" max="25" step="1" value="16">
@@ -919,7 +919,7 @@ const char *WEB_UI_HTML = R"rawliteral(
 
             <div class="slider-group">
                 <div class="slider-header">
-                    <span class="slider-label" style="color:var(--neon-amber)">Radio NMS Borde</span>
+                    <span class="slider-label" style="color:var(--neon-amber)">NMS Edge Radius</span>
                     <span class="slider-value" id="disp-nms_edge">4</span>
                 </div>
                 <input type="range" id="sl-nms_edge" min="1" max="16" step="1" value="4">
@@ -928,23 +928,23 @@ const char *WEB_UI_HTML = R"rawliteral(
 
         <!-- Vista -->
         <div class="calib-section">
-            <div class="calib-section-title">Modo de Vista</div>
+            <div class="calib-section-title">View Mode</div>
             <div class="slider-group">
                 <select id="sel-view_mode" style="width:100%; padding:5px; font-family:var(--text-mono); background:var(--bg-panel); color:var(--text-primary); border:1px solid var(--border-dim); border-radius:4px; outline:none; cursor:pointer;">
-                    <option value="0">Cámara Térmica Normal</option>
-                    <option value="1">Modo Radar (Sustracción)</option>
-                    <option value="2">Sensor en Bruto (Píxeles exactos)</option>
+                    <option value="0">Normal Thermal Camera</option>
+                    <option value="1">Radar Mode (Subtraction)</option>
+                    <option value="2">Raw Sensor (Exact pixels)</option>
                 </select>
             </div>
         </div>
 
         <!-- Counting zones -->
         <div class="calib-section">
-            <div class="calib-section-title">Zonas de Conteo</div>
+            <div class="calib-section-title">Counting Zones</div>
 
             <div class="slider-group">
                 <div class="slider-header">
-                    <span class="slider-label" style="color:var(--neon-green)">Línea Entrada (Y)</span>
+                    <span class="slider-label" style="color:var(--neon-green)">Entry Line (Y)</span>
                     <span class="slider-value" id="disp-line_entry">11</span>
                 </div>
                 <input type="range" id="sl-line_entry" min="1" max="22" step="1" value="11">
@@ -952,7 +952,7 @@ const char *WEB_UI_HTML = R"rawliteral(
 
             <div class="slider-group">
                 <div class="slider-header">
-                    <span class="slider-label" style="color:var(--neon-cyan)">Línea Salida (Y)</span>
+                    <span class="slider-label" style="color:var(--neon-cyan)">Exit Line (Y)</span>
                     <span class="slider-value" id="disp-line_exit">13</span>
                 </div>
                 <input type="range" id="sl-line_exit" min="1" max="22" step="1" value="13">
@@ -962,23 +962,23 @@ const char *WEB_UI_HTML = R"rawliteral(
         <!-- Action buttons -->
         <div class="btn-row">
             <button class="btn btn-primary" id="btn-apply" onclick="applyConfig()">
-                &#10003; APLICAR AJUSTES
+                &#10003; APPLY SETTINGS
             </button>
             <button class="btn btn-success" id="btn-save" onclick="saveConfig()">
-                &#128190; GUARDAR EN FLASH
+                &#128190; SAVE TO FLASH
             </button>
             <div id="save-status"></div>
 
             <hr class="divider">
 
             <button class="btn btn-warning" id="btn-reset-counts" onclick="sendCmd('RESET_COUNTS')">
-                &#8635; RESETEAR CONTADORES
+                &#8635; RESET COUNTERS
             </button>
             <button class="btn btn-dim" id="btn-retry" onclick="sendCmd('RETRY_SENSOR')">
-                &#128267; REINTENTAR SENSOR
+                &#128267; RETRY SENSOR
             </button>
             <button class="btn btn-danger" id="btn-reboot" onclick="rebootDevice()">
-                &#10071; REINICIAR EQUIPO
+                &#10071; REBOOT DEVICE
             </button>
         </div>
         </div>
@@ -991,7 +991,7 @@ const char *WEB_UI_HTML = R"rawliteral(
      ========================================================================= -->
 <div id="panel-ota">
     <div class="ota-header">
-        <span class="ota-title">&#128257; ACTUALIZACIÓN OTA — Firmware Inalámbrico</span>
+        <span class="ota-title">&#128257; OTA UPDATE — Wireless Firmware</span>
         <span class="ota-version-badge" id="ota-ver-badge">v1.0 · ESP32-S3</span>
     </div>
 
@@ -1000,7 +1000,7 @@ const char *WEB_UI_HTML = R"rawliteral(
         <div id="ota-dropzone" onclick="document.getElementById('ota-file-input').click()">
             <input type="file" id="ota-file-input" accept=".bin" style="display:none">
             <span class="ota-drop-icon">&#9096;</span>
-            <div id="ota-filename">Selecciona o arrastra un archivo <strong>.bin</strong></div>
+            <div id="ota-filename">Select or drag a <strong>.bin</strong> file</div>
         </div>
 
         <!-- Control buttons -->
@@ -1008,14 +1008,14 @@ const char *WEB_UI_HTML = R"rawliteral(
             <button class="btn btn-warning" id="btn-flash" onclick="uploadFirmware()" disabled>
                 &#9889; FLASH FIRMWARE
             </button>
-            <div id="ota-status-msg">Sin archivo seleccionado</div>
+            <div id="ota-status-msg">No file selected</div>
         </div>
     </div>
 
     <!-- Progress bar (shown during upload) -->
     <div id="ota-progress-wrap">
         <div id="ota-progress-label">
-            <span id="ota-progress-text">Enviando...</span>
+            <span id="ota-progress-text">Sending...</span>
             <span id="ota-progress-pct">0%</span>
         </div>
         <div id="ota-progress-bar-bg">
@@ -1182,8 +1182,8 @@ function processFrame(buffer) {
     const isRadar = (elMode && elMode.value === "1") || isRadarFallback;
 
     if (isRadar) {
-        // En modo radar (sustracción), el fondo oscila en torno a 0.0 debido al ruido.
-        // Forzamos dispMin positivo para clippear el ruido a color negro.
+        // In radar mode (subtraction), the background oscillates around 0.0 due to noise.
+        // We force positive dispMin to clip noise to black.
         dispMin = 0.8;
         if (dispMax < dispMin + 2.0) dispMax = dispMin + 2.0;
     } else {
@@ -1194,11 +1194,11 @@ function processFrame(buffer) {
         }
     }
 
-    // --- Rango dinámico suavizado para evitar parpadeos visuales ---
+    // --- Smoothed dynamic range to avoid visual flickering ---
     if (state.smoothMin === undefined) state.smoothMin = dispMin;
     if (state.smoothMax === undefined) state.smoothMax = dispMax;
 
-    // Filtro EMA para el rango: 80% previo, 20% nuevo. Muy efectivo contra el parpadeo.
+    // EMA filter for the range: 80% previous, 20% new. Very effective against flickering.
     state.smoothMin = state.smoothMin * 0.8 + dispMin * 0.2;
     state.smoothMax = state.smoothMax * 0.8 + dispMax * 0.2;
 
@@ -1332,7 +1332,7 @@ function renderCountingLines(entryY, exitY) {
     ctx.stroke();
     ctx.fillStyle = 'rgba(0, 255, 136, 0.9)';
     ctx.font = '600 11px JetBrains Mono, monospace';
-    ctx.fillText('ENTRADA', 6, pyEntry - 4);
+    ctx.fillText('ENTRY', 6, pyEntry - 4);
 
     // Exit line (cyan)
     const pyExit = exitY * SCALE_Y;
@@ -1343,7 +1343,7 @@ function renderCountingLines(entryY, exitY) {
     ctx.lineTo(CANVAS_W, pyExit);
     ctx.stroke();
     ctx.fillStyle = 'rgba(0, 212, 255, 0.9)';
-    ctx.fillText('SALIDA', 6, pyExit - 4);
+    ctx.fillText('EXIT', 6, pyExit - 4);
 
     ctx.restore();
 }
@@ -1394,7 +1394,7 @@ function renderTracks(tracks) {
         // Velocity vector arrow
         const vlen = Math.sqrt(t.vx*t.vx + t.vy*t.vy);
         if (vlen > 0.05) {
-            const vxpx = t.vx * SCALE_X * 5; // exagerar vector para visualización
+            const vxpx = t.vx * SCALE_X * 5; // exaggerate vector for visualization
             const vypy = t.vy * SCALE_Y * 5;
             
             ctx.strokeStyle = '#ffb300';
@@ -1453,14 +1453,14 @@ function connectWs() {
 
     state.ws.onopen = () => {
         elWsDot.className    = 'dot online';
-        elWsStatus.textContent = 'CONECTADO';
+        elWsStatus.textContent = 'CONNECTED';
         // Request current config from ESP32
         state.ws.send(JSON.stringify({ cmd: 'GET_CONFIG' }));
     };
 
     state.ws.onclose = () => {
         elWsDot.className    = 'dot';
-        elWsStatus.textContent = 'RECONECTANDO...';
+        elWsStatus.textContent = 'RECONNECTING...';
         state.receivedFirst  = false;
         noSignal.style.display  = '';
         // Exponential backoff: 2s
@@ -1485,7 +1485,7 @@ function handleTextMessage(text) {
             applyIncomingConfig(msg);
         } else if (msg.type === 'config_saved') {
             setSaveStatus(msg.ok ? 'ok' : 'err',
-                          msg.ok ? '&#10003; Guardado en flash' : '&#10007; Error al guardar');
+                          msg.ok ? '&#10003; Saved to flash' : '&#10007; Error saving');
         }
     } catch (e) { console.warn('Bad JSON from WS:', text); }
 }
@@ -1520,18 +1520,17 @@ function sendWs(obj) {
     }
 }
 
-/**
- * Reinicia el hardware mediante POST
+ * Reboots the hardware via POST
  */
 async function rebootDevice() {
-    if (!confirm("¿Seguro que quieres REINICIAR el ESP32? Se perderá la conexión web.")) return;
+    if (!confirm("Are you sure you want to REBOOT the ESP32? Web connection will be lost.")) return;
     try {
         const res = await fetch('/reboot', { method: 'POST' });
         if (res.ok) {
-            alert("Reiniciando... Espera 10 segundos y recarga la página.");
+            alert("Rebooting... Wait 10 seconds and reload the page.");
             location.reload();
         }
-    } catch (e) { console.error("Error al reiniciar:", e); }
+    } catch (e) { console.error("Error rebooting:", e); }
 }
 
 function sendCmd(cmd) {
@@ -1541,7 +1540,7 @@ function sendCmd(cmd) {
 // ===========================================================================
 //  CONFIG WORKFLOW
 // ===========================================================================
-// "Aplicar Ajustes" — send each changed slider to the pipeline via SET_PARAM
+// "Apply Settings" — send each changed slider to the pipeline via SET_PARAM
 function applyConfig() {
     const PARAMS = ['temp_bio', 'delta_t', 'alpha_ema', 'line_entry', 'line_exit', 'nms_center', 'nms_edge'];
     PARAMS.forEach(param => {
@@ -1561,13 +1560,13 @@ function applyConfig() {
         sendWs({ cmd: 'SET_PARAM', param: 'view_mode', val: parseInt(selViewMode.value) });
     }
 
-    setSaveStatus('ok', '&#10003; Ajustes aplicados');
+    setSaveStatus('ok', '&#10003; Settings applied');
 }
 
-// "Guardar en Flash" — persist config to NVS on the ESP32
+// "Save to Flash" — persist config to NVS on the ESP32
 function saveConfig() {
     sendWs({ cmd: 'SAVE_CONFIG' });
-    setSaveStatus(null, 'Guardando...');
+    setSaveStatus(null, 'Saving...');
 }
 
 function setSaveStatus(cls, html) {
@@ -1657,7 +1656,7 @@ otaFileInput.addEventListener('change', () => {
 
 function setFirmwareFile(file) {
     if (!file.name.endsWith('.bin')) {
-        otaStatusMsg.textContent  = '⚠ Solo se aceptan archivos .bin';
+        otaStatusMsg.textContent  = '⚠ Only .bin files are accepted';
         otaStatusMsg.className    = 'error';
         return;
     }
@@ -1666,7 +1665,7 @@ function setFirmwareFile(file) {
     otaFilename.textContent       = `${file.name}  (${sizeKb} KB)`;
     otaDropzone.classList.add('file-ready');
     btnFlash.disabled             = false;
-    otaStatusMsg.textContent      = 'Listo para flashear';
+    otaStatusMsg.textContent      = 'Ready to flash';
     otaStatusMsg.className        = '';
 }
 
@@ -1689,8 +1688,8 @@ function uploadFirmware() {
     otaProgressBar.className      = '';
     otaProgressBar.style.width    = '0%';
     otaPct.textContent            = '0%';
-    otaProgressTxt.textContent    = 'Enviando firmware...';
-    otaStatusMsg.textContent      = 'Flasheando... no desconectar';
+    otaProgressTxt.textContent    = 'Sending firmware...';
+    otaStatusMsg.textContent      = 'Flashing... do not disconnect';
     otaStatusMsg.className        = 'uploading';
     setOtaUiLocked(true);
 
@@ -1716,11 +1715,11 @@ function uploadFirmware() {
             otaProgressBar.classList.add('done');
             otaProgressBar.style.width  = '100%';
             otaPct.textContent          = '100%';
-            otaProgressTxt.textContent  = 'Escrito correctamente';
+            otaProgressTxt.textContent  = 'Successfully written';
             otaStatusMsg.className      = 'success';
             let countdown = 5;
             const tick = () => {
-                otaStatusMsg.textContent = `✔ Flash OK — Reiniciando en ${countdown}s...`;
+                otaStatusMsg.textContent = `✔ Flash OK — Rebooting in ${countdown}s...`;
                 if (countdown-- > 0) { setTimeout(tick, 1000); }
                 else {
                     // Attempt automatic reconnection
@@ -1731,8 +1730,8 @@ function uploadFirmware() {
             tick();
         } else {
             otaProgressBar.classList.add('error');
-            otaProgressTxt.textContent = 'Error del servidor';
-            otaStatusMsg.textContent   = `✖ Error HTTP ${xhr.status}: ${xhr.responseText}`;
+            otaProgressTxt.textContent = 'Server error';
+            otaStatusMsg.textContent   = `✖ HTTP Error ${xhr.status}: ${xhr.responseText}`;
             otaStatusMsg.className     = 'error';
             setOtaUiLocked(false);
             setTimeout(connectWs, 1500);  // Restore WebSocket
@@ -1741,8 +1740,8 @@ function uploadFirmware() {
 
     xhr.onerror = () => {
         otaProgressBar.classList.add('error');
-        otaProgressTxt.textContent = 'Error de red';
-        otaStatusMsg.textContent   = '✖ Conexión perdida durante la subida';
+        otaProgressTxt.textContent = 'Network error';
+        otaStatusMsg.textContent   = '✖ Connection lost during upload';
         otaStatusMsg.className     = 'error';
         setOtaUiLocked(false);
         setTimeout(connectWs, 2000);

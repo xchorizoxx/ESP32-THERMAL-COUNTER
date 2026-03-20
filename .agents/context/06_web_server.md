@@ -1,13 +1,13 @@
-# Tarea: Servidor Web y HUD Táctico
+# Task: Web Server and Tactical HUD
 
-## Objetivo
-Servir una interfaz web Cyberpunk/Tactical en alta frecuencia para depuración y calibración.
+## Objective
+Serve a high-frequency Cyberpunk/Tactical web interface for debugging and calibration.
 
-## Requisitos Técnicos
-1. **Embedded Assets**: HTML/CSS/JS comprimidos en archivos de cabecera C.
-2. **WebSockets**: Canal binario para enviar la matriz 32x24 (int16_t x 100) y metadatos de tracks.
-3. **Canvas 2D**: El navegador debe realizar el escalado a 640x480 usando interpolación bilineal.
-4. **Configuración NVS**: Sliders en la web que envíen comandos para ajustar `TEMP_BIOLOGICO`, `NMS_RADIUS`, etc., y botón de guardado persistente.
+## Technical Requirements
+1. **Embedded Assets**: HTML/CSS/JS compressed into C header files.
+2. **WebSockets**: Binary channel for sending the 32x24 matrix (int16_t x 100) and track metadata.
+3. **2D Canvas**: The browser must perform scaling to 640x480 using bilinear interpolation.
+4. **NVS Configuration**: Web sliders to send commands for adjusting `TEMP_BIOLOGICO`, `NMS_RADIUS`, etc., with a persistent save button.
 
 ## OTA
-Integrar el panel de selección de archivo para el sistema de actualizaciones inalámbricas.
+Integrate an OTA file selection panel for the wireless update system.

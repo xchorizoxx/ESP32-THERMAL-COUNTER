@@ -1,11 +1,11 @@
 #pragma once
 /**
  * @file udp_transmitter.hpp
- * @brief Transmisor UDP para imagen térmica y telemetría.
+ * @brief UDP transmitter for thermal image and telemetry.
  *
- * Envía dos tipos de datagramas por broadcast UDP:
- *   - 0x01: PayloadTelemetria (contadores + tracks)
- *   - 0x02: PayloadImagen (768 píxeles × int16)
+ * Sends two types of datagrams via UDP broadcast:
+ *   - 0x01: TelemetryPayload (counters + tracks)
+ *   - 0x02: ImagePayload (768 pixels × int16)
  */
 
 #include "thermal_types.hpp"
@@ -15,28 +15,28 @@ class UdpTransmitter {
 public:
     /**
      * @brief Constructor.
-     * @param broadcastIp IP de destino/broadcast (ej. "192.168.4.255")
-     * @param port        Puerto UDP
+     * @param broadcastIp Target/broadcast IP (e.g., "192.168.4.255")
+     * @param port        UDP port
      */
     UdpTransmitter(const char* broadcastIp, int port);
 
     /**
-     * @brief Inicializa el socket UDP.
-     * @return ESP_OK en éxito.
+     * @brief Initializes the UDP socket.
+     * @return ESP_OK on success.
      */
     esp_err_t init();
 
     /**
-     * @brief Envía el paquete de telemetría (contadores + tracks).
-     * Datagrama: [0x01][PayloadTelemetria]
-     * @return ESP_OK en éxito.
+     * @brief Sends the telemetry packet (counters + tracks).
+     * Datagram: [0x01][TelemetryPayload]
+     * @return ESP_OK on success.
      */
     esp_err_t sendTelemetry(const PayloadTelemetria& payload);
 
     /**
-     * @brief Envía el paquete de imagen térmica.
-     * Datagrama: [0x02][PayloadImagen]
-     * @return ESP_OK en éxito.
+     * @brief Sends the thermal image packet.
+     * Datagram: [0x02][ImagePayload]
+     * @return ESP_OK on success.
      */
     esp_err_t sendImage(const PayloadImagen& payload);
 

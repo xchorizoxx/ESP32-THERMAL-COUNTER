@@ -1,10 +1,10 @@
 #pragma once
 /**
  * @file telemetry_task.hpp
- * @brief Tarea FreeRTOS de telemetría (Core 0).
+ * @brief FreeRTOS telemetry task (Core 0).
  *
- * Recibe IpcPackets del Core 1 vía Queue y los transmite
- * por UDP (telemetría + imagen) al ESP32 receptor.
+ * Receives IpcPackets from Core 1 via Queue and transmits them
+ * over UDP (telemetry + image) to the receiving ESP32.
  */
 
 #include "freertos/FreeRTOS.h"
@@ -17,25 +17,25 @@ class TelemetryTask {
 public:
     /**
      * @brief Constructor.
-     * @param ipcQueue Queue compartida con el pipeline de Core 1
-     * @param udp      Referencia al transmisor UDP ya inicializado
+     * @param ipcQueue Shared queue with Core 1 pipeline
+     * @param udp      Reference to the already initialized UDP transmitter
      */
     TelemetryTask(QueueHandle_t ipcQueue, UdpTransmitter& udp);
 
     /**
-     * @brief Inicialización (log de configuración).
+     * @brief Initialization (configuration log).
      */
     void init();
 
     /**
-     * @brief Wrapper estático para FreeRTOS.
-     * Usar en xTaskCreatePinnedToCore:
+     * @brief Static wrapper for FreeRTOS.
+     * Use in xTaskCreatePinnedToCore:
      *   xTaskCreatePinnedToCore(TelemetryTask::TaskWrapper, ..., &telemetry, ...);
      */
     static void TaskWrapper(void* pvParameters);
 
 private:
-    void run(); // Bucle bloqueante en xQueueReceive
+    void run(); // Blocking loop on xQueueReceive
 
     QueueHandle_t   ipcQueue_;
     UdpTransmitter& udp_;

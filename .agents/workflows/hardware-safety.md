@@ -1,23 +1,23 @@
 ---
-description: Protocolo de Seguridad para Modificaciones de Hardware y Capa Lógica
+description: Safety Protocol for Hardware and Logical Layer Modifications
 ---
 
-# ⚠️ PROTOCOLO DE SEGURIDAD DE HARDWARE (OBLIGATORIO)
+# ⚠️ HARDWARE SAFETY PROTOCOL (MANDATORY)
 
-Este documento establece las reglas críticas para cualquier agente IA que interactúe con el proyecto "Detector de Puerta". La violación de estas reglas puede comprometer la estabilidad del sistema físico.
+This document establishes critical rules for any AI agent interacting with the "Door Detector" project. Violation of these rules may compromise physical system stability.
 
-## 1. Modificaciones de Hardware y Bus
-- **PROHIBIDO** modificar frecuencias de reloj (I2C/SPI), números de pines (GPIO), o configuraciones de voltajes/pull-ups sin una consulta previa al usuario.
-- Cualquier propuesta de cambio en el bus (ej. bajar de 1MHz a 400kHz) debe ir acompañada de una justificación técnica basada en el Datasheet y el comportamiento observado.
-- El usuario debe dar un "Visto Bueno" (Aprobar) explícito en el chat antes de que el agente aplique el cambio en `.cpp` o `.h`.
+## 1. Hardware and Bus Modifications
+- **FORBIDDEN** to modify clock frequencies (I2C/SPI), pin numbers (GPIO), or voltage/pull-up configurations without prior user consultation.
+- Any proposed bus changes (e.g., dropping from 1MHz to 400kHz) must be accompanied by a technical justification based on the datasheet and observed behavior.
+- The user must provide explicit approval (OK) in the chat before the agent applies the change to `.cpp` or `.h` files.
 
-## 2. Cambios Estructurales en el Pipeline
-- No se deben alterar los métodos de lectura de sensores (ej. pasar de lecturas bloqueantes a asíncronas) si esto afecta la cadencia de frames establecida, a menos que se diagnostique un fallo crítico.
-- Si se detectan artefactos visuales (ej. patrón de ajedrez en MLX90640), el agente debe proponer el filtro o cambio técnico primero, explicar su impacto en el consumo de CPU, y esperar aprobación.
+## 2. Structural Pipeline Changes
+- Sensor reading methods (e.g., changing from blocking to asynchronous) must not be altered if it affects the established frame rate, unless a critical failure is diagnosed.
+- If visual artifacts are detected (e.g., MLX90640 checkerboard pattern), the agent must propose the filter or technical change first, explain its CPU impact, and wait for approval.
 
-## 3. Prioridad de Estabilidad
-- En sistemas embebidos, la estabilidad del sensor y la integridad de la EEPROM son prioritarias sobre la "limpieza" estética del código. 
-- Cualquier cambio que pueda causar un "Panic" (Crash) en el Core 1 debe ser comunicado como "Cambio de Alto Riesgo".
+## 3. Stability Priority
+- In embedded systems, sensor stability and EEPROM integrity take priority over "clean" aesthetic code. 
+- Any change that could cause a "Panic" (Crash) on Core 1 must be communicated as a "High Risk Change."
 
 ---
 // turbo-all

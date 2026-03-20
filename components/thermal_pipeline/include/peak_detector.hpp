@@ -1,9 +1,9 @@
 #pragma once
 /**
  * @file peak_detector.hpp
- * @brief Paso 2 — Detección de Picos Térmicos (Topología).
+ * @brief Step 2 — Thermal Peak Detection (Topology).
  *
- * Detecta máximos locales que superan umbrales biológicos y de contraste.
+ * Detects local maxima that exceed biological and contrast thresholds.
  */
 
 #include "thermal_types.hpp"
@@ -11,23 +11,23 @@
 class PeakDetector {
 public:
     /**
-     * @brief Detecta picos térmicos en el frame actual.
-     * @param frame     Frame de temperaturas [TOTAL_PIXELS]
-     * @param fondo     Mapa de fondo [TOTAL_PIXELS]
-     * @param outPicos  Array de salida [MAX_OBJETIVOS]
-     * @param outNum    Número de picos detectados (salida)
-     * @param tempMin   Umbral biológico mínimo (°C)
-     * @param deltaT    Contraste mínimo vs fondo (°C)
-     * @param maxPicos  Capacidad máxima del array outPicos
+     * @brief Detects thermal peaks in the current frame.
+     * @param frame     Temperature frame [TOTAL_PIXELS]
+     * @param background Background map [TOTAL_PIXELS]
+     * @param outPeaks  Output array [MAX_TRACKS]
+     * @param outNum    Number of detected peaks (output)
+     * @param tempMin   Minimum biological threshold (°C)
+     * @param deltaT    Minimum contrast vs background (°C)
+     * @param maxPeaks  Maximum capacity of the outPeaks array
      *
-     * Condiciones para un pico válido:
+     * Conditions for a valid peak:
      *  1. frame[i] > tempMin
-     *  2. (frame[i] - fondo[i]) > deltaT
-     *  3. frame[i] > sus 8 vecinos (máximo local estricto)
+     *  2. (frame[i] - background[i]) > deltaT
+     *  3. frame[i] > its 8 neighbors (strict local maximum)
      *
-     * Se excluyen bordes (fila 0, fila 23, col 0, col 31) para evitar OOB.
+     * Edges (row 0, row 23, col 0, col 31) are excluded to avoid OOB.
      */
-    static void detect(const float* frame, const float* fondo,
-                       PicoTermico* outPicos, int* outNum,
-                       float tempMin, float deltaT, int maxPicos);
+    static void detect(const float* frame, const float* background,
+                       PicoTermico* outPeaks, int* outNum,
+                       float tempMin, float deltaT, int maxPeaks);
 };

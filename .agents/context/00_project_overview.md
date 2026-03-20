@@ -1,31 +1,31 @@
-# Contexto General del Proyecto — Detector de Puerta Térmico
+# General Project Context — Thermal Door Detector
 
-## Descripción del Sistema
-Contador cenital de personas con sensor térmico **MLX90640** (32×24 px, FOV 110°) montado a ~3.6m sobre una puerta de ~3–4.5m de ancho. Un **ESP32-S3** (dual-core) ejecuta un pipeline de visión artificial térmica y mantiene una interfaz Web HUD táctica, además de soportar flasheo inalámbrico (OTA).
+## System Description
+A top-down person counter using an **MLX90640** thermal sensor (32×24 px, 110° FOV) mounted at ~3.6m over a door ~3–4.5m wide. An **ESP32-S3** (dual-core) runs a thermal computer vision pipeline and maintains tactical Web HUD interface, while also supporting wireless flashing (OTA).
 
-## Arquitectura de Dos Núcleos (FreeRTOS)
-1. **Pipeline de Procesamiento:** (Core 1)
-   - Extraer temperatura ambiente vía I2C a 400kHz.
-   - Filtrar fondo estático dinámicamente usando EMA.
-   - Detectar "picos" térmicos espaciales (personas).
-   - Seguir su movimiento (Tracking Alpha-Beta) e incrementar contadores (In/Out) si cruzan líneas virtuales.
-   - Todo usa memoria estática (cero fragmentación).
+## Dual-Core Architecture (FreeRTOS)
+1. **Processing Pipeline:** (Core 1)
+   - Extract ambient temperature via I2C at 400kHz.
+   - Dynamically filter static background using EMA.
+   - Detect spatial thermal "peaks" (people).
+   - Track their movement (Alpha-Beta Tracking) and increment counters (In/Out) if they cross virtual lines.
+   - Everything uses static memory (zero fragmentation).
 
-2. **UI Web, Red y OTA:** (Core 0)
-   - Crea un SoftAP ("ThermalCounter") en `192.168.4.1`.
-   - Servidor HTTP embebido que sirve la Web UI (Dashboard HTML Canvas 2D) con `WebSockets` para emitir los tracks y la matriz de temperaturas en vivo a 16 FPS.
-   - Escucha en POST `/update` para actualizaciones de firmware inalámbrico (Dual-Bank OTA).
+2. **Web UI, Network, and OTA:** (Core 0)
+   - Creates a SoftAP ("ThermalCounter") at `192.168.4.1`.
+   - Embedded HTTP server serving the Web UI (HTML Canvas 2D Dashboard) with `WebSockets` to broadcast live tracks and temperature matrix at 16 FPS.
+   - Listens on POST `/update` for wireless firmware updates (Dual-Bank OTA).
 
-## Entorno de Desarrollo
-- **Framework**: ESP-IDF v5.5 (CMake), C++ puro.
-- **Build system**: `CMakeLists.txt` en la raíz con binarios en `build/`.
+## Development Environment
+- **Framework**: ESP-IDF v5.5 (CMake), pure C++.
+- **Build system**: `CMakeLists.txt` in root with binaries in `build/`.
 - **Hardware Target**: `esp32s3`.
 
-## Reglas Estrictas para Agentes (TÚ)
-1. **Cero `malloc`/`new` en runtime** — Solo allocar objetos en la inicialización (setup).
-2. **No usar `delay()`** — Usa SIEMPRE `vTaskDelay()` o `vTaskDelayUntil()`.
-3. **Punto flotante**: Usa `float` (FPU de simple precisión nativa), NUNCA uses `double`.
-4. **Logs**: Usa `ESP_LOGI`, `ESP_LOGE` etc., con un macro genérico estático `TAG`.
-5. **No asumas el control del proceso de Build**: NUNCA ejecutes `idf.py build` o `flash` en la terminal sin pedirlo. Solo escribe el código y avisa al usuario para que él recompile usando su extensión de VS Code.
-6. **Programación Orientada a Objetos**: Tareas FreeRTOS como métodos de clase usando `static void TaskWrapper(void*)` y un cast de `this`.
-7. Si el usuario pide cambiar velocidad I2C, pines, o reloj, repasa el protocolo de **hardware-safety** primero.
+## Strict Rules for Agents (YOU)
+1. **Zero `malloc`/`new` at runtime** — Only allocate objects during initialization (setup).
+2. **Do not use `delay()`** — ALWAYS use `vTaskDelay()` or `vTaskDelayUntil()`.
+3. **Floating Point**: Use `float` (native single-precision FPU), NEVER use `double`.
+4. **Logs**: Use `ESP_LOGI`, `ESP_LOGE` etc., with a generic static `TAG` macro.
+5. **Do not take control of the Build process**: NEVER run `idf.py build` or `flash` in terminal without being asked. Simply write the code and notify the user to recompile using their VS Code extension.
+6. **Object-Oriented Programming**: FreeRTOS tasks as class methods using `static void TaskWrapper(void*)` and a `this` pointer cast.
+7. If the user asks to change I2C speed, pins, or clock, review the **hardware-safety** protocol first.

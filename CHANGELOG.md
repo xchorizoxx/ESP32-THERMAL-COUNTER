@@ -1,22 +1,22 @@
-# CHANGELOG - Detector de Puerta Térmico
+# CHANGELOG - Thermal Door Detector
 
-## [v2.6.0] - 2026-03-18 (Actual)
-### Añadido
-- **Sistema OTA Web**: Panel de actualización inalámbrica integrado en el Dashboard.
-- **Rollback de Seguridad**: Prevención de bootloops mediante el marcado de app válida en `app_main`.
-- **Script OTA**: Nueva herramienta `scripts/ota_upload.py` con barra de progreso y soporte para ESP32-S3.
-- **Reestructuración de Docs**: Nuevo sistema de documentación para humanos (`docs/`) y agentes (`.agents/`).
+## [v2.6.0] - 2026-03-18 (Current)
+### Added
+- **Web OTA System**: Wireless update panel integrated into the Dashboard.
+- **Safety Rollback**: Bootloop prevention by marking the app as valid in `app_main`.
+- **OTA Script**: New `scripts/ota_upload.py` tool with progress bar and ESP32-S3 support.
+- **Docs Restructuring**: New documentation system for humans (`docs/`) and agents (`.agents/`).
 
-### Cambios
-- Incrementado el stack del HTTP Server a 16KB para soportar flasheo inalámbrico.
-- Refactorización de la estructura de carpetas: `PROJECT_RESOURCES` eliminado en favor de `lib/` y `.agents/`.
+### Changed
+- Increased HTTP Server stack to 16KB to support wireless flashing.
+- Folder structure refactoring: `PROJECT_RESOURCES` removed in favor of `lib/` and `.agents/`.
 
-## [v2.5.0] - Versión Estable Anterior
-### Añadido
-- **Filtro De-Chess**: Eliminación de artefactos de ajedrez en la imagen térmica.
-- **HUD Táctico**: Interfaz web Cyberpunk con WebSockets de alta frecuencia.
-- **Dual-Core**: Aislamiento estricto de Pipeline (Core 1) y Red (Core 0).
-- **Control NVS**: Persistencia de calibración.
+## [v2.5.0] - Previous Stable Version
+### Added
+- **De-Chess Filter**: Removal of checkerboard artifacts in the thermal image.
+- **Tactical HUD**: Cyberpunk web interface with high-frequency WebSockets.
+- **Dual-Core**: Strict isolation of Pipeline (Core 1) and Network (Core 0).
+- **NVS Control**: Calibration persistence.
 
 ---
-*Para ver el roadmap de futuras versiones, consultar [docs/roadmap.md](docs/roadmap.md).*
+*To see the roadmap of future versions, see [docs/roadmap.md](docs/roadmap.md).*

@@ -3,12 +3,12 @@
 #include <cstring>
 
 void MaskGenerator::generate(const Track* tracks, int maxTracks,
-                              uint8_t* mascara, int halfSize)
+                              uint8_t* mask, int halfSize)
 {
-    // Paso 1: Limpiar máscara completa
-    memset(mascara, 0, ThermalConfig::TOTAL_PIXELS);
+    // Step 1: Clear full mask
+    memset(mask, 0, ThermalConfig::TOTAL_PIXELS);
 
-    // Paso 2: Dibujar cuadrado alrededor de cada track activo
+    // Step 2: Draw square around each active track
     for (int i = 0; i < maxTracks; i++) {
         if (!tracks[i].activo) continue;
 
@@ -20,10 +20,10 @@ void MaskGenerator::generate(const Track* tracks, int maxTracks,
                 const int nx = cx + dx;
                 const int ny = cy + dy;
 
-                // Verificar límites (no exceder los 32×24 píxeles del sensor)
+                // Check boundaries (do not exceed the 32x24 sensor pixels)
                 if (nx >= 0 && nx < ThermalConfig::MLX_COLS &&
                     ny >= 0 && ny < ThermalConfig::MLX_ROWS) {
-                    mascara[ny * ThermalConfig::MLX_COLS + nx] = 1;
+                    mask[ny * ThermalConfig::MLX_COLS + nx] = 1;
                 }
             }
         }

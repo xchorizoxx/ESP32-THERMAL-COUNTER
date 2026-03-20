@@ -28,14 +28,14 @@ public:
 private:
     static httpd_handle_t server_;
 
-    // Sistema de Buffers estáticos para evitar malloc/free en broadcast
+    // Static buffer system to avoid malloc/free during broadcast
     static constexpr size_t WS_BUFFER_COUNT = 2;
     static constexpr size_t WS_BUFFER_SIZE  = 2048;
     static uint8_t ws_buffers_[WS_BUFFER_COUNT][WS_BUFFER_SIZE];
     static int     ws_buffer_ref_counts_[WS_BUFFER_COUNT];
 
     /**
-     * @brief Callback invocado cuando el envío asíncrono termina
+     * @brief Callback invoked when asynchronous transmission finishes.
      */
     static void wsAsyncCompletionCb(esp_err_t err, int socket, void *arg);
 

@@ -1,72 +1,72 @@
-# Detección de Blobs y Tracking Predictivo
+# Blob Detection and Predictive Tracking
 
-Una vez que tenemos la imagen térmica _sustraída del fondo_ (solo vemos lo que está más caliente que el suelo), necesitamos convertir esas "manchas de calor" (blobs) en entidades contables.
+Once we have the thermal image _subtracted from the background_ (only seeing what is hotter than the floor), we need to convert those "heat spots" (blobs) into countable entities.
 
-## 1. Topología (Peak Detection)
+## 1. Topology (Peak Detection)
 
-No buscamos contornos complejos, aplicamos un método matemático llamado detección de picos 2D. 
-Un píxel se considera un "Pico" si:
-1. Su temperatura neta (vs el fondo) es > `DELTA_T_FONDO`.
-2. Su temperatura absoluta es > `TEMP_BIOLOGICO_MIN` (garantiza que es un humano o animal, y no un cable tibio).
-3. Es estrictamente más caliente que los 8 píxeles inmediatamente a su alrededor.
+We do not look for complex contours; we apply a mathematical method called 2D peak detection. 
+A pixel is considered a "Peak" if:
+1. Its net temperature (vs. background) is > `DELTA_T_FONDO`.
+2. Its absolute temperature is > `TEMP_BIOLOGICO_MIN` (ensures it is a human or animal, not a warm cable).
+3. It is strictly hotter than the 8 pixels immediately around it.
 
-## 🛡️ Supresión de No-Máximos (NMS)
+## 🛡️ Non-Maximum Suppression (NMS)
 
-Para evitar que una persona sea detectada múltiples veces debido a su tamaño, aplicamos un filtro de vecindad circular.
+To prevent a person from being detected multiple times due to their size, we apply a circular neighborhood filter.
 
-### Algoritmo NMS
-1. Se ordenan todos los picos detectados por temperatura de mayor a menor.
-2. Para el pico más caliente, se eliminan todos los demás picos que se encuentren dentro de un radio $R$ (parámetro `nms_radius`).
-3. Se repite para el siguiente pico superviviente más caliente.
+### NMS Algorithm
+1. All detected peaks are sorted by temperature from highest to lowest.
+2. For the hottest peak, all other peaks within a radius $R$ (`nms_radius` parameter) are removed.
+3. This is repeated for the next hottest surviving peak.
 
-Este proceso garantiza que solo el **centro de masa** térmico sea procesado por el tracker.
+This process ensures that only the thermal **center of mass** is processed by the tracker.
 
 ---
 
-## 📈 Tracking con Filtro Alpha-Beta
+## 📈 Tracking with Alpha-Beta Filter
 
-El sistema utiliza un Filtro Alpha-Beta para predecir la posición de los objetos en el siguiente frame, compensando el ruido de medición.
+The system uses an Alpha-Beta Filter to predict the position of objects in the next frame, compensating for measurement noise.
 
-### Ecuaciones de Estado
-Para cada componente $(x, y)$:
+### State Equations
+For each component $(x, y)$:
 
-1. **Predicción**:
+1. **Prediction**:
    $$\hat{x}_{k} = x_{k-1} + v_{k-1} \cdot \Delta t$$
-2. **Actualización de Posición**:
+2. **Position Update**:
    $$x_{k} = \hat{x}_{k} + \alpha \cdot (z_{k} - \hat{x}_{k})$$
-3. **Actualización de Velocidad**:
+3. **Velocity Update**:
    $$v_{k} = v_{k-1} + \frac{\beta}{\Delta t} \cdot (z_{k} - \hat{x}_{k})$$
 
-Donde $z_k$ es la medición actual y $\alpha, \beta$ son las ganancias del filtro. Esto permite que el sistema "entienda" la inercia del movimiento humano, ignorando saltos erráticos de un solo frame.
+Where $z_k$ is the current measurement and $\alpha, \beta$ are the filter gains. This allows the system to "understand" the inertia of human movement, ignoring erratic jumps from a single frame.
 
 ---
 
-Tenemos una lista de "Picos Crudos" (posición X,Y) en el *frame actual*. ¿Cómo sabemos quién es quién del *frame anterior*?
+We have a list of "Raw Peaks" (X,Y position) in the *current frame*. How do we know who is who from the *previous frame*?
 
-Usamos un rastreador Alpha-Beta, que es una versión simplificada del famoso Filtro de Kalman.
-El rastreador le asigna a cada persona no solo una Posición, sino una **Velocidad**.
+We use an Alpha-Beta tracker, which is a simplified version of the famous Kalman Filter.
+The tracker assigns each person not only a Position, but a **Velocity**.
 
-1. **Predicción:** Usando la velocidad anterior de la Persona 1, se calcula dónde debería estar en este frame.
-2. **Emparejamiento:** Se busca el "Pico Crudo" más cercano a esa posición predicha (siempre que la distancia no exceda `MAX_MATCH_DIST_SQ`).
-3. **Actualización:**
-   * Si se encuentra pareja, se calcula el error entre lo predicho y lo medido. 
-   * Se corrige la posición usando `ALPHA_TRK` (qué tanto confío en el sensor frente a la física).
-   * Se corrige la velocidad usando `BETA_TRK`.
-   * **Protección de Multitudes (V2.5):** Se implementó una verificación de "Track Matched" que impide que dos personas muy juntas "roben" el mismo track. Esto mantiene identidades únicas incluso en cruces críticos.
+1. **Prediction:** Using the Person's previous velocity, their expected position in this frame is calculated.
+2. **Matching:** The closest "Raw Peak" to that predicted position is sought (provided the distance does not exceed `MAX_MATCH_DIST_SQ`).
+3. **Update:**
+   * If a match is found, the error between the predicted and measured position is calculated. 
+   * The position is corrected using `ALPHA_TRK` (how much to trust the sensor vs. physics).
+   * The velocity is corrected using `BETA_TRK`.
+   * **Crowd Protection (V2.5):** A "Track Matched" check was implemented to prevent two close people from "stealing" the same track. This maintains unique identities even in critical crossings.
 
-## 4. Vectores de Velocidad (V2)
+## 4. Velocity Vectors (V2)
 
-A partir de la versión 2, el sistema calcula un vector director `(vx, vy)` para cada track. 
-- **Cálculo:** Se basa en la diferencia de posición corregida por el filtro Alpha-Beta entre frames sucesivos.
-- **Visualización:** En el HUD Táctico, este vector se dibuja como una flecha amarilla delgada. La longitud de la flecha es proporcional a la rapidez, permitiendo predecir visualmente el sentido de paso.
+Starting with version 2, the system calculates a direction vector `(vx, vy)` for each track. 
+- **Calculation:** Based on the position difference corrected by the Alpha-Beta filter between successive frames.
+- **Visualization:** In the Tactical HUD, this vector is drawn as a thin yellow arrow. The arrow's length is proportional to the speed, allowing for visual prediction of crossing direction.
 
-## 5. Lógica de Conteo e Inferencia de Intención
+## 5. Counting Logic and Intent Inference
 
-El conteo ocurre estrictamente comparando la posición de la persona entre el frame `T-1` y el frame `T`, pero ahora con **Inferencia de Intención**:
+Counting occurs strictly by comparing the person's position between frame `T-1` and frame `T`, but now with **Intent Inference**:
 
-1. **Cruce Estándar:** Si el track cruza de la zona superior a la inferior (o viceversa) habiendo nacido fuera de la zona neutra.
-2. **Spawn en Zona Neutra (V2.5):** Si una persona "aparece" (spawn) directamente entre las líneas de conteo (porque el sensor la perdió un segundo), el sistema no ignora el cruce. En su lugar, evalúa su **Vector de Velocidad Y**:
-   - Si cruza la línea inferior con `v_y > 0.05`, se infiere intención de **Entrada**.
-   - Si cruza la línea superior con `v_y < -0.05`, se infiere intención de **Salida**.
+1. **Standard Crossing:** If the track crosses from the upper zone to the lower zone (or vice versa) having originated outside the neutral zone.
+2. **Spawn in Neutral Zone (V2.5):** If a person "appears" (spawns) directly between the counting lines (because the sensor lost them for a second), the system does not ignore the crossing. Instead, it evaluates their **Y Velocity Vector**:
+   - If they cross the lower line with `v_y > 0.05`, **Entry** intent is inferred.
+   - If they cross the upper line with `v_y < -0.05`, **Exit** intent is inferred.
 
-Esta lógica bidireccional garantiza que casi ninguna persona se escape sin ser contada, incluso ante oclusiones temporales.
+This bidirectional logic ensures that almost no person escapes without being counted, even with temporary occlusions.

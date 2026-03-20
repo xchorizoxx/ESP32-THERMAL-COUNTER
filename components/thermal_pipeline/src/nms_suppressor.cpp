@@ -1,45 +1,45 @@
 #include "nms_suppressor.hpp"
 
-void NmsSuppressor::suppress(PicoTermico* picos, int numPicos,
+void NmsSuppressor::suppress(PicoTermico* peaks, int numPeaks,
                              int rCenterSq, int rEdgeSq,
                              int centerXMin, int centerXMax)
 {
-    if (numPicos <= 1) return;
+    if (numPeaks <= 1) return;
 
-    // Paso 1: Insertion sort por temperatura descendente
-    // N <= 15, O(N²) es óptimo para este tamaño
-    for (int i = 1; i < numPicos; i++) {
-        PicoTermico key = picos[i];
+    // Step 1: Insertion sort by descending temperature
+    // N <= 15, O(N²) is optimal for this size
+    for (int i = 1; i < numPeaks; i++) {
+        PicoTermico key = peaks[i];
         int j = i - 1;
-        while (j >= 0 && picos[j].temperatura < key.temperatura) {
-            picos[j + 1] = picos[j];
+        while (j >= 0 && peaks[j].temperatura < key.temperatura) {
+            peaks[j + 1] = peaks[j];
             j--;
         }
-        picos[j + 1] = key;
+        peaks[j + 1] = key;
     }
 
-    // Paso 2: Supresión — El pico más caliente domina en su vecindad
-    for (int j = 0; j < numPicos; j++) {
-        if (picos[j].suprimido) continue;
+    // Step 2: Suppression — The hottest peak dominates in its vicinity
+    for (int j = 0; j < numPeaks; j++) {
+        if (peaks[j].suprimido) continue;
 
-        const int xj = picos[j].x;
+        const int xj = peaks[j].x;
         const int yj = picos[j].y;
 
-        // Radio² según posición (central vs borde del lente)
+        // Radius² according to position (center vs lens edge)
         const int radiusSq = (xj >= centerXMin && xj <= centerXMax)
                              ? rCenterSq
                              : rEdgeSq;
 
-        // Suprimir picos k más fríos dentro del radio
-        for (int k = j + 1; k < numPicos; k++) {
-            if (picos[k].suprimido) continue;
+        // Suppress colder k-peaks within the radius
+        for (int k = j + 1; k < numPeaks; k++) {
+            if (peaks[k].suprimido) continue;
 
-            const int dx = (int)xj - (int)picos[k].x;
-            const int dy = (int)yj - (int)picos[k].y;
+            const int dx = (int)xj - (int)peaks[k].x;
+            const int dy = (int)yj - (int)peaks[k].y;
             const int d2 = dx * dx + dy * dy;
 
             if (d2 <= radiusSq) {
-                picos[k].suprimido = true;
+                peaks[k].suprimido = true;
             }
         }
     }

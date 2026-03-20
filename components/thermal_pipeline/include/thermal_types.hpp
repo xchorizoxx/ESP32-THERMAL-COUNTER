@@ -1,10 +1,10 @@
 #pragma once
 /**
  * @file thermal_types.hpp
- * @brief Estructuras de datos del sistema de conteo térmico.
+ * @brief Data structures for the thermal counting system.
  *
- * Define los tipos para el pipeline de visión (PicoTermico, Track)
- * y los payloads de comunicación (PayloadTelemetria, PayloadImagen, IpcPacket).
+ * Defines types for the vision pipeline (ThermalPeak, Track)
+ * and communication payloads (TelemetryPayload, ImagePayload, IpcPacket).
  */
 
 #include <stdint.h>
@@ -12,59 +12,59 @@
 #include "thermal_config.hpp"
 
 // =========================================================================
-//  Estructuras del Pipeline de Visión (Core 1)
+//  Vision Pipeline Structures (Core 1)
 // =========================================================================
 
 /**
- * @brief Pico térmico detectado en un frame.
- * Producido por PeakDetector (Paso 2), consumido por NmsSuppressor (Paso 3).
+ * @brief Thermal peak detected in a frame.
+ * Produced by PeakDetector (Step 2), consumed by NmsSuppressor (Step 3).
  */
 struct PicoTermico {
-    uint8_t x;              ///< Columna [0..31]
-    uint8_t y;              ///< Fila [0..23]
-    float   temperatura;    ///< Temperatura en °C
-    bool    suprimido;      ///< Bandera NMS: true = suprimido por un pico más caliente
+    uint8_t x;              ///< Column [0..31]
+    uint8_t y;              ///< Row [0..23]
+    float   temperatura;    ///< Temperature in °C
+    bool    suprimido;      ///< NMS flag: true = suppressed by a hotter peak
 };
 
 /**
- * @brief Track de una persona rastreada entre frames.
- * Gestionado por AlphaBetaTracker (Paso 4).
+ * @brief Track of a person followed across frames.
+ * Managed by AlphaBetaTracker (Step 4).
  */
 struct Track {
-    uint8_t id;             ///< Identificador único del track
-    float   x;              ///< Posición X suavizada (sub-pixel)
-    float   y;              ///< Posición Y suavizada (sub-pixel)
-    float   v_x;            ///< Velocidad estimada en X [px/frame]
-    float   v_y;            ///< Velocidad estimada en Y [px/frame]
-    uint8_t age;            ///< Frames desde la última actualización real
-    bool    activo;         ///< false = track expirado (age > TRACK_MAX_AGE)
-    uint8_t estado_y;       ///< Máquina de estados: 0=Superior, 1=Neutro, 2=Inferior
+    uint8_t id;             ///< Unique track identifier
+    float   x;              ///< Smoothed X position (sub-pixel)
+    float   y;              ///< Smoothed Y position (sub-pixel)
+    float   v_x;            ///< Estimated X velocity [px/frame]
+    float   v_y;            ///< Estimated Y velocity [px/frame]
+    uint8_t age;            ///< Frames since last real update
+    bool    activo;         ///< false = expired track (age > TRACK_MAX_AGE)
+    uint8_t estado_y;       ///< State machine: 0=Upper, 1=Neutral, 2=Lower
 };
 
 // =========================================================================
-//  Payloads de Comunicación (Core 1 → Core 0 → UDP)
+//  Communication Payloads (Core 1 → Core 0 → UDP)
 // =========================================================================
 
 /**
- * @brief Info compacta de un track para transmisión.
- * Usa fixed-point ×100 para evitar floats en la red.
+ * @brief Compact track info for transmission.
+ * Uses fixed-point ×100 to avoid floats on the network.
  */
 struct __attribute__((packed)) TrackInfo {
     uint8_t id;
-    int16_t x_100;          ///< Posición X × 100 (ej. 1520 = 15.20)
-    int16_t y_100;          ///< Posición Y × 100 (ej. 1200 = 12.00)
-    int16_t v_x_100;        ///< Velocidad X × 100
-    int16_t v_y_100;        ///< Velocidad Y × 100
+    int16_t x_100;          ///< X position × 100 (e.g., 1520 = 15.20)
+    int16_t y_100;          ///< Y position × 100 (e.g., 1200 = 12.00)
+    int16_t v_x_100;        ///< X velocity × 100
+    int16_t v_y_100;        ///< Y velocity × 100
 };
 
 /**
- * @brief Paquete de telemetría: contadores + tracks activos.
- * Se envía por UDP con header 0x01.
- * Tamaño: ~85 bytes (varía con num_tracks).
+ * @brief Telemetry packet: counters + active tracks.
+ * Sent via UDP with header 0x01.
+ * Size: ~85 bytes (varies with num_tracks).
  */
 struct __attribute__((packed)) PayloadTelemetria {
     uint32_t frame_id;
-    float    ambient_temp;  ///< Ta leída del sensor MLX90640
+    float    ambient_temp;  ///< Ta read from MLX90640 sensor
     int16_t  count_in;
     int16_t  count_out;
     uint8_t  num_tracks;
@@ -72,10 +72,10 @@ struct __attribute__((packed)) PayloadTelemetria {
 };
 
 /**
- * @brief Paquete de imagen térmica: 768 valores de temperatura.
- * Se envía por UDP con header 0x02.
- * Cada pixel = temp × 100 como int16 (ej. 2350 = 23.50°C).
- * Tamaño: ~1540 bytes.
+ * @brief Thermal image packet: 768 temperature values.
+ * Sent via UDP with header 0x02.
+ * Each pixel = temp × 100 as int16 (e.g., 2350 = 23.50°C).
+ * Size: ~1540 bytes.
  */
 struct __attribute__((packed)) PayloadImagen {
     uint32_t frame_id;
@@ -83,9 +83,9 @@ struct __attribute__((packed)) PayloadImagen {
 };
 
 /**
- * @brief Paquete IPC completo que viaja por la FreeRTOS Queue.
- * Contiene tanto la telemetría como la imagen para que Core 0
- * pueda enviar ambos paquetes UDP por cada frame.
+ * @brief Full IPC packet traveling through the FreeRTOS Queue.
+ * Contains both telemetry and image so Core 0
+ * can send both UDP packets per frame.
  */
 struct IpcPacket {
     PayloadTelemetria telemetria;
@@ -94,7 +94,7 @@ struct IpcPacket {
 };
 
 // =========================================================================
-//  Comandos UI (Core 0 -> Core 1)
+//  UI Commands (Core 0 -> Core 1)
 // =========================================================================
 enum class ConfigCmdType {
     SET_TEMP_BIO,
@@ -108,11 +108,10 @@ enum class ConfigCmdType {
     RESET_COUNTS,
     RETRY_SENSOR,
     SAVE_CONFIG,    ///< Persist current config to NVS flash
-    APPLY_CONFIG    ///< Batch-apply all parameters (no-op for pipeline, handled in Core 0)
+    APPLY_CONFIG    ///< Batch-apply all parameters (handled in Core 0)
 };
 
 struct AppConfigCmd {
     ConfigCmdType type;
     float value;
 };
-

@@ -1,15 +1,15 @@
-# Tarea: Pipeline de Visión Térmica
+# Task: Thermal Vision Pipeline
 
-## Objetivo
-Implementar los 5 pasos del algoritmo de visión artificial en el Core 1, optimizando para el ESP32-S3 (FPU).
+## Objective
+Implement the 5 steps of the computer vision algorithm on Core 1, optimizing for the ESP32-S3 (FPU).
 
-## Requisitos Técnicos
-1. **Filtro Espacial**: Implementar interpolación o suavizado para eliminar el patrón de "ajedrez".
-2. **Fondo EMA**: El fondo debe aprenderse solo cuando no hay movimiento detectado (máscara).
-3. **NMS**: Supresión de no-máximos usando distancia Euclidiana al cuadrado (para evitar `sqrt`).
-4. **Tracking Alpha-Beta**: Mantener la identidad de los tracks (IDs persistentes) mientras se mueven por el FOV.
-5. **Conteo por Líneas**: Dos líneas virtuales (p. ej. Y=11 y Y=13) que detectan dirección IN/OUT.
+## Technical Requirements
+1. **Spatial Filter**: Implement interpolation or smoothing to eliminate the "checkerboard" pattern.
+2. **EMA Background**: The background should be learned only when no movement is detected (masking).
+3. **NMS**: Non-maximum suppression using squared Euclidean distance (to avoid `sqrt`).
+4. **Alpha-Beta Tracking**: Maintain track identity (persistent IDs) as they move through the FOV.
+5. **Line Counting**: Two virtual lines (e.g., Y=11 and Y=13) that detect IN/OUT direction.
 
-## Notas de Performance
-- Todo el procesamiento debe ocurrir en <40ms.
-- Usar `float` nativo. No usar `double`.
+## Performance Notes
+- Processing must occur in <40ms.
+- Use native `float`. Do not use `double`.

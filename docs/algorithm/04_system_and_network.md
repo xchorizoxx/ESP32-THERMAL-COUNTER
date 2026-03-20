@@ -1,45 +1,45 @@
-# Arquitectura de Sistema y Red
+# System and Network Architecture
 
-Este documento detalla la infraestructura técnica que permite al ESP32-S3 manejar el pesado pipeline de visión térmica y la comunicación web simultáneamente.
+This document details the technical infrastructure that allows the ESP32-S3 to simultaneously handle the heavy thermal vision pipeline and web communication.
 
-## 1. Diseño Multi-Núcleo (Asimétrico)
+## 1. Multi-Core Design (Asymmetric)
 
-El ESP32-S3 tiene dos núcleos (Core 0 y Core 1). Hemos asignado las tareas para maximizar el determinismo:
+The ESP32-S3 has two cores (Core 0 and Core 1). We have assigned tasks to maximize determinism:
 
-*   **Core 1 (APP_CPU):** Ejecuta la tarea `ThermalPipe`. Es una tarea de tiempo real crítico. Su prioridad es máxima (24) para asegurar que el bus I2C nunca espere.
-*   **Core 0 (PRO_CPU):** Ejecuta la tarea `TelemetryTask` y el `HTTP_SERVER`. Se encarga de la pila de red WiFi y TCP/IP.
+*   **Core 1 (APP_CPU):** Runs the `ThermalPipe` task. It is a critical real-time task. Its priority is maximum (24) to ensure the I2C bus never waits.
+*   **Core 0 (PRO_CPU):** Runs the `TelemetryTask` and the `HTTP_SERVER`. It handles the WiFi and TCP/IP network stack.
 
-### Comunicación Inter-Core (IPC)
-Para pasar datos del Core 1 al Core 0 de forma segura sin bloqueos (Race Conditions), utilizamos **FreeRTOS Queues**.
-1. El Core 1 genera un `IpcPacket`.
-2. Lo envía a la `ipcQueue` con un timeout de 0 (si la cola está llena, el frame se descarta para no retrasar la visión).
-3. El Core 0 recibe el paquete, lo empaqueta en binario y lo envía por el WebSocket.
+### Inter-Core Communication (IPC)
+To pass data from Core 1 to Core 0 safely without blocking (Race Conditions), we use **FreeRTOS Queues**.
+1. Core 1 generates an `IpcPacket`.
+2. It sends it to the `ipcQueue` with a timeout of 0 (if the queue is full, the frame is discarded to not delay vision).
+3. Core 0 receives the packet, packages it into binary, and sends it via WebSocket.
 
-## 2. Protocolo Binario WebSockets
+## 2. Binary WebSockets Protocol
 
-Para ahorrar ancho de banda y CPU, no usamos JSON para enviar la imagen térmica (que son 768 números flotantes). En su lugar, enviamos un **Buffer Binario**.
+To save bandwidth and CPU, we do not use JSON to send the thermal image (which are 768 floating-point numbers). Instead, we send a **Binary Buffer**.
 
-### Estructura del Frame (Little-Endian):
-| Posición | Tipo | Descripción |
+### Frame Structure (Little-Endian):
+| Position | Type | Description |
 |----------|------|-------------|
 | 0 | `uint8` | Header (`0xAA`) |
 | 1 | `uint8` | Sensor OK (0/1) |
-| 2-5 | `float32` | Temperatura Ambiente (`Ta`) |
-| 6-7 | `uint16` | Contador Entradas |
-| 8-9 | `uint16` | Contador Salidas |
-| 10 | `uint8` | Número de Tracks activos (`N`) |
-| 11+ | `TrackInfo[N]` | Arreglo de picos (ID, X, Y, VX, VY) |
-| final | `int16[768]` | Intensidad térmica (Temp * 100) |
+| 2-5 | `float32` | Ambient Temperature (`Ta`) |
+| 6-7 | `uint16` | Entry Count |
+| 8-9 | `uint16` | Exit Count |
+| 10 | `uint8` | Number of active tracks (`N`) |
+| 11+ | `TrackInfo[N]` | Array of peaks (ID, X, Y, VX, VY) |
+| final | `int16[768]` | Thermal intensity (Temp * 100) |
 
-## 3. Persistencia de Configuración (NVS)
+## 3. Configuration Persistence (NVS)
 
-Utilizamos el sistema **Non-Volatile Storage (NVS)** del ESP32 para guardar los parámetros de calibración.
-- Los valores se guardan en el namespace `"thcfg"`.
-- Los flotantes (como `EMA_ALPHA`) se guardan como `int32_t` escalados por 1000, ya que NVS no soporta floats nativos.
-- **Ciclo de Vida:** Al arrancar (`vTaskStartScheduler`), el Core 0 carga los valores de NVS y los envía al Core 1. Cuando el usuario pulsa "Guardar" en la web, el Core 0 escribe en la flash y notifica al núcleo de visión.
+We use the ESP32's **Non-Volatile Storage (NVS)** system to save calibration parameters.
+- Values are saved in the `"thcfg"` namespace.
+- Floats (like `EMA_ALPHA`) are saved as `int32_t` scaled by 1000, as NVS does not natively support floats.
+- **Lifecycle:** Upon startup (`vTaskStartScheduler`), Core 0 loads values from NVS and sends them to Core 1. When the user clicks "Save" on the web, Core 0 writes to flash and notifies the vision core.
 
-## 4. Servidor Web Integrado
+## 4. Integrated Web Server
 
-El servidor web corre sobre la pila `esp_http_server`.
-- **Memoria:** El código HTML/JS/CSS está incrustado en el binario (`web_ui_html.h`) como constantes de texto comprimido. No depende de una tarjeta SD.
-- **Concurrencia:** Soporta hasta 4 clientes simultáneos, aunque se recomienda conectar solo 1 o 2 para no saturar la RAM del ESP32-S3.
+The web server runs on the `esp_http_server` stack.
+- **Memory:** HTML/JS/CSS code is embedded in the binary (`web_ui_html.h`) as compressed text constants. It does not depend on an SD card.
+- **Concurrency:** Supports up to 4 simultaneous clients, although connecting only 1 or 2 is recommended to not saturate the ESP32-S3's RAM.

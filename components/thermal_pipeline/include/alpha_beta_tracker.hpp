@@ -1,10 +1,10 @@
 #pragma once
 /**
  * @file alpha_beta_tracker.hpp
- * @brief Paso 4 — Tracking con Filtro Alpha-Beta + Lógica de Conteo.
+ * @brief Step 4 — Tracking with Alpha-Beta Filter + Counting Logic.
  *
- * Rastrea personas entre frames usando un filtro predictivo Alpha-Beta
- * y cuenta entradas/salidas con una máquina de estados de histéresis.
+ * Tracks people between frames using an Alpha-Beta predictive filter
+ * and counts entries/exits with a hysteresis state machine.
  */
 
 #include "thermal_types.hpp"
@@ -14,56 +14,56 @@ public:
     AlphaBetaTracker();
 
     /**
-     * @brief Actualiza tracks con los picos del frame actual y cuenta cruces.
-     * @param picos       Array de picos del frame (incluyendo suprimidos)
-     * @param numPicos    Total de picos en el array
-     * @param alpha       Ganancia de posición del filtro
-     * @param beta        Ganancia de velocidad del filtro
-     * @param maxDistSq   Distancia² máxima para emparejar pico con track
-     * @param maxAge      Frames máximos sin actualización antes de eliminar track
-     * @param lineEntryY  Línea virtual superior (entrada)
-     * @param lineExitY   Línea virtual inferior (salida)
-     * @param countIn     Contador de entradas (acumulativo, in-out)
-     * @param countOut    Contador de salidas (acumulativo, in-out)
+     * @brief Updates tracks with current frame peaks and counts crossings.
+     * @param peaks       Peaks array of the frame (including suppressed)
+     * @param numPeaks    Total peaks in the array
+     * @param alpha       Filter position gain
+     * @param beta        Filter velocity gain
+     * @param maxDistSq   Maximum distance² to match peak with track
+     * @param maxAge      Maximum frames without update before removing track
+     * @param lineEntryY  Upper virtual line (entry)
+     * @param lineExitY   Lower virtual line (exit)
+     * @param countIn     Entry counter (cumulative, in-out)
+     * @param countOut    Exit counter (cumulative, in-out)
      */
-    void update(const PicoTermico* picos, int numPicos,
+    void update(const PicoTermico* peaks, int numPeaks,
                 float alpha, float beta,
                 int maxDistSq, int maxAge,
                 int lineEntryY, int lineExitY,
                 int& countIn, int& countOut);
 
     /**
-     * @brief Acceso de lectura al array de tracks para la máscara.
+     * @brief Read access to the tracks array for the map.
      */
     const Track* getTracks() const { return tracks_; }
 
     /**
-     * @brief Número máximo de tracks (coincide con MAX_TRACKS).
+     * @brief Maximum number of tracks (matches MAX_TRACKS).
      */
     int getMaxTracks() const;
 
     /**
-     * @brief Devuelve el número de tracks activos.
+     * @brief Returns the number of active tracks.
      */
     int getActiveCount() const;
 
 private:
-    Track   tracks_[15]; // MAX_TRACKS hardcoded para evitar dependencia circular
+    Track   tracks_[15]; // MAX_TRACKS hardcoded to avoid circular dependency
     uint8_t nextId_;
 
     /**
-     * @brief Busca o crea un track libre para asignar un pico nuevo.
-     * @return Puntero al track, o nullptr si no hay espacio.
+     * @brief Searches for or creates a free track to assign a new peak.
+     * @return Pointer to track, or nullptr if no space.
      */
     Track* findFreeTrack();
 
     /**
-     * @brief Evalúa la máquina de estados de histéresis para contar.
-     * @param track      Track a evaluar
-     * @param lineEntryY Línea virtual superior
-     * @param lineExitY  Línea virtual inferior
-     * @param countIn    Contador de entradas
-     * @param countOut   Contador de salidas
+     * @brief Evaluates the hysteresis state machine for counting.
+     * @param track      Track to evaluate
+     * @param lineEntryY Upper virtual line
+     * @param lineExitY  Lower virtual line
+     * @param countIn    In counter
+     * @param countOut   Out counter
      */
     void evaluateCountingLogic(Track& track,
                                int lineEntryY, int lineExitY,

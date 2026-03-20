@@ -1,10 +1,10 @@
-# Tarea: Telemetría y Comunicaciones
+# Task: Telemetry and Communications
 
-## Objetivo
-Gestionar los hilos de red (WiFi, UDP, WebSocket) en el Core 0.
+## Objective
+Manage network threads (WiFi, UDP, WebSocket) on Core 0.
 
-## Requisitos Técnicos
-1. **SoftAP**: Configurar el ESP32 como Access Point `ThermalCounter`.
-2. **Event Loop**: Manejar eventos de WiFi de forma asíncrona.
-3. **Broadcaster**: Tarea que lee la cola de frames del Core 1 y emite paquetes UDP binarios a la red broadcast (`255.255.255.255`).
-4. **Resilencia**: Si se pierde la conexión o el stack de red se satura, el sistema debe recuperarse sin afectar la detección térmica.
+## Technical Requirements
+1. **SoftAP**: Configure the ESP32 as an Access Point named `ThermalCounter`.
+2. **Event Loop**: Handle WiFi events asynchronously.
+3. **Broadcaster**: A task that reads the frame queue from Core 1 and emits binary UDP packets to the broadcast network (`255.255.255.255`).
+4. **Resilience**: If the connection is lost or the network stack becomes saturated, the system must recover without affecting thermal detection.
