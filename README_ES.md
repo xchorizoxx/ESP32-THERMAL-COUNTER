@@ -72,7 +72,9 @@ El núcleo de mayor prioridad. Ejecuta el bucle de procesamiento matemático a *
 
 ### Core 0: Comunicaciones y Telemetría (`TelemetryTask`)
 Gestiona la capa externa del sistema.
-- **SoftAP y Servidor Web:** Maneja un punto de acceso WiFi y sirve el Dashboard táctico.
+- **SoftAP y Servidor Web:** Maneja un punto de acceso WiFi y sirve el Dashboard táctico. Valores defecto:
+- SSDI: Thermal Counter
+- Password: counter1234
 - **WebSockets Binarios:** Empaqueta los datos procesados en estructuras `packed` de C para una transmisión eficiente.
 - **Flash NVS:** Gestiona la persistencia de la calibración para que los ajustes sobrevivan a cortes de energía.
 
