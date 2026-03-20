@@ -4,6 +4,8 @@
 ![Platform](https://img.shields.io/badge/Platform-ESP32--S3-orange)
 ![Framework](https://img.shields.io/badge/Framework-ESP--IDF--v5.5-red)
 
+[Leer en Español](README_ES.md)
+
 A high-performance thermal artificial vision system for access person counting, designed for **Edge Computing analysis**. It utilizes a Melexis MLX90640 sensor and an ESP32-S3 microcontroller to process thermal images, track targets, and manage statistics without compromising privacy.
 
 ---
