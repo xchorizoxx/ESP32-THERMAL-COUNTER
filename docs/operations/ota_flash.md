@@ -43,14 +43,17 @@ The script automatically looks for `build/DetectorPuerta.bin` and shows real-tim
 
 The system uses the ESP-IDF rollback mechanism:
 
-| State           | Description |
+| State | Description |
 |-----------------|-------------|
 | `PENDING_VERIFY` | New firmware has just been flashed. If it crashes, the bootloader reverts. |
-| `VALID`          | `esp_ota_mark_app_valid_cancel_rollback()` called → firmware is definitively accepted. |
+| `VALID` | `esp_ota_mark_app_valid_cancel_rollback()` called → firmware is definitively accepted. |
 
 Marking as `VALID` occurs **inside `app_main()`** once WiFi + Sensor + HTTP Server + Tasks are all active. If the new firmware crashes before that point, the **bootloader automatically reverts** to the previous firmware.
+- **OTA Rollback**: The system automatically rolls back to the previous version if the new one fails to boot.
 
----
+![OTA Update Interface](../../docs/assets/web-hud-ota.jpg)
+
+### Flashing Methods
 
 ## 📁 Key Files
 

@@ -6,7 +6,34 @@
 
 [Read this in English](README.md)
 
+![Project Concept](docs/assets/thermal-counter-concept.png)
+
+### 📸 Vista General del Sistema
+
+#### Montaje Hardware
+![Protoboard](docs/assets/hardware-protoboard.jpg)
+
+#### Interfaz Web HUD
+![Web HUD](docs/assets/web-hud-camera.jpg)
+
+---
+
+## 📽️ Videos de Demostración
+
+Experimenta el sistema en acción a través de estos tests de campo:
+
+- **[Demostración Extendida del Prototipo](docs/assets/demo-extended.mp4)**: Un recorrido completo por el sistema, desde el arranque hasta el conteo en tiempo real.
+- **[Test de Detección de Múltiples Personas](docs/assets/demo-multiple-people.mp4)**: Test de estrés que muestra el rastreador Alpha-Beta manejando múltiples objetivos superpuestos.
+
+---
+
 Un sistema de visión artificial térmica de alto rendimiento para el conteo de personas, diseñado para el **análisis en el Edge Computing**. Utiliza un sensor Melexis MLX90640 y un microcontrolador ESP32-S3 para procesar imágenes térmicas, rastrear objetivos y gestionar estadísticas sin comprometer la privacidad.
+
+---
+
+- **Detección Biométrica:** Basada en la firma térmica humana (~30-36°C), diferenciándola de objetos inanimados.
+- **Visualización Versátil:** Más allá del conteo, puede usarse como una **cámara térmica estándar** para monitoreo en tiempo real desde la web.
+- **Modos de Triple Visión:** El HUD soporta 3 modos (Raw, Fondo y Radar) para diagnósticos profundos del sistema.
 
 ---
 
@@ -16,9 +43,10 @@ Un sistema de visión artificial térmica de alto rendimiento para el conteo de 
 3. [Arquitectura de Alto Nivel](#arquitectura-de-alto-nivel)
 4. [El Pipeline de Visión (Algoritmo)](#el-pipeline-de-visión-algoritmo)
 5. [Interfaz HUD Táctica](#interfaz-hud-táctica)
-6. [Guía de Calibración](#guía-de-calibración)
+6. [Guía de Calibración (con ejemplos visuales)](#guía-de-calibración)
 7. [Especificaciones Técnicas](#especificaciones-técnicas)
 8. [Instalación y Despliegue](#instalación-y-despliegue)
+9. [Actualizaciones OTA (con ejemplos visuales)](#actualizaciones-ota-over-the-air)
 
 ---
 
@@ -27,7 +55,7 @@ Un sistema de visión artificial térmica de alto rendimiento para el conteo de 
 A diferencia de las cámaras convencionales, este sistema utiliza una **matriz de termopilas de 32x24**. Cada píxel es una medición de temperatura real. Esta naturaleza de los datos garantiza:
 - **Privacidad Total:** No se capturan rostros ni rasgos identificables.
 - **Inmunidad a la Luz:** Funciona en oscuridad total o bajo luz solar directa.
-- **Detección Biométrica:** Basada en la firma térmica humana (~30-36°C), diferenciándola de objetos inanimados.
+- **Detección Biométrica:** Basada en la firma térmica humana. Detecta la temperatura de la piel superficial (típicamente entre 28°C y 37°C), lo que permite diferenciar objetivos humanos de objetos inanimados y ruido de fondo.
 
 ---
 
@@ -118,7 +146,17 @@ El sistema incluye una interfaz web estilo **HUD Cyberpunk/Táctico** diseñada 
 - **Interpolación Bilineal:** El navegador reescala la matriz de 32x24 a 640x480 usando la GPU, creando una imagen suave ("blur") en lugar de bloques pixelados.
 - **Vectores de Velocidad:** Cada persona rastreada muestra una flecha amarilla indicando hacia dónde y qué tan rápido se mueve.
 - **Modo Radar:** Permite ver el "residuo térmico" (imagen sustraída). Ideal para depurar si el fondo se está aprendiendo correctamente.
+- **Modo Cámara Térmica:** Visualiza el mapa térmico en tiempo real con interpolación GPU de alta velocidad para vigilancia estándar.
 - **Telemetría Ta:** Muestra la temperatura interna del silicio para monitorear el estrés térmico del sensor.
+
+---
+
+## 📽️ Videos de Demostración
+
+Experimenta el sistema en acción a través de estos tests de campo:
+
+- **[Demostración Extendida del Prototipo](docs/assets/demo-extended.mp4)**: Un recorrido completo por el sistema, desde el arranque hasta el conteo en tiempo real.
+- **[Test de Detección de Múltiples Personas](docs/assets/demo-multiple-people.mp4)**: Test de estrés que muestra el rastreador Alpha-Beta manejando múltiples objetivos superpuestos.
 
 ---
 

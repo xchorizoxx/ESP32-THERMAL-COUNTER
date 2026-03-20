@@ -6,7 +6,34 @@
 
 [Leer en Español](README_ES.md)
 
-A high-performance thermal artificial vision system for access person counting, designed for **Edge Computing analysis**. It utilizes a Melexis MLX90640 sensor and an ESP32-S3 microcontroller to process thermal images, track targets, and manage statistics without compromising privacy.
+[Leer en Español](README_ES.md)
+
+![Project Concept](docs/assets/thermal-counter-concept.png)
+
+### 📸 System Overview
+
+#### Hardware Setup
+![Protoboard](docs/assets/hardware-protoboard.jpg)
+
+#### Web HUD Interface
+![Web HUD](docs/assets/web-hud-camera.jpg)
+
+---
+
+## 📽️ Demonstration Videos
+
+Experience the system in action through these field tests:
+
+- **[Extended Prototype Demonstration](docs/assets/demo-extended.mp4)**: Full walkthrough of the system, from boot to real-time counting.
+- **[Multiple People Detection Test](docs/assets/demo-multiple-people.mp4)**: Stress test showing the Alpha-Beta tracker handling multiple overlapping targets.
+
+---
+
+- **Total Privacy:** No faces or identifiable features are captured.
+- **Light Immunity:** Operates in total darkness or direct sunlight.
+- **Biometric Detection:** Based on the human thermal signature. It detects superficial skin temperatures (typically between 28°C and 37°C), allowing it to differentiate human targets from inanimate objects and background noise.
+- **Versatile Visualization:** Beyond person counting, it can be used as a **standard thermal camera** for real-time monitoring through the web interface.
+- **Triple-Vision Modes:** The HUD supports 3 distinct modes (Raw, Background, and Radar) for deep system diagnostics.
 
 ---
 
@@ -16,9 +43,10 @@ A high-performance thermal artificial vision system for access person counting, 
 3. [High-Level Architecture](#high-level-architecture)
 4. [The Vision Pipeline (Algorithm)](#the-vision-pipeline-algorithm)
 5. [Tactical HUD Interface](#tactical-hud-interface)
-6. [Calibration Guide](#calibration-guide)
+6. [Calibration Guide (with visual examples)](#calibration-guide)
 7. [Technical Specifications](#technical-specifications)
 8. [Installation and Deployment](#installation-and-deployment)
+9. [OTA Updates (with visual examples)](#ota-updates-over-the-air)
 
 ---
 
@@ -119,7 +147,17 @@ The system includes a **Cyberpunk/Tactical HUD** style web interface designed fo
 - **Bilinear Interpolation:** The browser rescales the 32x24 matrix to 640x480 using the GPU, creating a smooth ("blur") image instead of pixelated blocks.
 - **Velocity Vectors:** Each tracked person shows a yellow arrow indicating where and how fast they are moving.
 - **Radar Mode:** Allows viewing the "thermal residue" (subtracted image). Ideal for debugging if the background is being learned correctly.
+- **Thermal Camera Mode:** View the thermal map in real-time with high-speed GPU interpolation for standard surveillance.
 - **Ta Telemetry:** Displays the internal silicon temperature to monitor the sensor's thermal stress.
+
+---
+
+## 📽️ Demonstration Videos
+
+Experience the system in action through these field tests:
+
+- **[Extended Prototype Demonstration](docs/assets/demo-extended.mp4)**: Full walkthrough of the system, from boot to real-time counting.
+- **[Multiple People Detection Test](docs/assets/demo-multiple-people.mp4)**: Stress test showing the Alpha-Beta tracker handling multiple overlapping targets.
 
 ---
 

@@ -1,6 +1,9 @@
 # Thermal Pipeline: Processing Stages
 
 The `ThermalPipeline` component is the mathematical heart of the project. It transforms a low-resolution infrared matrix (32x24) into discretized movement vectors and counting events.
+- **Masking**: Temporary suppression of the zone where a target was just counted to avoid double counting on re-entry.
+
+![Web HUD Camera Modes](../../docs/assets/web-hud-modes.jpg)
 
 ## 🌊 Pipeline Flowchart
 
