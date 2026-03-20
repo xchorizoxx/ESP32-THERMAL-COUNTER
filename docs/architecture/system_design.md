@@ -10,9 +10,9 @@ The system operates two primary tasks pinned to different CPU cores to prevent n
 
 | Task Name | Core | Priority | Stack Size | Responsibility |
 |-----------|------|----------|------------|----------------|
-| `ThermalPipe` | 1 (APP) | 24 (Max) | 8 KB | Sensor reading & Image processing |
-| `TelemetryTX` | 0 (PRO) | 2 | 4 KB | UDP Broadcast & WebSocket streaming |
-| `HTTP Server` | 0 (PRO) | 5 | 8 KB | Handling Web Panel & API requests |
+| `ThermalPipe` | 1 (APP) | 24 (Max) | 6 KB (Static) | Non-blocking Sensor reading & Vision processing |
+| `TelemetryTX` | 0 (PRO) | 2 | 3.5 KB (Static) | UDP Broadcast & WebSocket streaming |
+| `HTTP Server` | 0 (PRO) | 5 | 16 KB | Handling Web Panel, API & Binary HUD |
 
 ## 🔄 Lifecycle Diagram
 

@@ -17,8 +17,9 @@ static const char *NVS_NS     = "thcfg";   ///< NVS namespace for thermal config
 httpd_handle_t HttpServer::server_ = NULL;
 static QueueHandle_t s_configQueue = NULL;
 
-// Initialization of static buffers for WebSocket
-uint8_t HttpServer::ws_buffers_[WS_BUFFER_COUNT][WS_BUFFER_SIZE];
+// Static buffers for WebSocket broadcasting
+// Using __attribute__((aligned(4))) to ensure memory alignment for network/DMA operations
+uint8_t HttpServer::ws_buffers_[WS_BUFFER_COUNT][WS_BUFFER_SIZE] __attribute__((aligned(4)));
 int     HttpServer::ws_buffer_ref_counts_[WS_BUFFER_COUNT] = {0, 0};
 static portMUX_TYPE s_ws_mux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -34,7 +35,7 @@ static void loadConfigFromNvs(void) {
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NS, NVS_READONLY, &h);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGI(TAG, "NVS: no saved configuration — using default values");
+        ESP_LOGI(TAG, "NVS: no saved configuration - using default values");
         return;
     }
     if (err != ESP_OK) {
@@ -56,8 +57,8 @@ static void loadConfigFromNvs(void) {
         }
     };
 
-    readFloat("temp_bio",   ThermalConfig::TEMP_BIOLOGICO_MIN);
-    readFloat("delta_t",    ThermalConfig::DELTA_T_FONDO);
+    readFloat("temp_bio",   ThermalConfig::BIOLOGICAL_TEMP_MIN);
+    readFloat("delta_t",    ThermalConfig::BACKGROUND_DELTA_T);
     readFloat("alpha_ema",  ThermalConfig::EMA_ALPHA);
     readInt  ("line_entry", ThermalConfig::DEFAULT_LINE_ENTRY_Y);
     readInt  ("line_exit",  ThermalConfig::DEFAULT_LINE_EXIT_Y);
@@ -66,8 +67,8 @@ static void loadConfigFromNvs(void) {
     readInt  ("view_mode",  ThermalConfig::VIEW_MODE);
 
     nvs_close(h);
-    ESP_LOGI(TAG, "NVS: configuration loaded — temp_bio=%.1f delta_t=%.1f alpha=%.2f entry=%d exit=%d nms_c=%d nms_e=%d mode=%d",
-             ThermalConfig::TEMP_BIOLOGICO_MIN, ThermalConfig::DELTA_T_FONDO,
+    ESP_LOGI(TAG, "NVS: configuration loaded - temp_bio=%.1f delta_t=%.1f alpha=%.2f entry=%d exit=%d nms_c=%d nms_e=%d mode=%d",
+             ThermalConfig::BIOLOGICAL_TEMP_MIN, ThermalConfig::BACKGROUND_DELTA_T,
              ThermalConfig::EMA_ALPHA,
              ThermalConfig::DEFAULT_LINE_ENTRY_Y, ThermalConfig::DEFAULT_LINE_EXIT_Y,
              ThermalConfig::NMS_RADIUS_CENTER_SQ, ThermalConfig::NMS_RADIUS_EDGE_SQ,
@@ -88,9 +89,9 @@ static esp_err_t saveConfigToNvs(void) {
         return err;
     }
 
-    // Store floats as int32 (value × 1000) — NVS has no float type
-    nvs_set_i32(h, "temp_bio",   (int32_t)(ThermalConfig::TEMP_BIOLOGICO_MIN * 1000.0f));
-    nvs_set_i32(h, "delta_t",    (int32_t)(ThermalConfig::DELTA_T_FONDO      * 1000.0f));
+    // Store floats as int32 (value * 1000) - NVS has no float type
+    nvs_set_i32(h, "temp_bio",   (int32_t)(ThermalConfig::BIOLOGICAL_TEMP_MIN * 1000.0f));
+    nvs_set_i32(h, "delta_t",    (int32_t)(ThermalConfig::BACKGROUND_DELTA_T      * 1000.0f));
     nvs_set_i32(h, "alpha_ema",  (int32_t)(ThermalConfig::EMA_ALPHA          * 1000.0f));
     nvs_set_i32(h, "line_entry", (int32_t) ThermalConfig::DEFAULT_LINE_ENTRY_Y);
     nvs_set_i32(h, "line_exit",  (int32_t) ThermalConfig::DEFAULT_LINE_EXIT_Y);
@@ -231,8 +232,8 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
     if (strcmp(cmd->valuestring, "GET_CONFIG") == 0) {
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddStringToObject(resp, "type",       "config");
-        cJSON_AddNumberToObject(resp, "temp_bio",   (double)ThermalConfig::TEMP_BIOLOGICO_MIN);
-        cJSON_AddNumberToObject(resp, "delta_t",    (double)ThermalConfig::DELTA_T_FONDO);
+        cJSON_AddNumberToObject(resp, "temp_bio",   (double)ThermalConfig::BIOLOGICAL_TEMP_MIN);
+        cJSON_AddNumberToObject(resp, "delta_t",    (double)ThermalConfig::BACKGROUND_DELTA_T);
         cJSON_AddNumberToObject(resp, "alpha_ema",  (double)ThermalConfig::EMA_ALPHA);
         cJSON_AddNumberToObject(resp, "line_entry", (double)ThermalConfig::DEFAULT_LINE_ENTRY_Y);
         cJSON_AddNumberToObject(resp, "line_exit",  (double)ThermalConfig::DEFAULT_LINE_EXIT_Y);
@@ -351,7 +352,7 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
 
     httpd_config_t config      = HTTPD_DEFAULT_CONFIG();
     config.core_id             = 0;   // PRO_CPU (Core 0)
-    config.max_open_sockets    = 4;
+    config.max_open_sockets    = 7;    // Increase from 4 to 7 (ESP-IDF default) for better connection handling
     config.stack_size          = 16384;  // Increased for OTA: firmware writes consume extra stack
 
     ESP_LOGI(TAG, "Starting HTTP server on port %d", config.server_port);
@@ -423,16 +424,12 @@ void HttpServer::stop() {
         server_ = NULL;
     }
 }
-
-// =============================================================================
-//  BROADCAST FRAME  (called from TelemetryTask at 16 Hz)
-// =============================================================================
-
-void HttpServer::broadcastFrame(const PayloadImagen &img, const PayloadTelemetria &tel, bool sensor_ok) {
+void HttpServer::broadcastFrame(const ImagePayload& img, const TelemetryPayload& tel, bool sensor_ok)
+{
     if (!server_) return;
 
-    // 8Hz Optimization (send every other frame to browser)
-    if (tel.frame_id % 2 != 0) return;
+    // Optimization: Send every frame to browser (S3 has plenty of BW)
+    // if (tel.frame_id % 2 != 0) return;
 
     // 1. Find a free buffer (ref_count == 0)
     int buf_idx = -1;
@@ -512,16 +509,38 @@ void HttpServer::broadcastFrame(const PayloadImagen &img, const PayloadTelemetri
     ws_buffer_ref_counts_[buf_idx] = ws_clients_count; 
     portEXIT_CRITICAL(&s_ws_mux);
 
+    // 5. Send to all WS clients
+    size_t successful_async_sends = 0;
     for (size_t i = 0; i < clients; i++) {
         if (httpd_ws_get_fd_info(server_, client_fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
             // Pass buffer index as argument (cast to void*)
             esp_err_t err = httpd_ws_send_data_async(server_, client_fds[i], &ws_pkt, 
                                                     wsAsyncCompletionCb, (void*)(uintptr_t)buf_idx);
-            if (err != ESP_OK) {
-                // If queuing fails, decrement counter manually
-                wsAsyncCompletionCb(err, client_fds[i], (void*)(uintptr_t)buf_idx);
+            if (err == ESP_OK) {
+                successful_async_sends++;
+            } else {
+                // Rate-limited logging for Error 11 (EAGAIN) to avoid console flooding during disconnections
+                static uint32_t last_error_log_frame = 0;
+                if (tel.frame_id - last_error_log_frame > 80) { // Every ~10 seconds at 8Hz delivery
+                    ESP_LOGW(TAG, "Failed to queue async WS send to fd %d: %s (Check if client disconnected)", 
+                             client_fds[i], esp_err_to_name(err));
+                    last_error_log_frame = tel.frame_id;
+                }
             }
         }
+    }
+
+    // 6. Final Adjustment: If no sends were successfully queued, release buffer immediately
+    if (successful_async_sends == 0) {
+        portENTER_CRITICAL(&s_ws_mux);
+        ws_buffer_ref_counts_[buf_idx] = 0;
+        portEXIT_CRITICAL(&s_ws_mux);
+    } else if (successful_async_sends < ws_clients_count) {
+        // Some sends failed to queue, adjust ref count so it eventualy reaches 0
+        portENTER_CRITICAL(&s_ws_mux);
+        ws_buffer_ref_counts_[buf_idx] -= (ws_clients_count - successful_async_sends);
+        if (ws_buffer_ref_counts_[buf_idx] < 0) ws_buffer_ref_counts_[buf_idx] = 0;
+        portEXIT_CRITICAL(&s_ws_mux);
     }
 }
 

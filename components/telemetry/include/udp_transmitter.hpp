@@ -31,14 +31,14 @@ public:
      * Datagram: [0x01][TelemetryPayload]
      * @return ESP_OK on success.
      */
-    esp_err_t sendTelemetry(const PayloadTelemetria& payload);
+    esp_err_t sendTelemetry(const TelemetryPayload& payload);
 
     /**
      * @brief Sends the thermal image packet.
      * Datagram: [0x02][ImagePayload]
      * @return ESP_OK on success.
      */
-    esp_err_t sendImage(const PayloadImagen& payload);
+    esp_err_t sendImage(const ImagePayload& payload);
 
 private:
     const char* broadcastIp_;

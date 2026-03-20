@@ -26,9 +26,9 @@ This ensures the floor is only updated with information from areas where we are 
 
 ## Contrast (Delta T)
 
-The `DELTA_T_FONDO` parameter represents how many degrees Celsius above the "learned background" temperature something must be to catch our attention.
-* **If `DELTA_T_FONDO` is very low (e.g., 0.5 °C):** Excessive thermal noise and "ghost false positives" will occur.
-* **If `DELTA_T_FONDO` is very high (e.g., 3.0 °C):** Hot objects will be ignored. If a person has thick hair or a cold hat (e.g., 22°C) and the floor is 20°C, the difference is only 2°C, and we would not detect them.
+The `BACKGROUND_DELTA_T` parameter represents how many degrees Celsius above the "learned background" temperature something must be to catch our attention.
+* **If `BACKGROUND_DELTA_T` is very low (e.g., 0.5 °C):** Excessive thermal noise and "ghost false positives" will occur.
+* **If `BACKGROUND_DELTA_T` is very high (e.g., 3.0 °C):** Hot objects will be ignored. If a person has thick hair or a cold hat (e.g., 22°C) and the floor is 20°C, the difference is only 2°C, and we would not detect them.
 * **Recommended value (1.0 to 1.5):** Perfect balance to reject normal sensor fluctuations while still capturing biological heat.
 
 ## 🧪 The Dynamic Background Model

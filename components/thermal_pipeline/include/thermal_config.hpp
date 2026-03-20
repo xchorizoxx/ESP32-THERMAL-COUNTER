@@ -8,7 +8,7 @@
  * only this file needs to be edited.
  */
 
-#include <cstdint>
+#include <stdint.h>
 
 namespace ThermalConfig {
 
@@ -47,8 +47,8 @@ extern float EMA_ALPHA; // Background adaptation speed
 // =========================================================================
 //  STEP 2 — PEAK DETECTION (Topology)
 // =========================================================================
-extern float TEMP_BIOLOGICO_MIN;       // Minimum detection threshold [°C]
-extern float DELTA_T_FONDO;            // Minimum contrast vs background [°C]
+extern float BIOLOGICAL_TEMP_MIN;       // Minimum detection threshold [°C]
+extern float BACKGROUND_DELTA_T;            // Minimum contrast vs background [°C]
 constexpr float NOISE_MARGIN_C = 0.5f; // Sensor noise margin [°C]
 
 // =========================================================================
@@ -88,7 +88,7 @@ constexpr int MASK_HALF_SIZE = 1; // Square radius (1 = 3×3 px)
 //  SYSTEM AND CAPACITY
 // =========================================================================
 constexpr int PIPELINE_FREQ_HZ = 16; // Pipeline frequency [Hz]
-constexpr int MAX_OBJETIVOS = 15;    // Max. raw peaks per frame
+constexpr int MAX_PEAKS = 15;    // Max. raw peaks per frame
 constexpr int MAX_TRACKS = 15;       // Max. simultaneous tracked persons
 constexpr int IPC_QUEUE_DEPTH = 15; // FreeRTOS queue depth (increased for stability)
 

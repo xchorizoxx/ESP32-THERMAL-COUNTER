@@ -7,7 +7,8 @@
  * in a clean class with internal static buffers.
  */
 
-#include "driver/i2c.h"
+#include "hal/i2c_types.h"
+#include "driver/gpio.h"
 #include "esp_err.h"
 #include <cstdint>
 

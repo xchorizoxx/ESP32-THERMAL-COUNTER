@@ -44,7 +44,7 @@ esp_err_t UdpTransmitter::init()
     return ESP_OK;
 }
 
-esp_err_t UdpTransmitter::sendTelemetry(const PayloadTelemetria& payload)
+esp_err_t UdpTransmitter::sendTelemetry(const TelemetryPayload& payload)
 {
     if (sock_ < 0) {
         ESP_LOGE(TAG, "sendTelemetry: socket not initialized");
@@ -52,10 +52,10 @@ esp_err_t UdpTransmitter::sendTelemetry(const PayloadTelemetria& payload)
     }
 
     // Build datagram: [type_byte][payload]
-    constexpr int bufSize = 1 + sizeof(PayloadTelemetria);
+    constexpr int bufSize = 1 + sizeof(TelemetryPayload);
     uint8_t buf[bufSize];
     buf[0] = ThermalConfig::UDP_PACKET_TELEMETRY;
-    memcpy(buf + 1, &payload, sizeof(PayloadTelemetria));
+    memcpy(buf + 1, &payload, sizeof(TelemetryPayload));
 
     struct sockaddr_in destAddr = {};
     destAddr.sin_family      = AF_INET;
@@ -71,7 +71,7 @@ esp_err_t UdpTransmitter::sendTelemetry(const PayloadTelemetria& payload)
     return ESP_OK;
 }
 
-esp_err_t UdpTransmitter::sendImage(const PayloadImagen& payload)
+esp_err_t UdpTransmitter::sendImage(const ImagePayload& payload)
 {
     if (sock_ < 0) {
         ESP_LOGE(TAG, "sendImage: socket not initialized");
@@ -79,10 +79,10 @@ esp_err_t UdpTransmitter::sendImage(const PayloadImagen& payload)
     }
 
     // Build datagram: [type_byte][payload]
-    constexpr int bufSize = 1 + sizeof(PayloadImagen);
+    constexpr int bufSize = 1 + sizeof(ImagePayload);
     uint8_t buf[bufSize];
     buf[0] = ThermalConfig::UDP_PACKET_IMAGE;
-    memcpy(buf + 1, &payload, sizeof(PayloadImagen));
+    memcpy(buf + 1, &payload, sizeof(ImagePayload));
 
     struct sockaddr_in destAddr = {};
     destAddr.sin_family      = AF_INET;

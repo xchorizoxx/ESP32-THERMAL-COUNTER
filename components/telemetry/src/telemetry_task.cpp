@@ -43,26 +43,35 @@ void TelemetryTask::run()
         }
 
         // Send telemetry (counters + tracks)
-        esp_err_t err = udp_.sendTelemetry(packet.telemetria);
+        esp_err_t err = udp_.sendTelemetry(packet.telemetry);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "Error sending telemetry (frame %lu)",
-                     packet.telemetria.frame_id);
+                     packet.telemetry.frame_id);
         }
 
         // Send thermal image
-        err = udp_.sendImage(packet.imagen);
+        err = udp_.sendImage(packet.image);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "Error sending image (frame %lu)",
-                     packet.imagen.frame_id);
+                     packet.image.frame_id);
         }
 
         // [NEW] Send via WebSocket to HTTP clients
-        HttpServer::broadcastFrame(packet.imagen, packet.telemetria, packet.sensor_ok);
+        HttpServer::broadcastFrame(packet.image, packet.telemetry, packet.sensor_ok);
 
         ESP_LOGD(TAG, "Frame %lu transmitted: IN=%d OUT=%d tracks=%d",
-                 packet.telemetria.frame_id,
-                 packet.telemetria.count_in,
-                 packet.telemetria.count_out,
-                 packet.telemetria.num_tracks);
+                 packet.telemetry.frame_id,
+                 packet.telemetry.count_in,
+                 packet.telemetry.count_out,
+                 packet.telemetry.num_tracks);
+
+        // --- Self-Monitoring: Profile Stack High Water Mark (every 100 packets) ---
+        static uint32_t packet_count = 0;
+        if (++packet_count >= 100) {
+            packet_count = 0;
+            UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
+            ESP_LOGI(TAG, "Stack High Water Mark: %u words (%u bytes) free", 
+                     (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
+        }
     }
 }

@@ -27,7 +27,7 @@ public:
      *
      * Edges (row 0, row 23, col 0, col 31) are excluded to avoid OOB.
      */
-    static void detect(const float* frame, const float* background,
-                       PicoTermico* outPeaks, int* outNum,
+    static void detect(const float* currentFrame, const float* backgroundMap,
+                       ThermalPeak* peaks, int* numPeaks,
                        float tempMin, float deltaT, int maxPeaks);
 };

@@ -6,38 +6,38 @@ The `ThermalPipeline` component is the mathematical heart of the project. It tra
 
 ```mermaid
 graph TD
-    A[Raw Frame: 32x24 float] --> B(Step 1: Calibration & De-Chess)
-    B --> C(Step 2: EMA Background Modeling)
-    C --> D(Step 3: Temporal Differencing)
-    D --> E(Step 4: Peak Detection & NMS)
-    E --> F(Step 5: Alpha-Beta Tracking)
+    A[Raw Frame: 32x24 float] --> B(Step 1: Background Modeling)
+    B --> C(Step 2: Peak Detection)
+    C --> D(Step 3: NMS Suppression)
+    D --> E(Step 4: Alpha-Beta Tracking)
+    E --> F(Step 5: Feedback Masking)
     F --> G[Result: IDs + Count + Velocity]
     
-    F -.->|Feedback| C
+    F -.->|Blocking Mask| B
 ```
 
 ## 🛠 Stage Breakdown
 
-### 1. Spatial Filtering (De-Chess)
-The MLX90640 sensor has a native noise pattern caused by the interleaved reading order of its sub-pages.
-- **Logic**: We apply a 3x3 kernel that detects "checkerboard" shifts and smooths them using a weighted neighbor average.
-- **Result**: A clean image that preserves thermal edges but removes digital artifacts.
+### 1. Adaptive Background Modeling
+We maintain a "running model" of what the floor/room temperature looks like using Exponential Moving Average.
+- **Selective Learning**: If a pixel is inside a "Feedback Mask" (near a target), the model **stops learning** for that pixel. This prevents people from disappearing when static.
 
-### 2. Selective EMA Background Learning
-We maintain a "running model" of what the floor/room temperature looks like.
-- **Selective Learning**: If a pixel is identified as part of a "Person Track", the background model **stops learning** for that pixel. This prevents a person who stops moving from being absorbed into the background.
+### 2. Peak Detection (Thermal Topology)
+Analyzes the difference between the live frame and the background model. Finds local maxima that exceed both `BIOLOGICAL_TEMP_MIN` and `BACKGROUND_DELTA_T`.
 
 ### 3. Non-Maximum Suppression (NMS)
-Since humans occupy multiple pixels, a single head might generate 3 or 4 local maxima.
-- **Logic**: For every pixel above the threshold, we check its neighbors within a `config.nms_radius`. If a hotter neighbor exists, the current pixel is discarded.
-- **Result**: One single point (Centroid) per person.
+Since humans occupy multiple pixels, a single head might generate multiple peaks.
+- **Logic**: For every peak, we check its neighbors within a `config.nms_radius`. Redundant peaks are suppressed.
 
 ### 4. Alpha-Beta Tracking
-We use a lightweight state estimator (simpler than a full Kalman filter for the ESP32) to track these centroids over time.
-- **Parameters**: `Alpha` (position update) and `Beta` (velocity update).
-- **Consistency**: The system assigns a persistent `ID` to each person. If they move towards a counting line, the cumulative velocity determines if they are crossing with "Intent" or just hovering.
+We use a lightweight state estimator to follow centroids over time.
+- **Identity**: Assigns persistent IDs.
+- **Anti-Stealing**: Prevents nearby tracks from swapping IDs mistakenly.
+
+### 5. Feedback Masking
+Generates a binary mask around active tracks. This mask is fed back into Stage 1 to freeze background adaptation.
 
 ---
 
 > [!TIP]
-> **Performance Optimization**: All loops are optimized to minimize branching, allowing the math to fit within the 62.5ms window required for 16 FPS.
+> **Performance Optimization**: All stages are optimized for ESP32-S3 AVX-like instructions and floating-point acceleration, meeting the 16 Hz real-time requirement.

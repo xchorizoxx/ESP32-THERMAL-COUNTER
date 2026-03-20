@@ -26,7 +26,7 @@ public:
      * @param countIn     Entry counter (cumulative, in-out)
      * @param countOut    Exit counter (cumulative, in-out)
      */
-    void update(const PicoTermico* peaks, int numPeaks,
+    void update(const ThermalPeak* peaks, int numPeaks,
                 float alpha, float beta,
                 int maxDistSq, int maxAge,
                 int lineEntryY, int lineExitY,

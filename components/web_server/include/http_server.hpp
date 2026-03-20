@@ -23,7 +23,7 @@ public:
     /**
      * @brief Broadcast a frame containing image and telemetry data to all connected WebSocket clients.
      */
-    static void broadcastFrame(const PayloadImagen& img, const PayloadTelemetria& tel, bool sensor_ok = true);
+    static void broadcastFrame(const ImagePayload& img, const TelemetryPayload& tel, bool sensor_ok = true);
 
 private:
     static httpd_handle_t server_;

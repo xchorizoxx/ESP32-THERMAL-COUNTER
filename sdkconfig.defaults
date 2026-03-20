@@ -1,8 +1,8 @@
 # ============================================================
-# sdkconfig.defaults — Detector de Puerta Térmica (ESP32-S3)
+# sdkconfig.defaults — Thermal Door Detector (ESP32-S3)
 # ============================================================
-# Modificar aquí para cambiar la configuración de build.
-# Ejecutar un fullclean desde el IDE después de cambios aquí.
+# Modify here to change the build configuration.
+# Perform a fullclean from the IDE after changes here.
 
 # --- FreeRTOS ---
 CONFIG_FREERTOS_HZ=1000
@@ -13,8 +13,8 @@ CONFIG_ESP_TASK_WDT_EN=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
 
 # --- OTA Rollback (anti-bootloop) ---
-# Si el nuevo firmware hace crash antes de llamar esp_ota_mark_app_valid_cancel_rollback(),
-# el bootloader revierte automáticamente a la partición anterior válida.
+# If the new firmware crashes before calling esp_ota_mark_app_valid_cancel_rollback(),
+# the bootloader automatically reverts to the previous valid partition.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
 # --- WiFi ---
@@ -28,24 +28,25 @@ CONFIG_HTTPD_WS_SUPPORT=y
 # --- LWIP (sockets) ---
 CONFIG_LWIP_UDP_RECVMBOX_SIZE=16
 CONFIG_LWIP_SO_RCVBUF=y
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5744
+CONFIG_LWIP_TCP_WND_DEFAULT=5744
 
-# --- Logging (INFO en producción — menos ruido en monitor) ---
+# --- Logging (INFO in production — less noise in monitor) ---
 # CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
-# --- Tamaño de stack del loop principal ---
-# --- Tamaño de stack del loop principal ---
-# Se incrementa a 32KB para garantizar estabilidad durante la orquestación 
-# inicial y la compleja extracción de parámetros del MLX90640.
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768
+# --- Main loop stack size ---
+# Optimized to 6KB (reduced from 32KB after heuristic profiling).
+# Frees ~26KB of SRAM for the Dashcam circular buffer.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
 
-# --- I2C (usar driver nativo, no el legado) ---
+# --- I2C (use native driver, not legacy) ---
 CONFIG_I2C_ENABLE_DEBUG_LOG=n
 
 # --- Target Device ---
 CONFIG_IDF_TARGET="esp32s3"
 
-# --- Particiones Custom para OTA ---
+# --- Custom Partitions for OTA ---
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"

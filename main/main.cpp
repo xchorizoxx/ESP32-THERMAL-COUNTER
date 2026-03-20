@@ -142,12 +142,12 @@ extern "C" void app_main(void)
     pipeline.init();
 
     static StaticTask_t pipelineTaskBuffer;
-    static StackType_t  pipelineStack[8192 / sizeof(StackType_t)];
+    static StackType_t  pipelineStack[6144 / sizeof(StackType_t)];
 
     TaskHandle_t pipelineHandle = xTaskCreateStaticPinnedToCore(
         ThermalPipeline::TaskWrapper,   // Function
         "ThermalPipe",                  // Name
-        8192 / sizeof(StackType_t),     // Stack (in words)
+        6144 / sizeof(StackType_t),     // Stack (in words)
         &pipeline,                      // Parameter (this)
         configMAX_PRIORITIES - 1,       // Maximum priority
         pipelineStack,
@@ -175,12 +175,12 @@ extern "C" void app_main(void)
     telemetry.init();
 
     static StaticTask_t telemetryTaskBuffer;
-    static StackType_t  telemetryStack[4096 / sizeof(StackType_t)];
+    static StackType_t  telemetryStack[3584 / sizeof(StackType_t)];
 
     TaskHandle_t telemetryHandle = xTaskCreateStaticPinnedToCore(
         TelemetryTask::TaskWrapper,
         "TelemetryTX",
-        4096 / sizeof(StackType_t),
+        3584 / sizeof(StackType_t),
         &telemetry,
         tskIDLE_PRIORITY + 2,           // Medium priority
         telemetryStack,
@@ -193,24 +193,22 @@ extern "C" void app_main(void)
     }
     ESP_LOGI(TAG, "TelemetryTask launched on Core 0 (medium priority)");
 
-    ESP_LOGI(TAG, "=== System operational. Tasks active ===");
-
     // -------------------------------------------------------------------------
     // [OTA] Mark current firmware as VALID (anti-bootloop)
     // -------------------------------------------------------------------------
-    // If we arrive here, WiFi + Sensor + HTTP Server + Tasks are all active.
-    // This call transitions the OTA state from PENDING_VERIFY → VALID,
-    // preventing the bootloader from rolling back to factory on the next boot.
     esp_err_t ota_valid = esp_ota_mark_app_valid_cancel_rollback();
     if (ota_valid == ESP_OK) {
         ESP_LOGI(TAG, "[OTA] Partition marked as VALID — rollback cancelled");
     } else if (ota_valid == ESP_ERR_NOT_SUPPORTED) {
-        // Occurs when the app starts from factory (not from ota_0/ota_1).
-        // It is normal during the first USB boot — not an error.
         ESP_LOGI(TAG, "[OTA] Factory partition detected — OTA marking not required");
     } else {
         ESP_LOGW(TAG, "[OTA] esp_ota_mark_app_valid failed: %s", esp_err_to_name(ota_valid));
     }
+
+    // --- Self-Monitoring: Profile Stack High Water Mark ---
+    UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
+    ESP_LOGI(TAG, "=== System operational. app_main HWM: %u words (%u bytes) ===", 
+             (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
 
     // app_main() returns here; FreeRTOS tasks run autonomously
 }

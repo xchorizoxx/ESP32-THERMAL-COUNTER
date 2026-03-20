@@ -20,7 +20,7 @@ Program a "24-hour static" initialization routine. The sensor will use Artificia
 ## 4. Wireless Updates (OTA Subsystem)
 Currently, the physical ESP32-S3 USB serial harness is required for flashing. 
 **Proposal:**
-Already implemented in V2.6! The system now supports both a Web Dashboard uploader and a terminal script (`ota_upload.py`), facilitating remote debugging and urgent patches for ceiling-mounted systems.
+Already implemented in Alpha 0.6! The system now supports both a Web Dashboard uploader and a terminal script (`ota_upload.py`), facilitating remote debugging and urgent patches for ceiling-mounted systems.
 
 ## 5. Thermal Stereoscopic Vision Implementation
 For excessively wide entrances or stores where multiple people cross simultaneously, a single MLX90640 (110x75° field) starts to deform at the edges and suffers from blind spots.

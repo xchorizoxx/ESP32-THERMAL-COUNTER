@@ -6,8 +6,8 @@ Once we have the thermal image _subtracted from the background_ (only seeing wha
 
 We do not look for complex contours; we apply a mathematical method called 2D peak detection. 
 A pixel is considered a "Peak" if:
-1. Its net temperature (vs. background) is > `DELTA_T_FONDO`.
-2. Its absolute temperature is > `TEMP_BIOLOGICO_MIN` (ensures it is a human or animal, not a warm cable).
+1. Its net temperature (vs. background) is > `BACKGROUND_DELTA_T`.
+2. Its absolute temperature is > `BIOLOGICAL_TEMP_MIN` (ensures it is a human or animal, not a warm cable).
 3. It is strictly hotter than the 8 pixels immediately around it.
 
 ## 🛡️ Non-Maximum Suppression (NMS)
@@ -52,11 +52,11 @@ The tracker assigns each person not only a Position, but a **Velocity**.
    * If a match is found, the error between the predicted and measured position is calculated. 
    * The position is corrected using `ALPHA_TRK` (how much to trust the sensor vs. physics).
    * The velocity is corrected using `BETA_TRK`.
-   * **Crowd Protection (V2.5):** A "Track Matched" check was implemented to prevent two close people from "stealing" the same track. This maintains unique identities even in critical crossings.
+   * **Crowd Protection (Alpha 0.6):** A "Track Matched" check was implemented to prevent two close people from "stealing" the same track. This maintains unique identities even in critical crossings.
 
-## 4. Velocity Vectors (V2)
+## 4. Velocity Vectors (Alpha 0.6)
 
-Starting with version 2, the system calculates a direction vector `(vx, vy)` for each track. 
+Starting with Alpha 0.6, the system calculates a direction vector `(vx, vy)` for each track. 
 - **Calculation:** Based on the position difference corrected by the Alpha-Beta filter between successive frames.
 - **Visualization:** In the Tactical HUD, this vector is drawn as a thin yellow arrow. The arrow's length is proportional to the speed, allowing for visual prediction of crossing direction.
 
@@ -65,7 +65,7 @@ Starting with version 2, the system calculates a direction vector `(vx, vy)` for
 Counting occurs strictly by comparing the person's position between frame `T-1` and frame `T`, but now with **Intent Inference**:
 
 1. **Standard Crossing:** If the track crosses from the upper zone to the lower zone (or vice versa) having originated outside the neutral zone.
-2. **Spawn in Neutral Zone (V2.5):** If a person "appears" (spawns) directly between the counting lines (because the sensor lost them for a second), the system does not ignore the crossing. Instead, it evaluates their **Y Velocity Vector**:
+2. **Spawn in Neutral Zone (Alpha 0.6):** If a person "appears" (spawns) directly between the counting lines (because the sensor lost them for a second), the system does not ignore the crossing. Instead, it evaluates their **Y Velocity Vector**:
    - If they cross the lower line with `v_y > 0.05`, **Entry** intent is inferred.
    - If they cross the upper line with `v_y < -0.05`, **Exit** intent is inferred.
 

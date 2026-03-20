@@ -24,7 +24,7 @@ public:
      * 1. Insertion sort by descending temperature (O(N²), optimal for N≤15)
      * 2. For each peak j not suppressed: suppress all k>j with D²≤R²
      */
-    static void suppress(PicoTermico* peaks, int numPeaks,
+    static void suppress(ThermalPeak* peaks, int numPeaks,
                          int rCenterSq, int rEdgeSq,
                          int centerXMin, int centerXMax);
 };

@@ -19,11 +19,11 @@
  * @brief Thermal peak detected in a frame.
  * Produced by PeakDetector (Step 2), consumed by NmsSuppressor (Step 3).
  */
-struct PicoTermico {
+struct ThermalPeak {
     uint8_t x;              ///< Column [0..31]
     uint8_t y;              ///< Row [0..23]
-    float   temperatura;    ///< Temperature in °C
-    bool    suprimido;      ///< NMS flag: true = suppressed by a hotter peak
+    float   temperature;    ///< Temperature in °C
+    bool    suppressed;     ///< NMS flag: true = suppressed by a hotter peak
 };
 
 /**
@@ -37,8 +37,8 @@ struct Track {
     float   v_x;            ///< Estimated X velocity [px/frame]
     float   v_y;            ///< Estimated Y velocity [px/frame]
     uint8_t age;            ///< Frames since last real update
-    bool    activo;         ///< false = expired track (age > TRACK_MAX_AGE)
-    uint8_t estado_y;       ///< State machine: 0=Upper, 1=Neutral, 2=Lower
+    bool    active;         ///< false = expired track (age > TRACK_MAX_AGE)
+    uint8_t state_y;        ///< State machine: 0=Upper, 1=Neutral, 2=Lower
 };
 
 // =========================================================================
@@ -62,7 +62,7 @@ struct __attribute__((packed)) TrackInfo {
  * Sent via UDP with header 0x01.
  * Size: ~85 bytes (varies with num_tracks).
  */
-struct __attribute__((packed)) PayloadTelemetria {
+struct __attribute__((packed)) TelemetryPayload {
     uint32_t frame_id;
     float    ambient_temp;  ///< Ta read from MLX90640 sensor
     int16_t  count_in;
@@ -77,7 +77,7 @@ struct __attribute__((packed)) PayloadTelemetria {
  * Each pixel = temp × 100 as int16 (e.g., 2350 = 23.50°C).
  * Size: ~1540 bytes.
  */
-struct __attribute__((packed)) PayloadImagen {
+struct __attribute__((packed)) ImagePayload {
     uint32_t frame_id;
     int16_t  pixels[ThermalConfig::TOTAL_PIXELS];
 };
@@ -88,9 +88,9 @@ struct __attribute__((packed)) PayloadImagen {
  * can send both UDP packets per frame.
  */
 struct IpcPacket {
-    PayloadTelemetria telemetria;
-    PayloadImagen     imagen;
-    bool              sensor_ok;
+    TelemetryPayload telemetry;
+    ImagePayload     image;
+    bool             sensor_ok;
 };
 
 // =========================================================================

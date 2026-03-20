@@ -41,8 +41,8 @@ The system bases its spatial perception on a 768-pixel matrix. The sensor commun
 | :--- | :--- | :--- | :--- |
 | `VCC` | `3.3V` | Power | Ensure a stable LDO regulator. 23mA peaks. |
 | `GND` | `GND` | Ground | Short connection to the microcontroller. |
-| `SDA` | `GPIO 8` | Data (I2C) | 2.2kΩ - 4.7kΩ Pull-up resistors mandatory if the module lacks them. |
-| `SCL` | `GPIO 9` | Clock (I2C) | Configured at 400kHz (Fast Mode) or 1MHz (Fast Mode Plus). |
+| `SDA` | `GPIO 8` | Data (I2C) | **REVISED:** Use 1kΩ - 2.2kΩ pull-ups. Standard 4.7kΩ is often insufficient for 400kHz/1MHz due to RC rise time constraints. |
+| `SCL` | `GPIO 9` | Clock (I2C) | Ensure sharp signal edges to avoid data corruption at high frequencies ($RC < 300ns$). |
 
 ## 2. Telemetry to Separate Receiver (Logical Communication)
 Currently, everything is embedded in the ESP32, but Core 0 of this system pushes UDP telemetry packets to a second ESP32 (if one exists).

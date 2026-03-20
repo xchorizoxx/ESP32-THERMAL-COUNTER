@@ -1,3 +1,19 @@
 CompileFlags:
+  CompilationDatabase: build
   Remove: [-mlongcalls, -fno-shrink-wrap, -fstrict-volatile-bitfields, -fno-tree-switch-conversion, -mfix-esp32-errata-prohibit-iramsafe-incsr, -mlong-calls]
-  Add: [--target=xtensa-esp32-elf]
+  Add: 
+    - "--target=xtensa-esp32-elf"
+    - "--query-driver=C:\\Espressif\\tools\\xtensa-esp-elf\\**\\bin\\xtensa-esp32*-elf-gcc*"
+    - "-D__esp32__"
+
+Index:
+  Background: Build
+
+Diagnostics:
+  UnusedIncludes: None
+  Suppress: 
+    - "pp_file_not_found"
+    - "undeclared_var_use"
+    - "unknown_type_name"
+    - "invalid_sl_case"
+    - "drv_err"

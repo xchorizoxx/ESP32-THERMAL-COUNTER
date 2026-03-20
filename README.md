@@ -1,6 +1,6 @@
 # 🛰️ Thermal Door Detector · Edge AI HUD
 
-![Version](https://img.shields.io/badge/Version-V2.5--Advanced--Debug-blue)
+![Version](https://img.shields.io/badge/Version-Alpha--0.6--Tactical--Debug-blue)
 ![Platform](https://img.shields.io/badge/Platform-ESP32--S3-orange)
 ![Framework](https://img.shields.io/badge/Framework-ESP--IDF--v5.5-red)
 
@@ -87,28 +87,26 @@ graph TD
 Processing is divided into 5 sequential stages that transform thermal noise into counting events:
 
 ### 1. Pre-processing and "De-Chess" Filter
-An orthogonal spatial interpolation algorithm is applied, merging each pixel with its neighbors to eliminate the native checkerboard mesh of the MLX90640. 
-- Eliminates "Salt & Pepper" noise (dead pixels).
-- Smoothes the image without losing the human thermal signature.
+### 1. Selective EMA Background Modeling
+Maintains a dynamic model of the environment's base temperature.
+- **Adaptive Learning**: Automatically ignores pixels identified as "Person Tracks" to prevent targets from being absorbed into the background.
 
-### 2. Dynamic Background Subtraction (EMA)
-Uses an **Exponential Moving Average (EMA)** model to learn the ambient temperature.
-- If a hot object stays static (e.g., a coffee maker), the system "absorbs" it into the background after a few minutes.
-- **Feedback Mask:** Active tracks "freeze" background learning beneath them to prevent the system from erasing a person who stays still.
+### 2. Peak Detection (Thermal Topology)
+Analyzes the difference between the live frame and the background model.
+- Identifies local maximums that exceed the biological temperature threshold (~30°C).
 
-### 3. Peak Detection and NMS
-- **Peak Detection:** Finds local maxima exceeding `TEMP_BIOLOGICO_MIN` and `DELTA_T_FONDO`.
-- **NMS (Non-Maximum Suppression):** Merges multiple nearby peaks into a single center of mass. Crucial to avoid counting a single hot head as 5 different people.
+### 3. Non-Maximum Suppression (NMS)
+Filters redundant detections. Since a person occupies multiple pixels, NMS ensures each human heat signature is represented by a single centroid.
 
 ### 4. Alpha-Beta Tracking with Identity Verification
 Implements a predictive filter to follow people between frames.
-- **Anti-Stealing (V2.5):** Ensures each heat "peak" is assigned to a single track, preventing nearby people from stealing their neighbor's identity.
+- **Anti-Stealing (Alpha 0.6):** Ensures each heat "peak" is assigned to a single track, preventing nearby people from stealing their neighbor's identity.
 - Calculates the velocity vector `(vx, vy)`.
 - Manages track "life": if a person disappears for 5 frames, the system removes them to avoid ghost generation.
 
-### 5. Counting Logic (Hysteresis + Intent Inference)
+### 5. Intent Inference & Crossing Logic
 Defines two virtual `Y` lines. Counting triggers when a track ID crosses both lines.
-- **Intent Inference (V2.5):** If a person is first detected in the middle (neutral) zone, the system uses its **vertical velocity vector** to decide if the line crossing counts as an entry or exit, eliminating failures due to "sudden appearance".
+- **Intent Inference (Alpha 0.6):** If a person is first detected in the middle (neutral) zone, the system uses its **vertical velocity vector** to decide if the line crossing counts as an entry or exit, eliminating failures due to "sudden appearance".
 
 ---
 
@@ -160,7 +158,7 @@ The system supports wireless firmware updates. No need to connect a USB cable on
 - **Web Dashboard**: Upload the `.bin` file directly from the "OTA Update" panel.
 - **Direct Script**: Use `python scripts/ota_upload.py` to flash remotely from your terminal.
 
-For more details, see the [OTA Flashing Guide](docs/operations/ota_flasheo.md).
+For more details, see the [OTA Flashing Guide](docs/operations/ota_flash.md).
 
 ---
 
@@ -177,7 +175,7 @@ For more details, see the [OTA Flashing Guide](docs/operations/ota_flasheo.md).
 ---
 
 ## 🚀 Installation and Deployment
-Full documentation in the [Deployment Guide](docs/operations/despliegue.md).
+Full documentation in the [Deployment Guide](docs/operations/deploy.md).
 
 ---
 

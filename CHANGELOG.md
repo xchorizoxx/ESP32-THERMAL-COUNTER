@@ -1,17 +1,17 @@
 # CHANGELOG - Thermal Door Detector
 
-## [v2.6.0] - 2026-03-18 (Current)
+## [Alpha 0.6] - 2026-03-20 (Current)
 ### Added
-- **Web OTA System**: Wireless update panel integrated into the Dashboard.
-- **Safety Rollback**: Bootloop prevention by marking the app as valid in `app_main`.
-- **OTA Script**: New `scripts/ota_upload.py` tool with progress bar and ESP32-S3 support.
-- **Docs Restructuring**: New documentation system for humans (`docs/`) and agents (`.agents/`).
+- **I2C CMA Optimization**: Migrated to the new `driver/i2c_master.h` with DMA support and non-blocking transactions (yielding CPU during transfers).
+- **Static IpcPacket**: Moved heavy telemetry structures to static memory to prevent stack overflows and increase system stability.
 
 ### Changed
+- **HUD Synchronization**: Fixed a parity mismatch bug where the web dashboard would skip updated frames.
+- **Project Standardization**: Normalized all source code, comments, and internal documentation to Technical English.
 - Increased HTTP Server stack to 16KB to support wireless flashing.
 - Folder structure refactoring: `PROJECT_RESOURCES` removed in favor of `lib/` and `.agents/`.
 
-## [v2.5.0] - Previous Stable Version
+## [Alpha 0.5] - Previous Stable Version
 ### Added
 - **De-Chess Filter**: Removal of checkerboard artifacts in the thermal image.
 - **Tactical HUD**: Cyberpunk web interface with high-frequency WebSockets.

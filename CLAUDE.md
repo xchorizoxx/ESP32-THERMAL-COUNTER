@@ -1,5 +1,5 @@
 # CLAUDE.md — AI Memory & Stewardship Guide
-## Project: Thermal Door Detector (V2.0 - English)
+## Project: Thermal Door Detector (Alpha 0.6 Tactical Debug)
 
 This document serves as the high-level technical "brain" for any AI agent working on the Thermal Door Detector project. It summarizes core architecture, strict coding standards, and critical hardware constraints.
 

@@ -10,7 +10,7 @@ void MaskGenerator::generate(const Track* tracks, int maxTracks,
 
     // Step 2: Draw square around each active track
     for (int i = 0; i < maxTracks; i++) {
-        if (!tracks[i].activo) continue;
+        if (!tracks[i].active) continue;
 
         const int cx = (int)tracks[i].x;
         const int cy = (int)tracks[i].y;

@@ -15,14 +15,17 @@ The following details the strengths identified in the project's codebase and are
 4.  **Decoupled UI Pattern:**
     Image interpolation and UI drawing (Scanlines, Bounds, Matrices) were delegated to the connected client's graphics processor (Phone/PC) using HTML5 2D Canvas and GPU-assisted bilinear scaling. This avoided the typical overhead of scaling matrices locally in C++ and saved dozens of milliseconds of machine time.
 
+5.  **Non-Blocking I2C DMA (New):**
+    The migration to `driver/i2c_master.h` with DMA support ensures that the Core 1 CPU yields during long sensor reads. This prevents spin-locks and improves overall system power efficiency.
+6.  **Memory Safety (Static Allocation):**
+    Moving large data structures (like `IpcPacket`) to static memory prevents stack overflows that are common in dual-core ESP32 applications with high concurrency.
+
 ## 🟡 Critical Areas/Cautionary Review (Opportunities for Improvement)
 
 1.  **Tracking Difficulty in Growing Crowds (Naive NMS):**
     The tracker stage implements Non-Maximum Suppression in the form of strict iterative boxes. If two people walk shoulder-to-shoulder or cross hugged together under the sensor, the system will merge their heat signatures into a single thermal complex, causing a counting failure (counting 1 person where there are 2). This could be improved using more advanced clustering techniques (*modern Blob Component Labeling*, low-iteration *K-Means clustering*).
-2.  **Blocking I2C Protocol:**
-    Currently, the native ESP-IDF I2C command actively waits for the MLX90640 slave to complete each DMA frame. At strict RTOS levels, the `mlx_i2c_read(...)` driver could be transmuted to a non-blocking interrupt-based function, allowing the Core 1 CPU to sleep a bit more and save battery.
-3.  **HTTP Stack / SoftAP Limitations:**
-    `http_server.cpp` runs on the native ESP-IDF stack under a worker pool defined with fixed stack sizes (8192 or 4096 bytes). While a single user views the HUD, everything works perfectly; if 3 or 4 smartphones connect to the same IP, the ESP32 will saturate the WebSocket limit (as each connection requires its own buffer and thermal frame transmission) or overrun the heap. A "Hard" connection limit should be defined.
+2.  **HTTP Stack / SoftAP Limitations:**
+    `http_server.cpp` runs on the native ESP-IDF stack. While a single user views the HUD, everything works perfectly; if 3 or 4 smartphones connect, the heap or the WebSocket limit might be reached. A "Hard" connection limit should be enforced.
 4.  **Fixed Spatial Adjustment (Alpha, Beta):**
     Static filter parameters (alpha = 0.85, beta = 0.05) assume typical "office person" movement dynamics. If the device is installed in logistics corridors where someone passes by quickly or runs, the Kalman/Alpha-Beta control hyperparameters will "lose sight" of that track because the acceleration doesn't match the inertial weight assigned in the current filter.
 

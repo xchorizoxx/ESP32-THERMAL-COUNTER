@@ -1520,6 +1520,7 @@ function sendWs(obj) {
     }
 }
 
+/**
  * Reboots the hardware via POST
  */
 async function rebootDevice() {
@@ -1589,7 +1590,7 @@ function setSensorBadge(ok) {
 // ===========================================================================
 //  SLIDER UI EVENTS
 //  oninput → update display label immediately (no send)
-//  No auto-send on change — user clicks "Aplicar Ajustes"
+//  No auto-send on change — user clicks "Apply Settings"
 // ===========================================================================
 [
     { param: 'temp_bio',   decimals: 1 },
@@ -1723,7 +1724,7 @@ function uploadFirmware() {
                 if (countdown-- > 0) { setTimeout(tick, 1000); }
                 else {
                     // Attempt automatic reconnection
-                    otaStatusMsg.textContent = 'Reconectando...';
+                    otaStatusMsg.textContent = 'Reconnecting...';
                     setTimeout(() => location.reload(), 2000);
                 }
             };
