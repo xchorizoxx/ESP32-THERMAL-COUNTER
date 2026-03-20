@@ -31,7 +31,7 @@ Un sistema de visión artificial térmica de alto rendimiento para el conteo de 
 
 ---
 
-- **Detección Biométrica:** Basada en la firma térmica humana (~30-36°C), diferenciándola de objetos inanimados.
+- **Detección Biométrica:** Basada en la firma térmica humana. Detecta la temperatura de la piel superficial (típicamente entre 28°C y 37°C), lo que permite diferenciar objetivos humanos de objetos inanimados y ruido de fondo.
 - **Visualización Versátil:** Más allá del conteo, puede usarse como una **cámara térmica estándar** para monitoreo en tiempo real desde la web.
 - **Modos de Triple Visión:** El HUD soporta 3 modos (Raw, Fondo y Radar) para diagnósticos profundos del sistema.
 

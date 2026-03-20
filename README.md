@@ -6,7 +6,6 @@
 
 [Leer en Español](README_ES.md)
 
-[Leer en Español](README_ES.md)
 
 ![Project Concept](docs/assets/thermal-counter-concept.png)
 
