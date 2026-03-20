@@ -1,10 +1,13 @@
 #include "http_server.hpp"
+#include "freertos/FreeRTOS.h"
 #include "web_ui_html.h"
 #include "esp_log.h"
 #include "cJSON.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_ota_ops.h"
+#include "esp_system.h" // Para esp_restart
+#include <string.h>
 #include "esp_app_format.h"
 #include <sys/param.h>  // Para usar MIN()
 
@@ -13,6 +16,11 @@ static const char *NVS_NS     = "thcfg";   ///< NVS namespace for thermal config
 
 httpd_handle_t HttpServer::server_ = NULL;
 static QueueHandle_t s_configQueue = NULL;
+
+// Inicialización de buffers estáticos para WebSocket
+uint8_t HttpServer::ws_buffers_[WS_BUFFER_COUNT][WS_BUFFER_SIZE];
+int     HttpServer::ws_buffer_ref_counts_[WS_BUFFER_COUNT] = {0, 0};
+static portMUX_TYPE s_ws_mux = portMUX_INITIALIZER_UNLOCKED;
 
 // =============================================================================
 //  NVS HELPERS  (Core 0, called only from HTTP task context)
@@ -375,16 +383,36 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
     };
     httpd_register_uri_handler(server_, &ws_uri);
 
-    const httpd_uri_t ota_uri = {
-        .uri                   = "/update",
-        .method                = HTTP_POST,
-        .handler               = otaPostHandler,
-        .user_ctx              = NULL,
-        .is_websocket          = false,
+    // Registro de endpoint OTA
+    httpd_uri_t ota_uri = {
+        .uri      = "/update",
+        .method   = HTTP_POST,
+        .handler  = HttpServer::otaPostHandler,
+        .user_ctx = nullptr,
+        .is_websocket = false,
         .handle_ws_control_frames = false,
         .supported_subprotocol = NULL
     };
     httpd_register_uri_handler(server_, &ota_uri);
+
+    // Registro de endpoint REBOOT
+    httpd_uri_t reboot_uri = {
+        .uri      = "/reboot",
+        .method   = HTTP_POST,
+        .handler  = [](httpd_req_t *req) {
+            httpd_resp_sendstr(req, "Rebooting...");
+            vTaskDelay(pdMS_TO_TICKS(500));
+            esp_restart();
+            return ESP_OK;
+        },
+        .user_ctx = nullptr,
+        .is_websocket = false,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+    };
+    httpd_register_uri_handler(server_, &reboot_uri);
+
+    ESP_LOGI(TAG, "Web Server iniciado con WS, OTA y Reboot");
 
     return ESP_OK;
 }
@@ -403,49 +431,40 @@ void HttpServer::stop() {
 void HttpServer::broadcastFrame(const PayloadImagen &img, const PayloadTelemetria &tel, bool sensor_ok) {
     if (!server_) return;
 
-    size_t clients_max = 4;
-    int    client_fds[4];
-    size_t clients = clients_max;
+    // Optimización 8Hz
+    if (tel.frame_id % 2 != 0) return;
 
-    if (httpd_get_client_list(server_, &clients, client_fds) != ESP_OK) return;
-    if (clients == 0) return;
+    // 1. Encontrar un buffer libre (ref_count == 0)
+    int buf_idx = -1;
+    portENTER_CRITICAL(&s_ws_mux);
+    for (int i = 0; i < (int)WS_BUFFER_COUNT; i++) {
+        if (ws_buffer_ref_counts_[i] == 0) {
+            ws_buffer_ref_counts_[i] = -1; // Marcado como "en llenado" (reservado)
+            buf_idx = i;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&s_ws_mux);
 
-    // Layout: Header(1) SensorOk(1) Ta(4) CountIn(2) CountOut(2) NumTracks(1)
-    //         [TrackInfo × N (9 bytes cada uno)] Pixels(768×2)
-    const size_t tracks_size = tel.num_tracks * 9;
-    const size_t payload_len = 1 + 1 + 4 + 2 + 2 + 1 + tracks_size + (ThermalConfig::TOTAL_PIXELS * 2);
-
-    // Static buffer — avoids heap allocation at 16 Hz
-    static uint8_t ws_buffer[2048];
-    if (payload_len > sizeof(ws_buffer)) {
-        ESP_LOGW(TAG, "broadcastFrame: payload demasiado grande (%zu)", payload_len);
+    if (buf_idx == -1) {
+        // Todos los buffers ocupados (red lenta), saltamos este frame
         return;
     }
 
-    uint8_t *p   = ws_buffer;
+    // 2. Llenar el buffer reservado
+    uint8_t *p   = ws_buffers_[buf_idx];
     size_t   ofs = 0;
 
     p[ofs++] = 0x11;                             // Header
     p[ofs++] = sensor_ok ? 1u : 0u;              // SensorOk
-
-    // Ambient Temp (float IEEE 754 LE - 4 bytes)
-    uint8_t *ta_ptr = (uint8_t*)&tel.ambient_temp;
-    p[ofs++] = ta_ptr[0];
-    p[ofs++] = ta_ptr[1];
-    p[ofs++] = ta_ptr[2];
-    p[ofs++] = ta_ptr[3];
-
-    // CountIn (uint16 LE)
-    p[ofs++] = (uint8_t)(tel.count_in  & 0xFF);
+    memcpy(&p[ofs], &tel.ambient_temp, 4);       // Ambient Temp
+    ofs += 4;
+    p[ofs++] = (uint8_t)(tel.count_in  & 0xFF);  // CountIn
     p[ofs++] = (uint8_t)(tel.count_in  >> 8);
-
-    // CountOut (uint16 LE)
-    p[ofs++] = (uint8_t)(tel.count_out & 0xFF);
+    p[ofs++] = (uint8_t)(tel.count_out & 0xFF);  // CountOut
     p[ofs++] = (uint8_t)(tel.count_out >> 8);
-
-    // Tracks
-    p[ofs++] = tel.num_tracks;
-    for (int i = 0; i < tel.num_tracks; i++) {
+    p[ofs++] = tel.num_tracks;                   // Tracks
+    for (int i = 0; i < tel.num_tracks && i < ThermalConfig::MAX_TRACKS; i++) {
         p[ofs++] = tel.tracks[i].id;
         p[ofs++] = (uint8_t)(tel.tracks[i].x_100 & 0xFF);
         p[ofs++] = (uint8_t)(tel.tracks[i].x_100 >> 8);
@@ -456,20 +475,67 @@ void HttpServer::broadcastFrame(const PayloadImagen &img, const PayloadTelemetri
         p[ofs++] = (uint8_t)(tel.tracks[i].v_y_100 & 0xFF);
         p[ofs++] = (uint8_t)(tel.tracks[i].v_y_100 >> 8);
     }
-
-    // Pixel block: 768 × int16_t (temperature × 100)
     memcpy(&p[ofs], img.pixels, ThermalConfig::TOTAL_PIXELS * sizeof(int16_t));
+    const size_t total_len = ofs + (ThermalConfig::TOTAL_PIXELS * sizeof(int16_t));
 
+    // 3. Obtener lista de clientes y preparar envío
+    size_t clients_max = 4;
+    int    client_fds[4];
+    size_t clients = clients_max;
+    int    ws_clients_count = 0;
+
+    if (httpd_get_client_list(server_, &clients, client_fds) == ESP_OK) {
+        // Contar cuántos son realmente WebSockets
+        for (size_t i = 0; i < clients; i++) {
+            if (httpd_ws_get_fd_info(server_, client_fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
+                ws_clients_count++;
+            }
+        }
+    }
+
+    if (ws_clients_count == 0) {
+        portENTER_CRITICAL(&s_ws_mux);
+        ws_buffer_ref_counts_[buf_idx] = 0; // Liberar inmediatamente
+        portEXIT_CRITICAL(&s_ws_mux);
+        return;
+    }
+
+    // 4. Iniciar envíos asíncronos
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
     ws_pkt.type    = HTTPD_WS_TYPE_BINARY;
     ws_pkt.payload = p;
-    ws_pkt.len     = payload_len;
+    ws_pkt.len     = total_len;
+    ws_pkt.final   = true;
+
+    portENTER_CRITICAL(&s_ws_mux);
+    ws_buffer_ref_counts_[buf_idx] = ws_clients_count; 
+    portEXIT_CRITICAL(&s_ws_mux);
 
     for (size_t i = 0; i < clients; i++) {
-        const int fd = client_fds[i];
-        if (httpd_ws_get_fd_info(server_, fd) == HTTPD_WS_CLIENT_WEBSOCKET) {
-            httpd_ws_send_frame_async(server_, fd, &ws_pkt);
+        if (httpd_ws_get_fd_info(server_, client_fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
+            // Pasamos el índice del buffer como argumento (cast a void*)
+            esp_err_t err = httpd_ws_send_data_async(server_, client_fds[i], &ws_pkt, 
+                                                    wsAsyncCompletionCb, (void*)(uintptr_t)buf_idx);
+            if (err != ESP_OK) {
+                // Si falla el encolado, decrementamos el contador manualmente
+                wsAsyncCompletionCb(err, client_fds[i], (void*)(uintptr_t)buf_idx);
+            }
         }
+    }
+}
+
+void HttpServer::wsAsyncCompletionCb(esp_err_t err, int socket, void *arg) {
+    int buf_idx = (int)(uintptr_t)arg;
+    if (buf_idx < 0 || buf_idx >= (int)WS_BUFFER_COUNT) return;
+
+    portENTER_CRITICAL(&s_ws_mux);
+    if (ws_buffer_ref_counts_[buf_idx] > 0) {
+        ws_buffer_ref_counts_[buf_idx]--;
+    }
+    portEXIT_CRITICAL(&s_ws_mux);
+
+    if (err != ESP_OK && err != ESP_ERR_HTTPD_INVALID_REQ) {
+        ESP_LOGV(TAG, "wsAsync: Error fd %d: %s", socket, esp_err_to_name(err));
     }
 }

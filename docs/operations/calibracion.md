@@ -5,7 +5,7 @@ El sistema provee una interfaz "In-Situ" alojada en la dirección `http://192.16
 ## Procedimiento de Puesta a Punto
 
 1. **Montaje Cenital Base:** Verifica que la cámara mire al piso y que no existan aires acondicionados soplando calor/frío directo sobre la lente.
-2. **Acceso UI:** Conéctate con un smartphone a la red Wi-Fi `ThermalCounter` e ingresa al navegador en `192.168.4.1`.
+2. **Acceso UI:** Conéctate con un smartphone a la red Wi-Fi `ThermalCounter` e ingresa al navegador en `192.168.4.1` Clave por defecto `counter1234`.
 
 ### Parámetros Críticos
 

@@ -31,6 +31,9 @@ static bool       s_initialized = false;
  * @brief Configura los parámetros del bus I2C antes de inicializar.
  * Llamada desde Mlx90640Sensor antes de MLX90640_I2CInit().
  */
+// --- Buffer estático para evitar fragmentación (768 pixeles + 64 aux + overhead) ---
+static uint8_t s_i2c_buffer[1700];
+
 extern "C" void MLX90640_I2CSetConfig(i2c_port_t port, gpio_num_t sda, gpio_num_t scl, int freqHz)
 {
     s_i2c_port = port;
@@ -65,8 +68,12 @@ extern "C" void MLX90640_I2CInit(void)
         return;
     }
 
+    // --- MEJORA: Filtro de Glitch de Hardware (Crucial para 1MHz en S3) ---
+    // Filtramos ruidos de hasta 7 ciclos de APB (ideal para evitar bit-flips I2C)
+    i2c_filter_enable(s_i2c_port, 7);
+
     s_initialized = true;
-    ESP_LOGI(TAG, "I2C inicializado: port=%d, SDA=%d, SCL=%d, freq=%d Hz",
+    ESP_LOGI(TAG, "I2C inicializado: port=%d, SDA=%d, SCL=%d, freq=%d Hz (Filtro HW ON)",
              s_i2c_port, s_sda_pin, s_scl_pin, s_freq_hz);
 }
 
@@ -90,12 +97,12 @@ extern "C" int MLX90640_I2CGeneralReset(void)
 extern "C" int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress,
                                  uint16_t nMemAddressRead, uint16_t *data)
 {
-    // Tamaño del buffer temporal para los bytes crudos
     int bytesToRead = nMemAddressRead * 2;
-    uint8_t* tempBuf = (uint8_t*)malloc(bytesToRead);
-    if (tempBuf == nullptr) {
-        ESP_LOGE(TAG, "malloc falló para I2C read buffer (%d bytes)", bytesToRead);
-        return -1;
+    
+    // Verificación de desbordamiento de buffer estático
+    if (bytesToRead > sizeof(s_i2c_buffer)) {
+         ESP_LOGE(TAG, "I2CRead: Buffer insuficiente (%d > %zu)", bytesToRead, sizeof(s_i2c_buffer));
+         return -1;
     }
 
     // Fase Write: enviar dirección de lectura (2 bytes, MSB primero)
@@ -112,27 +119,26 @@ extern "C" int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress,
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (slaveAddr << 1) | I2C_MASTER_READ, true);
     if (bytesToRead > 1) {
-        i2c_master_read(cmd, tempBuf, bytesToRead - 1, I2C_MASTER_ACK);
+        i2c_master_read(cmd, s_i2c_buffer, bytesToRead - 1, I2C_MASTER_ACK);
     }
-    i2c_master_read_byte(cmd, &tempBuf[bytesToRead - 1], I2C_MASTER_NACK);
+    i2c_master_read_byte(cmd, &s_i2c_buffer[bytesToRead - 1], I2C_MASTER_NACK);
     i2c_master_stop(cmd);
 
-    esp_err_t err = i2c_master_cmd_begin(s_i2c_port, cmd, pdMS_TO_TICKS(1000));
+    // Timeout de 100ms es seguro para 400kHz incluso al leer la EEPROM completa (15ms @ 1MHz, ~40ms @ 400kHz)
+    esp_err_t err = i2c_master_cmd_begin(s_i2c_port, cmd, pdMS_TO_TICKS(100));
     i2c_cmd_link_delete(cmd);
 
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "I2CRead falló (addr=0x%04X, n=%d): %s",
-                 startAddress, nMemAddressRead, esp_err_to_name(err));
-        free(tempBuf);
+        // Log solo en Debug o Warn para evitar inundar la consola a 16Hz
+        ESP_LOGW(TAG, "I2CRead falló en 0x%04X: %s", startAddress, esp_err_to_name(err));
         return -1;
     }
 
     // Convertir bytes a uint16_t (big-endian del sensor)
     for (int i = 0; i < nMemAddressRead; i++) {
-        data[i] = ((uint16_t)tempBuf[2 * i] << 8) | tempBuf[2 * i + 1];
+        data[i] = ((uint16_t)s_i2c_buffer[2 * i] << 8) | s_i2c_buffer[2 * i + 1];
     }
 
-    free(tempBuf);
     return 0;
 }
 

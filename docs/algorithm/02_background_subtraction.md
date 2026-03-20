@@ -31,6 +31,38 @@ El parámetro `DELTA_T_FONDO` representa cuántos grados Celsius por encima de l
 * **Si `DELTA_T_FONDO` es muy alto (ej. 3.0 °C):** Ignorará cosas calientes. Si una persona tiene pelo grueso o una gorra fría (ej. a 22°C) y el suelo está a 20°C, la diferencia es solo de 2°C, y no la detectaríamos.
 * **Valor recomendado (1.0 a 1.5):** Equilibrio perfecto para rechazar fluctuaciones normales del sensor y aun así captar calor biológico.
 
+## 🧪 El Modelo de Fondo Dinámico
+
+Para detectar objetos calientes (personas), el sistema necesita saber qué temperatura tiene el entorno en reposo. Utilizamos un modelo de **Media Móvil Exponencial (EMA)**.
+
+### La Ecuación EMA
+Para cada píxel $(x, y)$, el modelo de fondo $B$ se actualiza en cada frame $t$ según:
+
+$$B_{t} = (1 - \alpha) \cdot B_{t-1} + \alpha \cdot I_{t}$$
+
+Donde:
+- $B_t$: Nuevo valor del fondo.
+- $B_{t-1}$: Fondo anterior.
+- $I_t$: Imagen térmica actual capturada.
+- $\alpha$: Factor de aprendizaje (`LEARNING_RATE`). Un $\alpha$ alto aprende rápido (útil en entornos muy cambiantes), un $\alpha$ bajo es más estable frente al ruido.
+
+### Aprendizaje Selectivo (Feedback Loop)
+El gran desafío de un modelo EMA simple es que, si una persona se queda quieta, "desaparece" porque el fondo acaba aprendiendo su temperatura. Para evitarlo, implementamos un **Filtro de Exclusión de Tracks**:
+
+```cpp
+if (pixel_is_tracked[x][y]) {
+    // Congelar aprendizaje: no actualizar el fondo en esta coordenada
+    new_background[x][y] = old_background[x][y];
+} else {
+    // Aplicar EMA normal
+    new_background[x][y] = apply_ema(old_background[x][y], current_frame[x][y]);
+}
+```
+
+Este mecanismo garantiza que los tracks activos mantengan su contraste contra el fondo sin importar cuánto tiempo pasen en una misma posición.
+
+---
+
 ## Modo Radar (Sustracción)
 El sistema permite visualizar directamente el resultado de la resta: `ImagenActual - ImagenFondo`. 
 En la interfaz visual, esto se conoce como "Modo Radar". Es útil para:

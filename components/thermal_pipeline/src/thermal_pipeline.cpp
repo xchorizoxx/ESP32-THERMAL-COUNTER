@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include <cstring>
+#include <cmath>
 
 namespace ThermalConfig {
     float EMA_ALPHA = 0.05f;
@@ -128,14 +129,29 @@ void ThermalPipeline::run()
         }
 
         if (sensor_ok) {
-
             // ============================================================
-            // PASO 0.5: Filtro Espacial (Ruido Salt & Pepper) y Estabilidad Uniforme
+            // PASO 0.4: Guardia de Integridad (Detección de Glitch Masivo)
+            // ============================================================
+            static float last_avg = 0;
+            float current_avg = 0;
+            for(int i=0; i<32; i++) current_avg += frame_actual_[i*10]; // Muestreo rápido
+            current_avg /= 32.0f;
+
+            if (frame_id_ > 10 && fabsf(current_avg - last_avg) > 15.0f) {
+                ESP_LOGW(TAG, "Glitch térmico detectado (Delta > 15C). Reintentando...");
+                sensor_ok = false; // Descarta este subframe
+            }
+            last_avg = current_avg;
+        }
+
+        if (sensor_ok) {
+            // ============================================================
+            // PASO 0.5: Filtro Espacial y Reconstrucción de Subpáginas
             // ============================================================
             float max_temp = -100.0f;
             float min_temp = 100.0f;
+            uint8_t currentSubPage = sensor_.getLastSubPageID();
             
-            // Temporary buffer to hold filtered pixels so we don't bleed values
             static float filtered_frame[ThermalConfig::TOTAL_PIXELS];
             
             for (int r = 0; r < ThermalConfig::MLX_ROWS; r++) {
@@ -146,48 +162,34 @@ void ThermalPipeline::run()
                     if (val > max_temp) max_temp = val;
                     if (val < min_temp) min_temp = val;
 
-                    // --- RECONSTRUCCIÓN ESPACIAL (Interpolación para evitar Ajedrez) ---
-                    // Determinamos si este píxel pertenece a la subpágina que acaba de llegar.
-                    // En Chess Mode: (r+c)%2 == lastSubPageID
-                    bool is_new_pixel = ((r + c) % 2) == sensor_.getLastSubPageID();
+                    bool is_new_pixel = ((r + c) % 2) == currentSubPage;
 
                     if (!is_new_pixel) {
-                        // Es un píxel de la subpágina "vieja". Lo estimamos promediando sus 4 vecinos "nuevos".
+                        // Es un píxel de la subpágina "vieja". 
+                        // En lugar de sobreescribirlo siempre, lo promediamos suavemente
+                        // con sus vecinos nuevos para reducir el efecto tablero.
                         if (r > 0 && r < ThermalConfig::MLX_ROWS - 1 && c > 0 && c < ThermalConfig::MLX_COLS - 1) {
-                            float up    = frame_actual_[(r-1) * ThermalConfig::MLX_COLS + c];
-                            float down  = frame_actual_[(r+1) * ThermalConfig::MLX_COLS + c];
-                            float left  = frame_actual_[r * ThermalConfig::MLX_COLS + (c-1)];
-                            float right = frame_actual_[r * ThermalConfig::MLX_COLS + (c+1)];
-                            val = (up + down + left + right) / 4.0f;
+                            float neighbors = (frame_actual_[(r-1)*32+c] + frame_actual_[(r+1)*32+c] + 
+                                               frame_actual_[r*32+(c-1)] + frame_actual_[r*32+(c+1)]) / 4.0f;
+                            // 70% valor previo (para no perder detalle) + 30% vecinos (para suavizado)
+                            val = (val * 0.7f) + (neighbors * 0.3f);
                         }
-                    } else {
-                        // Es un píxel "nuevo". Aplicamos Filtro de Outliers (Salt & Pepper)
-                        if (r > 0 && r < ThermalConfig::MLX_ROWS - 1 && c > 0 && c < ThermalConfig::MLX_COLS - 1) {
-                            float up    = frame_actual_[(r-1) * ThermalConfig::MLX_COLS + c];
-                            float down  = frame_actual_[(r+1) * ThermalConfig::MLX_COLS + c];
-                            float left  = frame_actual_[r * ThermalConfig::MLX_COLS + (c-1)];
-                            float right = frame_actual_[r * ThermalConfig::MLX_COLS + (c+1)];
-                            float avg_neighbors = (up + down + left + right) / 4.0f;
-                            
-                            if (val > avg_neighbors + 2.5f || val < avg_neighbors - 2.5f) {
-                                val = avg_neighbors; 
-                            }
-                        }
-                    }
+                    } 
                     filtered_frame[idx] = val;
                 }
             }
             
-            // Apply filtered values back
-            for (int i = 0; i < ThermalConfig::TOTAL_PIXELS; i++) {
-                frame_actual_[i] = filtered_frame[i];
-            }
+            for (int i = 0; i < ThermalConfig::TOTAL_PIXELS; i++) frame_actual_[i] = filtered_frame[i];
 
             // ============================================================
-            // PASO 0.6: Imagen para Display (Sin filtros temporales para evitar blur)
+            // PASO 0.6: Imagen para Display (Sincronización 8 FPS exactos)
             // ============================================================
-            // Copiar directamente el frame actual al de display para máxima nitidez en movimiento.
-            memcpy(frame_display_, frame_actual_, sizeof(frame_display_));
+            // Solo actualizamos el buffer de visualización cuando se completa el tablero (subpágina 1).
+            if (currentSubPage == 1) {
+                memcpy(frame_display_, frame_actual_, sizeof(frame_display_));
+            }
+            // NOTA: El procesamiento del algoritmo (PASO 1 en adelante) sigue a 16Hz
+            // para mantener la precisión del tracking.
 
             // ============================================================
             // PASO 1: Fondo Dinámico — EMA Selectiva

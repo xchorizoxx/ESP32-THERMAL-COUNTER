@@ -47,6 +47,40 @@ Gestiona la capa externa del sistema.
 
 ---
 
+## 🏗️ Arquitectura de Alto Nivel
+
+El sistema está diseñado bajo un modelo de **Consumidor-Productor asincrónico**, optimizando el uso de los dos núcleos del ESP32-S3.
+
+```mermaid
+graph TD
+    subgraph "Core 1: Vision Engine"
+        A[Sensor MLX90640] -->|I2C 400kHz| B(Thermal Pipeline)
+        B -->|Process| C{Detection?}
+        C -->|Yes| D[Alpha-Beta Tracker]
+        D -->|Update| E[Frame Result Struct]
+    end
+
+    E -->|Queue Send| F((FreeRTOS Queue))
+
+    subgraph "Core 0: System & Comms"
+        F -->|Queue Receive| G(Telemetry Task)
+        G -->|UDP/WebSocket| H[Client Dashboard]
+        I[HTTP Server] -->|Config Cmds| J((Config Queue))
+        J -->|Update| B
+    end
+
+    style A fill:#f96,stroke:#333
+    style F fill:#6cf,stroke:#333
+    style H fill:#9f9,stroke:#333
+```
+
+### Ecosistema Técnico
+- **FreeRTOS Static Allocation:** Todos los objetos (`Task`, `Queue`, `Semaphore`) se crean usando memoria estática para garantizar que el sistema nunca falle por fragmentación de memoria (Heap exhaustion).
+- **Zero-Copy Intent:** Se utilizan punteros y estructuras `packed` para minimizar la copia de datos entre el pipeline de visión y la capa de red.
+- **Watchdog Integrado:** El sistema monitorea la salud de ambas tareas; si el pipeline se bloquea por un error de bus I2C, el sistema se reinicia automáticamente para recuperar el servicio.
+
+---
+
 ## 🧠 El Pipeline de Visión (Algoritmo)
 
 El procesamiento se divide en 5 estadios secuenciales que transforman ruido térmico en eventos de conteo:

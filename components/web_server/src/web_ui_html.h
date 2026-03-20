@@ -971,12 +971,16 @@ const char *WEB_UI_HTML = R"rawliteral(
 
             <hr class="divider">
 
-            <button class="btn btn-warning" id="btn-reset" onclick="sendCmd('RESET_COUNTS')">
+            <button class="btn btn-warning" id="btn-reset-counts" onclick="sendCmd('RESET_COUNTS')">
                 &#8635; RESETEAR CONTADORES
             </button>
             <button class="btn btn-dim" id="btn-retry" onclick="sendCmd('RETRY_SENSOR')">
                 &#128267; REINTENTAR SENSOR
             </button>
+            <button class="btn btn-danger" id="btn-reboot" onclick="rebootDevice()">
+                &#10071; REINICIAR EQUIPO
+            </button>
+        </div>
         </div>
     </div>
 
@@ -1190,13 +1194,21 @@ function processFrame(buffer) {
         }
     }
 
-    const range = dispMax - dispMin || 1.0;
+    // --- Rango dinámico suavizado para evitar parpadeos visuales ---
+    if (state.smoothMin === undefined) state.smoothMin = dispMin;
+    if (state.smoothMax === undefined) state.smoothMax = dispMax;
+
+    // Filtro EMA para el rango: 80% previo, 20% nuevo. Muy efectivo contra el parpadeo.
+    state.smoothMin = state.smoothMin * 0.8 + dispMin * 0.2;
+    state.smoothMax = state.smoothMax * 0.8 + dispMax * 0.2;
+
+    const range = (state.smoothMax - state.smoothMin) || 1.0;
 
     // Build RGBA ImageData for 32×24 source canvas
     const imgData = srcCtx.createImageData(SENSOR_COLS, SENSOR_ROWS);
     const d = imgData.data;
     for (let i = 0; i < MIN_PIXELS; i++) {
-        const norm   = Math.max(0, Math.min(1, (temps[i] - dispMin) / range));
+        const norm   = Math.max(0, Math.min(1, (temps[i] - state.smoothMin) / range));
         const lutIdx = Math.floor(norm * 255) * 3;
         const px     = i * 4;
         d[px]     = INFERNO_LUT[lutIdx];
@@ -1506,6 +1518,20 @@ function sendWs(obj) {
     if (state.ws && state.ws.readyState === WebSocket.OPEN) {
         state.ws.send(JSON.stringify(obj));
     }
+}
+
+/**
+ * Reinicia el hardware mediante POST
+ */
+async function rebootDevice() {
+    if (!confirm("¿Seguro que quieres REINICIAR el ESP32? Se perderá la conexión web.")) return;
+    try {
+        const res = await fetch('/reboot', { method: 'POST' });
+        if (res.ok) {
+            alert("Reiniciando... Espera 10 segundos y recarga la página.");
+            location.reload();
+        }
+    } catch (e) { console.error("Error al reiniciar:", e); }
 }
 
 function sendCmd(cmd) {

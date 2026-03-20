@@ -10,14 +10,36 @@ Un píxel se considera un "Pico" si:
 2. Su temperatura absoluta es > `TEMP_BIOLOGICO_MIN` (garantiza que es un humano o animal, y no un cable tibio).
 3. Es estrictamente más caliente que los 8 píxeles inmediatamente a su alrededor.
 
-## 2. NMS (Supresión de No Máximos)
+## 🛡️ Supresión de No-Máximos (NMS)
 
-Si una persona es muy grande bajo la cámara, podría tener un pico en la cabeza y otro en el hombro.
-Para que cuente como 1 persona, la NMS elimina cualquier pico que esté muy cerca del *pico más dominante* del área.
-* `NMS_RADIUS_CENTER_SQ`: Distancia al cuadrado (en píxeles) dentro de la cual dos picos se consideran la "misma persona" si están bajo el centro del lente (donde la deformación óptica es menor).
-* `NMS_RADIUS_EDGE_SQ`: En los bordes de la cámara, las distancias geométricas caen en menos píxeles (por la distorsión del gran angular). Por eso el radio en los bordes es más pequeño.
+Para evitar que una persona sea detectada múltiples veces debido a su tamaño, aplicamos un filtro de vecindad circular.
 
-## 3. Tracking (Filtro Alpha-Beta)
+### Algoritmo NMS
+1. Se ordenan todos los picos detectados por temperatura de mayor a menor.
+2. Para el pico más caliente, se eliminan todos los demás picos que se encuentren dentro de un radio $R$ (parámetro `nms_radius`).
+3. Se repite para el siguiente pico superviviente más caliente.
+
+Este proceso garantiza que solo el **centro de masa** térmico sea procesado por el tracker.
+
+---
+
+## 📈 Tracking con Filtro Alpha-Beta
+
+El sistema utiliza un Filtro Alpha-Beta para predecir la posición de los objetos en el siguiente frame, compensando el ruido de medición.
+
+### Ecuaciones de Estado
+Para cada componente $(x, y)$:
+
+1. **Predicción**:
+   $$\hat{x}_{k} = x_{k-1} + v_{k-1} \cdot \Delta t$$
+2. **Actualización de Posición**:
+   $$x_{k} = \hat{x}_{k} + \alpha \cdot (z_{k} - \hat{x}_{k})$$
+3. **Actualización de Velocidad**:
+   $$v_{k} = v_{k-1} + \frac{\beta}{\Delta t} \cdot (z_{k} - \hat{x}_{k})$$
+
+Donde $z_k$ es la medición actual y $\alpha, \beta$ son las ganancias del filtro. Esto permite que el sistema "entienda" la inercia del movimiento humano, ignorando saltos erráticos de un solo frame.
+
+---
 
 Tenemos una lista de "Picos Crudos" (posición X,Y) en el *frame actual*. ¿Cómo sabemos quién es quién del *frame anterior*?
 

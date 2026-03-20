@@ -20,10 +20,11 @@ void MLX90640_I2CSetConfig(i2c_port_t port, gpio_num_t sda,
 }
 
 Mlx90640Sensor::Mlx90640Sensor(i2c_port_t port, gpio_num_t sda,
-                                gpio_num_t scl, uint8_t addr)
+                                gpio_num_t scl, int i2c_freq_hz, uint8_t addr)
     : port_(port)
     , sda_(sda)
     , scl_(scl)
+    , i2c_freq_hz_(i2c_freq_hz)
     , addr_(addr)
     , ambientTemp_(25.0f)
     , initialized_(false)
@@ -39,8 +40,7 @@ esp_err_t Mlx90640Sensor::init()
              addr_, sda_, scl_);
 
     // 1. Configurar y arrancar I2C
-    // NOTA: Revertimos a 400kHz por solicitud del usuario para mayor estabilidad.
-    MLX90640_I2CSetConfig(port_, sda_, scl_, 400000);
+    MLX90640_I2CSetConfig(port_, sda_, scl_, i2c_freq_hz_);
     MLX90640_I2CInit();
 
     // 2. Configurar modo Chess (con reintentos)
@@ -124,8 +124,32 @@ esp_err_t Mlx90640Sensor::readFrame(float* outBuffer)
     // Identificar qué subpágina acabamos de leer
     lastSubPageID_ = MLX90640_GetSubPageNumber(frameData_);
     
-    // Calcula la temperatura ambiente
-    ambientTemp_ = MLX90640_GetTa(frameData_, &params_);
+    // Calcula la temperatura ambiente con un filtro EMA muy fuerte para evitar parpadeos globales
+    float rawTa = MLX90640_GetTa(frameData_, &params_);
+    float vdd = MLX90640_GetVdd(frameData_, &params_);
+
+    // --- PROTECCIÓN DE DATOS (Data Sanity Guard) ---
+    // Si el I2C falla silenciosamente (bit flip), VDD suele dar valores locos.
+    // El MLX opera entre 3.0V y 3.6V. Si está fuera, el frame es basura.
+    if (vdd < 2.5f || vdd > 4.0f || rawTa < -40.0f || rawTa > 150.0f) {
+        ESP_LOGW(TAG, "Frame descartado por anomalía eléctrica/I2C: VDD=%.2fV, Ta=%.2fC", vdd, rawTa);
+        return ESP_ERR_INVALID_STATE; 
+    }
+
+    // --- VERIFICACIÓN DE PATRÓN ---
+    // Aseguramos que el bit de Chess Mode (bit 12 del Ctrl Reg) esté activo.
+    // frameData[832] contiene una copia del Control Register 1.
+    // Si hay un glitch en el I2C al final del frame, este bit puede cambiar
+    // causando que CalculateTo use el patrón de Interleave (GRID pattern).
+    frameData_[832] |= 0x1000; 
+
+    if (!initialized_) {
+        ambientTemp_ = rawTa;
+    } else {
+        // Filtro EMA (0.1): solo permitimos cambios lentos en la referencia
+        ambientTemp_ = (rawTa * 0.1f) + (ambientTemp_ * 0.9f);
+    }
+    
     float tr = ambientTemp_ - 8.0f; // Aproximación estándar reflectada
     
     // Calcula térmicas SÓLO en la subpágina extraída, superponiéndola al buffer.

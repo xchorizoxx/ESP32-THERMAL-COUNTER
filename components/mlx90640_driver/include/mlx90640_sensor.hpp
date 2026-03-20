@@ -25,7 +25,7 @@ public:
      * @param scl    Pin GPIO para SCL
      * @param addr   Dirección I2C del sensor (por defecto 0x33)
      */
-    Mlx90640Sensor(i2c_port_t port, gpio_num_t sda, gpio_num_t scl, uint8_t addr);
+    Mlx90640Sensor(i2c_port_t port, gpio_num_t sda, gpio_num_t scl, int i2c_freq_hz, uint8_t addr);
 
     /**
      * @brief Inicializa el bus I2C, lee la EEPROM y extrae parámetros de calibración.
@@ -77,6 +77,7 @@ private:
     i2c_port_t port_;
     gpio_num_t sda_;
     gpio_num_t scl_;
+    int        i2c_freq_hz_;
     uint8_t    addr_;
     float      ambientTemp_;
     int        lastSubPageID_;

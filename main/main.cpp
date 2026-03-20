@@ -74,6 +74,7 @@ extern "C" void app_main(void)
         I2C_NUM_0,
         (gpio_num_t)ThermalConfig::I2C_SDA_PIN,   // GPIO 8
         (gpio_num_t)ThermalConfig::I2C_SCL_PIN,   // GPIO 9
+        ThermalConfig::I2C_FREQ_HZ,
         ThermalConfig::MLX_ADDR                   // 0x33
     );
 

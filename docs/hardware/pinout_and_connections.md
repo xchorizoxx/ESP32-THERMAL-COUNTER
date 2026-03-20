@@ -2,7 +2,41 @@
 
 ## 1. Sensor MLX90640 (Termopila)
 
-Este sistema basa su percepción espacial en una matriz de 768 píxeles. El sensor se comunica puramente por **I2C**.
+Este sistema basa## 🔌 Esquema de Conexión (Pinout)
+
+El sistema utiliza el bus I2C para la comunicación con el sensor MLX90640. El ESP32-S3 se encarga de la alimentación y procesamiento.
+
+### Diagrama de Cableado
+
+```mermaid
+graph LR
+    subgraph "ESP32-S3 DevKit"
+        V5[5V/USB]
+        GND1[GND]
+        3V3[3.3V]
+        SDA[GPIO 8]
+        SCL[GPIO 9]
+    end
+
+    subgraph "MLX90640 Sensor"
+        VCC[VCC 3.3V]
+        GND2[GND]
+        SDA_S[SDA]
+        SCL_S[SCL]
+    end
+
+    3V3 --- VCC
+    GND1 --- GND2
+    SDA --- SDA_S
+    SCL --- SCL_S
+```
+
+### Requerimientos de Energía
+- **Voltaje**: 3.3V estable (el sensor es sensible a fluctuaciones).
+- **Consumo Pico**: 150mA (durante transmisión WiFi). Se recomienda un capacitor de desacople de **100nF + 10uF** entre VCC y GND cerca del sensor si los cables son largos (>15cm).
+
+---
+ su percepción espacial en una matriz de 768 píxeles. El sensor se comunica puramente por **I2C**.
 
 | Pin Sensor | Pin ESP32-S3 | Rol | Notas Críticas |
 | :--- | :--- | :--- | :--- |

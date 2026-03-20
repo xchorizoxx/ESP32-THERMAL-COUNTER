@@ -2,6 +2,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "esp_err.h"
 #include "esp_http_server.h"
 #include "thermal_types.hpp"
@@ -26,6 +27,17 @@ public:
 
 private:
     static httpd_handle_t server_;
+
+    // Sistema de Buffers estáticos para evitar malloc/free en broadcast
+    static constexpr size_t WS_BUFFER_COUNT = 2;
+    static constexpr size_t WS_BUFFER_SIZE  = 2048;
+    static uint8_t ws_buffers_[WS_BUFFER_COUNT][WS_BUFFER_SIZE];
+    static int     ws_buffer_ref_counts_[WS_BUFFER_COUNT];
+
+    /**
+     * @brief Callback invocado cuando el envío asíncrono termina
+     */
+    static void wsAsyncCompletionCb(esp_err_t err, int socket, void *arg);
 
     // HTTP Handlers
     static esp_err_t indexGetHandler(httpd_req_t *req);
