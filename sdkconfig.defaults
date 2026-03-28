@@ -36,9 +36,8 @@ CONFIG_LWIP_TCP_WND_DEFAULT=5744
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
 # --- Main loop stack size ---
-# Optimized to 6KB (reduced from 32KB after heuristic profiling).
-# Frees ~26KB of SRAM for the Dashcam circular buffer.
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
+# Increased to 8KB (from 6KB) for Picolibc safety in ESP-IDF 6.0.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
 # --- I2C (use native driver, not legacy) ---
 CONFIG_I2C_ENABLE_DEBUG_LOG=n
@@ -50,3 +49,6 @@ CONFIG_IDF_TARGET="esp32s3"
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+# --- Configuración Temporal para Migración ESP-IDF 6.0 ---
+CONFIG_COMPILER_DISABLE_DEFAULT_ERRORS=n

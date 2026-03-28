@@ -17,7 +17,7 @@ static i2c_master_dev_handle_t  s_dev_handle = NULL;
 static i2c_port_t s_i2c_port   = I2C_NUM_0;
 static gpio_num_t s_sda_pin    = GPIO_NUM_8;
 static gpio_num_t s_scl_pin    = GPIO_NUM_9;
-static int        s_freq_hz    = 1000000; // 1 MHz by default
+static int        s_freq_hz    = 400000; // 400 kHz exactos (Melexis standard)
 static uint8_t    s_slave_addr = 0x33;
 static bool       s_initialized = false;
 
@@ -86,7 +86,10 @@ extern "C" int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16
     // Combined transmit/receive for atomicity
     esp_err_t err = i2c_master_transmit_receive(s_dev_handle, addr_buf, 2, s_i2c_buffer, bytes_to_read, 500);
 
-    if (err != ESP_OK) {
+    if (err == ESP_ERR_INVALID_RESPONSE) {
+        ESP_LOGW(TAG, "I2C NACK at [0x%04X] (Bus Busy or No Response)", startAddress);
+        return -1;
+    } else if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2C Read Failed [0x%04X]: %s", startAddress, esp_err_to_name(err));
         return -1;
     }
