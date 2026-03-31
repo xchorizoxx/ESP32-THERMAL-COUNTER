@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ESP32 Thermal Vigilant</title>
+    <link rel="stylesheet" href="/style.css?v=1.1">
+</head>
+<body>
+    <!-- Top App Bar -->
+    <header class="app-bar">
+        <div class="brand">
+            <svg class="icon-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 5 8.268 7.943 9.542 12-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+            </svg>
+            <h1>VIGILANT <span>THERMAL</span></h1>
+        </div>
+        <div class="status-indicators">
+            <div class="badge" id="badge-ws" title="WebSocket Status">
+                <div class="dot red" id="dot-ws"></div> <span id="lbl-ws">Desconectado</span>
+            </div>
+            <div class="badge" id="badge-sensor" title="Sensor Status">
+                <div class="dot gray" id="dot-sensor"></div>
+            </div>
+            <div class="badge" id="badge-fps" title="Frame Rate">
+                <span id="lbl-fps">0 Hz</span>
+            </div>
+            <div class="badge" id="badge-temp" title="Ambient Temp">
+                <span id="lbl-amb">--°C</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main id="main-content">
+        
+        <!-- ================= VIEW: VISION ================= -->
+        <section id="view-vision" class="view-section active">
+            <div class="card canvas-card">
+                <div class="canvas-header">
+                    <h2>Live Feed</h2>
+                    <div class="vision-controls">
+                        <button class="btn-pill active" data-mode="normal" onclick="setVisionMode('normal')">Normal</button>
+                        <button class="btn-pill" data-mode="raw" onclick="setVisionMode('raw')">Raw</button>
+                        <button class="btn-pill" data-mode="diff" onclick="setVisionMode('diff')">Diferencial</button>
+                    </div>
+                </div>
+                <div class="canvas-container" style="position:relative;">
+                    <div style="position:absolute; top:8px; left:8px; display:flex; gap:8px; z-index:10;">
+                        <span id="overlay-in" style="background:rgba(0,0,0,0.6); color:#10b981; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:12px;">In: 0</span>
+                        <span id="overlay-out" style="background:rgba(0,0,0,0.6); color:#3b82f6; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:12px;">Out: 0</span>
+                    </div>
+                    <canvas id="thermalCanvas" width="320" height="240" style="width:100%; height:100%; object-fit:fill;"></canvas>
+                    <canvas id="uiCanvas" width="320" height="240" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></canvas>
+                </div>
+                <div class="scale-bar">
+                    <span id="scale-min">15°C</span>
+                    <canvas id="scaleCanvas" width="200" height="10"></canvas>
+                    <span id="scale-max">45°C</span>
+                </div>
+            </div>
+
+            <!-- Future VGA placeholder -->
+            <div class="card vga-placeholder">
+                <div class="vga-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                        <circle cx="12" cy="13" r="4"/>
+                    </svg>
+                </div>
+                <p>Módulo VGA Óptico (Próximamente)</p>
+            </div>
+        </section>
+
+        <!-- ================= VIEW: STATS ================= -->
+        <section id="view-stats" class="view-section">
+            <div class="stats-grid">
+                <div class="stat-card green">
+                    <div class="stat-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7"/>
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <h3>Entradas Totales</h3>
+                        <p id="stat-in">0</p>
+                    </div>
+                </div>
+                <div class="stat-card blue">
+                    <div class="stat-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M19 12H5M12 19l-7-7 7-7"/>
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <h3>Salidas Totales</h3>
+                        <p id="stat-out">0</p>
+                    </div>
+                </div>
+                <!-- Próximamente SD -->
+                <div class="stat-card placeholder-card" style="grid-column: span 2;">
+                    <h4>Almacenamiento e Historial</h4>
+                    <p>Requiere módulo MicroSD (Fase D)</p>
+                </div>
+            </div>
+            
+            <button class="btn-primary" style="margin-top:20px; width:100%;" onclick="appCmd('RESET_COUNTS')">Resetear Contadores</button>
+        </section>
+
+        <!-- ================= VIEW: SETTINGS ================= -->
+        <section id="view-settings" class="view-section">
+            <div class="settings-tabs">
+                <button class="tab-btn active" onclick="switchSettings('basic')">Básica</button>
+                <button class="tab-btn" onclick="switchSettings('adv')">Color & Avanzado</button>
+                <button class="tab-btn" onclick="switchSettings('net')">Red</button>
+            </div>
+
+            <div id="set-basic" class="settings-panel active">
+                <div class="card form-card">
+                    <h3>Detección y Ruido</h3>
+                    <div class="form-group">
+                        <label>Temperatura Mín. Biológica: <span id="val-temp_bio" class="val-badge">25.0</span> °C</label>
+                        <input type="range" id="cfg-temp_bio" min="15.0" max="38.0" step="0.5" oninput="document.getElementById('val-temp_bio').innerText=this.value">
+                    </div>
+                    <div class="form-group">
+                        <label>Delta T (Contraste vs Fondo): <span id="val-delta_t" class="val-badge">1.5</span> °C</label>
+                        <input type="range" id="cfg-delta_t" min="0.5" max="5.0" step="0.1" oninput="document.getElementById('val-delta_t').innerText=this.value">
+                    </div>
+                    <div class="form-group">
+                        <label>Factor EMA (Adaptación Fondo): <span id="val-alpha_ema" class="val-badge">0.05</span></label>
+                        <input type="range" id="cfg-alpha_ema" min="0.01" max="0.50" step="0.01" oninput="document.getElementById('val-alpha_ema').innerText=this.value">
+                        <small>Memoria costera. Menor = fondo más estable.</small>
+                    </div>
+                    <div class="form-group" style="padding-top:10px; border-top:1px solid rgba(255,255,255,0.1);">
+                        <label>Línea de Entrada (Norte): Fila <span id="val-line_entry" class="val-badge">8</span></label>
+                        <input type="range" id="cfg-line_entry" min="0" max="23" step="1" oninput="document.getElementById('val-line_entry').innerText=this.value">
+                        <small>Fila Y donde comienza el conteo de ingreso (0-23).</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Línea de Salida (Sur): Fila <span id="val-line_exit" class="val-badge">16</span></label>
+                        <input type="range" id="cfg-line_exit" min="0" max="23" step="1" oninput="document.getElementById('val-line_exit').innerText=this.value">
+                        <small>Fila Y donde comienza el conteo de egreso (0-23).</small>
+                    </div>
+                </div>
+            </div>
+
+            <div id="set-adv" class="settings-panel">
+                <div class="card form-card">
+                    <h3>Mapeo de UI y Color (Ironbow)</h3>
+                    <div class="form-group">
+                        <label>Umbral Frío a Biológico: <span id="val-color_low" class="val-badge">25.0</span> °C</label>
+                        <input type="range" id="cfg-color_low" min="15.0" max="38.0" step="0.5" value="25.0" oninput="document.getElementById('val-color_low').innerText=this.value" onchange="regenerateLUT()">
+                        <small>Acelera gradiente hacia colores brillantes.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Umbral Biológico a Crítico: <span id="val-color_high" class="val-badge">38.0</span> °C</label>
+                        <input type="range" id="cfg-color_high" min="30.0" max="45.0" step="0.5" value="38.0" oninput="document.getElementById('val-color_high').innerText=this.value" onchange="regenerateLUT()">
+                        <small>Saturación hacia Amarillo/Blanco.</small>
+                    </div>
+                </div>
+                <div class="card form-card">
+                    <h3>Topología NMS</h3>
+                    <div class="form-group">
+                        <label>Radio NMS Centro: <span id="val-nms_center" class="val-badge">16</span> px</label>
+                        <input type="range" id="cfg-nms_center" min="1" max="100" step="1" oninput="document.getElementById('val-nms_center').innerText=this.value">
+                    </div>
+                    <div class="form-group">
+                        <label>Radio NMS Borde: <span id="val-nms_edge" class="val-badge">4</span> px</label>
+                        <input type="range" id="cfg-nms_edge" min="1" max="100" step="1" oninput="document.getElementById('val-nms_edge').innerText=this.value">
+                    </div>
+                </div>
+            </div>
+
+            <div id="set-net" class="settings-panel">
+                <div class="card placeholder-card">
+                    <h4>Configuración WiFi y Servidor</h4>
+                    <p>Panel reservado para Fase posterior.</p>
+                </div>
+                <div class="card placeholder-card">
+                    <h4>Reloj RTC</h4>
+                    <p>Sincronización NTP y RTC físico (Fase posterior).</p>
+                </div>
+                <div class="card form-card">
+                    <h3>Acciones del Sistema</h3>
+                    <button class="btn-warn" onclick="appCmd('RETRY_SENSOR')">Reiniciar Sensor I2C</button>
+                    <button class="btn-danger" style="margin-top:10px;" onclick="rebootEsp()">Reboot ESP32</button>
+                </div>
+            </div>
+
+            <div class="settings-actions">
+                <button class="btn-primary" onclick="saveConfig()">Guardar en Flash</button>
+            </div>
+
+            <!-- ESPACIO ABSOLUTO DEBAJO DEL BOTON DE GUARDADO PARA EVITAR SOLAPE CON LA BARRA INFERIOR -->
+            <div style="height: 150px; width: 100%;"></div>
+
+        </section>
+        
+        <!-- ================= DEBUG LOGS (Hidden Drawer) ================= -->
+        <div id="debug-drawer" class="drawer hidden">
+            <div class="drawer-header" onclick="toggleDebug()">
+                <span>Debugger Logs</span>
+                <span id="debug-toggle-icon">▲</span>
+            </div>
+            <div class="drawer-content" id="debug-console">
+                <!-- Logs will be appended here -->
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="bottom-nav">
+        <ul>
+            <li>
+                <button class="nav-item active" onclick="switchMainView('vision', this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 5 8.268 7.943 9.542 12-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                    </svg>
+                    <span>Visión</span>
+                </button>
+            </li>
+            <li>
+                <button class="nav-item" onclick="switchMainView('stats', this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 20V10M12 20V4M6 20v-6"/>
+                    </svg>
+                    <span>Estadísticas</span>
+                </button>
+            </li>
+            <li>
+                <button class="nav-item" onclick="switchMainView('settings', this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+                    </svg>
+                    <span>Config</span>
+                </button>
+            </li>
+        </ul>
+    </nav>
+    <script src="/app.js?v=1.3"></script>
+</body>
+</html>

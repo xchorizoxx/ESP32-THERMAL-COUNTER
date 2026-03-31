@@ -41,6 +41,8 @@ private:
 
     // HTTP Handlers
     static esp_err_t indexGetHandler(httpd_req_t *req);
+    static esp_err_t styleGetHandler(httpd_req_t *req);
+    static esp_err_t appJsGetHandler(httpd_req_t *req);
     static esp_err_t wsHandler(httpd_req_t *req);
     static esp_err_t otaPostHandler(httpd_req_t *req);
     

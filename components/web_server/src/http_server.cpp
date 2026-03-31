@@ -1,6 +1,5 @@
 #include "http_server.hpp"
 #include "freertos/FreeRTOS.h"
-#include "web_ui_html.h"
 #include "esp_log.h"
 #include "cJSON.h"
 #include "nvs_flash.h"
@@ -23,6 +22,16 @@ uint8_t HttpServer::ws_buffers_[WS_BUFFER_COUNT][WS_BUFFER_SIZE] __attribute__((
 int     HttpServer::ws_buffer_ref_counts_[WS_BUFFER_COUNT] = {0, 0};
 static portMUX_TYPE s_ws_mux    = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE s_config_mux = portMUX_INITIALIZER_UNLOCKED; // Bug5-fix: protects ThermalConfig global reads from Core 0
+
+// Embedded File Pointers (From CMake EMBED_FILES)
+extern const uint8_t index_html_start[] asm("_binary_index_html_start");
+extern const uint8_t index_html_end[]   asm("_binary_index_html_end");
+
+extern const uint8_t style_css_start[] asm("_binary_style_css_start");
+extern const uint8_t style_css_end[]   asm("_binary_style_css_end");
+
+extern const uint8_t app_js_start[] asm("_binary_app_js_start");
+extern const uint8_t app_js_end[]   asm("_binary_app_js_end");
 
 // =============================================================================
 //  NVS HELPERS  (Core 0, called only from HTTP task context)
@@ -132,8 +141,20 @@ static void wsSendJson(httpd_req_t *req, cJSON *root) {
 
 esp_err_t HttpServer::indexGetHandler(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/html");
-    // WEB_UI_HTML is a null-terminated raw string defined in web_ui_html.h
-    return httpd_resp_send(req, WEB_UI_HTML, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+    return httpd_resp_send(req, (const char *)index_html_start, index_html_end - index_html_start);
+}
+
+esp_err_t HttpServer::styleGetHandler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "text/css");
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=86400"); // CSS puede durar
+    return httpd_resp_send(req, (const char *)style_css_start, style_css_end - style_css_start);
+}
+
+esp_err_t HttpServer::appJsGetHandler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+    return httpd_resp_send(req, (const char *)app_js_start, app_js_end - app_js_start);
 }
 
 // =============================================================================
@@ -389,6 +410,28 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
         .supported_subprotocol = NULL
     };
     httpd_register_uri_handler(server_, &uri_get);
+
+    const httpd_uri_t css_get = {
+        .uri                   = "/style.css",
+        .method                = HTTP_GET,
+        .handler               = styleGetHandler,
+        .user_ctx              = NULL,
+        .is_websocket          = false,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+    };
+    httpd_register_uri_handler(server_, &css_get);
+
+    const httpd_uri_t js_get = {
+        .uri                   = "/app.js",
+        .method                = HTTP_GET,
+        .handler               = appJsGetHandler,
+        .user_ctx              = NULL,
+        .is_websocket          = false,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+    };
+    httpd_register_uri_handler(server_, &js_get);
 
     const httpd_uri_t ws_uri = {
         .uri                   = "/ws",
