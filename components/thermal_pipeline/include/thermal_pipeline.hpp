@@ -14,6 +14,7 @@
 #include "peak_detector.hpp"
 #include "nms_suppressor.hpp"
 #include "tracklet_tracker.hpp"  // A2: replaces AlphaBetaTracker
+#include "tracklet_fsm.hpp"      // A3: counting logic
 #include "mask_generator.hpp"
 #include "frame_accumulator.hpp"  // A1: chess sub-frame compositor
 #include "noise_filter.hpp"        // A1: Kalman 1D per-pixel noise filter
@@ -50,6 +51,7 @@ private:
     QueueHandle_t   ipcQueue_;
     QueueHandle_t   configQueue_;
     TrackletTracker tracker_;                                // A2
+    TrackletFSM     door_fsm_;                               // A3: Unified Bitmap FSM Count
     Track           track_array_[ThermalConfig::MAX_TRACKS]; // A2: filled by fillTrackArray()
     int             num_confirmed_tracks_ = 0;               // A2: count of confirmed tracks
 

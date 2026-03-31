@@ -3,6 +3,7 @@ idf_component_register(
          "src/peak_detector.cpp"
          "src/nms_suppressor.cpp"
          "src/tracklet_tracker.cpp"    # A2: replaces alpha_beta_tracker
+         "src/tracklet_fsm.cpp"        # A3: Matrix State Machine
          "src/mask_generator.cpp"
          "src/thermal_pipeline.cpp"
          # NOTE: alpha_beta_tracker.cpp is intentionally excluded from SRCS.

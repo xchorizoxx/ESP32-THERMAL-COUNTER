@@ -172,8 +172,11 @@ void ThermalPipeline::run()
             // --- Step 4: Tracking (A2: TrackletTracker) ---
             uint32_t ts = xTaskGetTickCount();
             tracker_.update(peaks_, num_peaks_, ts);
+
+            // --- Step 4b: Counting FSM (A3: TrackletFSM) ---
+            door_fsm_.update(tracker_, count_in_, count_out_);
+
             tracker_.fillTrackArray(track_array_, &num_confirmed_tracks_);
-            // NOTE: count_in_/count_out_ frozen until A3 (TrackletFSM) is implemented.
 
             // --- Step 5: Masking ---
             MaskGenerator::generate(track_array_, num_confirmed_tracks_,
