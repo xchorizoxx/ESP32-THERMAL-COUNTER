@@ -5,6 +5,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Stage A3] - FSM Infinite Door & Unified Bitmap
+### Added
+- **TrackletFSM**: New Finite State Machine using a 768-byte Unified Bitmap (ROI Map) for O(1) zone lookups.
+- **Autonomous ROI Tracking**: Supports free-form counting lines (curves, diagonals) and exclusion zones directly on the ESP32.
+- **Ghost Suppression**: Automatic rejection of tracklets born in "Dead Zones" (ZONE_DEAD) or neutral areas.
+- **Bi-Directional Counting**: Unified logic for North-South, East-West, or diagonal crossings based on zone transitions.
+- **Mock Calibration**: Initial test map with 18x11 central dead zone and 7px side corridors for wall-hugging support.
+
 ## [Stage A2] - Stable Tracking
 ### Added
 - **TrackletTracker**: Replaces legacy AlphaBetaTracker. Implements a 20-frame circular history buffer for linear velocity prediction.

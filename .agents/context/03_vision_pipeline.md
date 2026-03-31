@@ -12,7 +12,7 @@ Implement the 5 steps of the computer vision algorithm on Core 1, optimizing for
 4. **Detection**: Identifying thermal blobs exceeding Delta-T.
 5. **NMS**: Filtering redundant peaks via Non-Maximum Suppression.
 6. **Tracking** (A2): State estimation via `TrackletTracker` with a 20-frame position history and proportional coastal memory.
-7. **Line Counting** (A3): A Finite State Machine (TrackletFSM) evaluates crossing sequences via track zone states.
+7. **Unified Counting** (A3): A Finite State Machine (TrackletFSM) uses a 768-byte Unified Bitmap (ROI Map) for O(1) zone evaluation (IN/OUT/DEAD). Supports curves, diagonals, and exclusion zones.
 
 ## Performance Notes
 - Processing must occur in <40ms.

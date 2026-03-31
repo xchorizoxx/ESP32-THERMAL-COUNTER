@@ -13,10 +13,11 @@ graph TD
     B --> C(Step 2: Peak Detection)
     C --> D(Step 3: NMS Suppression)
     D --> E(Step 4: Tracklet Tracking)
-    E --> F(Step 5: Feedback Masking)
-    F --> G[Result: IDs + Count + Velocity]
+    E --> F(Step 5: Unified Bitmap FSM)
+    F --> G(Step 6: Feedback Masking)
+    G --> H[Result: IDs + Count + Velocity]
     
-    F -.->|Blocking Mask| B
+    G -.->|Blocking Mask| B
 ```
 
 ## 🛠 Stage Breakdown
