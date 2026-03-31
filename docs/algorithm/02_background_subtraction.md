@@ -35,6 +35,11 @@ The `BACKGROUND_DELTA_T` parameter represents how many degrees Celsius above the
 
 To detect hot objects (people), the system needs to know the ambient temperature at rest. We use an **Exponential Moving Average (EMA)** model.
 
+### Processing Chain Integration
+1. **Acquisition**: Raw MLX90640 frame.
+2. **Pre-processing (A1)**: Chess fusion and **Kalman per-pixel filter**.
+3. **Background Update**: The EMA map is derived from the **filtered_frame_**.
+
 ### The EMA Equation
 For each pixel $(x, y)$, the background model $B$ is updated in each frame $t$ according to:
 

@@ -10,6 +10,8 @@
 
 ## 1. Análisis del Tracker Actual vs Propuestas
 
+-**Importante: recuerda optimizar usando las opciones de aceleración vectorial que trae el esp32s3, consulta al usuario si no te queda claro. 
+
 ### 1.1 Problemas del Alpha-Beta actual
 
 | Problema | Causa | Impacto |
