@@ -5,6 +5,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Stage A2] - Stable Tracking
+### Added
+- **TrackletTracker**: Replaces legacy AlphaBetaTracker. Implements a 20-frame circular history buffer for linear velocity prediction.
+- **Proportional Coastal Memory**: Fixes "ghost IDs" by linking a track's survival time during occlusion directly to its confirmed lifespan (up to 750ms).
+- **EMA Display Smoothing**: Decouples HUD rendering positions from the physics engine to eliminate visual stuttering.
+- **Composite Matching**: Matches targets using both Euclidean distance and thermal signature similarity.
+
 ## [Stage A1] - Bugfixes & Thermal Pre-processing
 ### Added
 - **FrameAccumulator**: Fuses alternating sub-frames to eliminate visual artifacts and matrix sync issues.

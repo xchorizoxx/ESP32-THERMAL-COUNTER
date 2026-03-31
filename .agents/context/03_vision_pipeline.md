@@ -11,9 +11,8 @@ Implement the 5 steps of the computer vision algorithm on Core 1, optimizing for
 3. **Background Modeling**: EMA-based dynamic map (8Hz sync).
 4. **Detection**: Identifying thermal blobs exceeding Delta-T.
 5. **NMS**: Filtering redundant peaks via Non-Maximum Suppression.
-6. **Tracking**: Prediction/Correlation via Alpha-Beta filter.
-4. **Alpha-Beta Tracking**: Maintain track identity (persistent IDs) as they move through the FOV.
-5. **Line Counting**: Two virtual lines (e.g., Y=11 and Y=13) that detect IN/OUT direction.
+6. **Tracking** (A2): State estimation via `TrackletTracker` with a 20-frame position history and proportional coastal memory.
+7. **Line Counting** (A3): A Finite State Machine (TrackletFSM) evaluates crossing sequences via track zone states.
 
 ## Performance Notes
 - Processing must occur in <40ms.

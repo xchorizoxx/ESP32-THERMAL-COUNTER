@@ -12,7 +12,7 @@ graph TD
     A[Raw Frame: 32x24 float] --> B(Step 1: Background Modeling)
     B --> C(Step 2: Peak Detection)
     C --> D(Step 3: NMS Suppression)
-    D --> E(Step 4: Alpha-Beta Tracking)
+    D --> E(Step 4: Tracklet Tracking)
     E --> F(Step 5: Feedback Masking)
     F --> G[Result: IDs + Count + Velocity]
     
@@ -32,10 +32,11 @@ Analyzes the difference between the live frame and the background model. Finds l
 Since humans occupy multiple pixels, a single head might generate multiple peaks.
 - **Logic**: For every peak, we check its neighbors within a `config.nms_radius`. Redundant peaks are suppressed.
 
-### 4. Alpha-Beta Tracking
-We use a lightweight state estimator to follow centroids over time.
-- **Identity**: Assigns persistent IDs.
-- **Anti-Stealing**: Prevents nearby tracks from swapping IDs mistakenly.
+### 4. Tracklet Tracking
+We use a lightweight history-based estimator to follow centroids over time.
+- **Identity**: Assigns persistent IDs with proportional coastal memory to prevent ghosting.
+- **Anti-Stealing**: Composite cost matching (distance + temperature) prevents nearby tracks from swapping.
+- **Smoothing**: Independently smooths visual UI positions versus physical coordinate prediction.
 
 ### 5. Feedback Masking
 Generates a binary mask around active tracks. This## Processing Timeline
@@ -45,7 +46,7 @@ Generates a binary mask around active tracks. This## Processing Timeline
    - **NoiseFilter**: Scalar per-pixel Kalman filter (NETD reduction).
 3. **Background Modeling**: EMA map updates (selective masking).
 4. **Blob Detection**: Peak finding and multi-stage NMS.
-5. **Tracking**: Alpha-Beta state estimation and ID lifecycle.
+5. **Tracking**: Tracklet history estimation, proportional ID lifecycle, and display smoothing.
 g the 16 Hz real-time requirement.
 
 ---
