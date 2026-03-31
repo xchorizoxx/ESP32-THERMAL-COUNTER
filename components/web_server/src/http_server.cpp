@@ -21,7 +21,8 @@ static QueueHandle_t s_configQueue = NULL;
 // Using __attribute__((aligned(4))) to ensure memory alignment for network/DMA operations
 uint8_t HttpServer::ws_buffers_[WS_BUFFER_COUNT][WS_BUFFER_SIZE] __attribute__((aligned(4)));
 int     HttpServer::ws_buffer_ref_counts_[WS_BUFFER_COUNT] = {0, 0};
-static portMUX_TYPE s_ws_mux = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE s_ws_mux    = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE s_config_mux = portMUX_INITIALIZER_UNLOCKED; // Bug5-fix: protects ThermalConfig global reads from Core 0
 
 // =============================================================================
 //  NVS HELPERS  (Core 0, called only from HTTP task context)
@@ -230,16 +231,32 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
     //  GET_CONFIG — returns current configuration as JSON
     // -------------------------------------------------------------------------
     if (strcmp(cmd->valuestring, "GET_CONFIG") == 0) {
+        // Bug5-fix: atomic snapshot — all globals read inside a single critical section
+        // to prevent torn reads on Xtensa LX7 during a Core 0/Core 1 context switch.
+        float snap_temp_bio, snap_delta_t, snap_alpha_ema;
+        int   snap_line_entry, snap_line_exit, snap_nms_center, snap_nms_edge, snap_view_mode;
+
+        portENTER_CRITICAL(&s_config_mux);
+        snap_temp_bio   = ThermalConfig::BIOLOGICAL_TEMP_MIN;
+        snap_delta_t    = ThermalConfig::BACKGROUND_DELTA_T;
+        snap_alpha_ema  = ThermalConfig::EMA_ALPHA;
+        snap_line_entry = ThermalConfig::DEFAULT_LINE_ENTRY_Y;
+        snap_line_exit  = ThermalConfig::DEFAULT_LINE_EXIT_Y;
+        snap_nms_center = ThermalConfig::NMS_RADIUS_CENTER_SQ;
+        snap_nms_edge   = ThermalConfig::NMS_RADIUS_EDGE_SQ;
+        snap_view_mode  = ThermalConfig::VIEW_MODE;
+        portEXIT_CRITICAL(&s_config_mux);
+
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddStringToObject(resp, "type",       "config");
-        cJSON_AddNumberToObject(resp, "temp_bio",   (double)ThermalConfig::BIOLOGICAL_TEMP_MIN);
-        cJSON_AddNumberToObject(resp, "delta_t",    (double)ThermalConfig::BACKGROUND_DELTA_T);
-        cJSON_AddNumberToObject(resp, "alpha_ema",  (double)ThermalConfig::EMA_ALPHA);
-        cJSON_AddNumberToObject(resp, "line_entry", (double)ThermalConfig::DEFAULT_LINE_ENTRY_Y);
-        cJSON_AddNumberToObject(resp, "line_exit",  (double)ThermalConfig::DEFAULT_LINE_EXIT_Y);
-        cJSON_AddNumberToObject(resp, "nms_center", (double)ThermalConfig::NMS_RADIUS_CENTER_SQ);
-        cJSON_AddNumberToObject(resp, "nms_edge",   (double)ThermalConfig::NMS_RADIUS_EDGE_SQ);
-        cJSON_AddNumberToObject(resp, "view_mode",  (double)ThermalConfig::VIEW_MODE);
+        cJSON_AddNumberToObject(resp, "temp_bio",   (double)snap_temp_bio);
+        cJSON_AddNumberToObject(resp, "delta_t",    (double)snap_delta_t);
+        cJSON_AddNumberToObject(resp, "alpha_ema",  (double)snap_alpha_ema);
+        cJSON_AddNumberToObject(resp, "line_entry", (double)snap_line_entry);
+        cJSON_AddNumberToObject(resp, "line_exit",  (double)snap_line_exit);
+        cJSON_AddNumberToObject(resp, "nms_center", (double)snap_nms_center);
+        cJSON_AddNumberToObject(resp, "nms_edge",   (double)snap_nms_edge);
+        cJSON_AddNumberToObject(resp, "view_mode",  (double)snap_view_mode);
         wsSendJson(req, resp);
         cJSON_Delete(resp);
     }

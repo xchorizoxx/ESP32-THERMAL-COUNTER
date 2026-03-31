@@ -61,7 +61,19 @@ A diferencia de las cámaras convencionales, este sistema utiliza una **matriz d
 
 ## 🏗️ Fundamentos Arquitectónicos
 
-El sistema explota la arquitectura **Dual-Core** del ESP32-S3 mediante una división de tareas asimétrica utilizando **FreeRTOS**:
+El sistema utiliza un pipeline modular diseñado para el **ESP32-S3** (Core 1 para Visión, Core 0 para Conectividad):
+
+1.  **Adquisición**: Lecturas I2C de alta velocidad desde el **MLX90640** (16Hz raw sub-pages).
+2.  **Pre-procesamiento Térmico** (Añadido en A1):
+    -   **Acumulador Chess**: Fusiona sub-frames alternos para eliminar artefactos visuales y sincronizar la matriz.
+    -   **Filtro de Ruido Kalman**: Filtro Kalman 1D por píxel para reducir el ruido NETD a altas frecuencias.
+3.  **Modelado de Fondo**: Mapa de fondo dinámico basado en EMA (Selective Backgrounding).
+4.  **Detección**: Umbral Delta-T y **NMS** (Supresión de No Máximos) de etapa múltiple.
+5.  **Seguimiento (Tracking)**: Filtrado lineal **Alpha-Beta** para estimación de movimiento y persistencia de ID.
+6.  **Telemetría**: Despacho WebSocket en tiempo real (binario/JSON) a la Web UI.
+
+> [!NOTE]
+> La frecuencia de seguimiento estable efectiva es de **8Hz** (2 sub-frames @ 16Hz = 1 frame completo compuesto).
 
 ### Core 1: El Motor de Visión (`ThermalPipe`)
 El núcleo de mayor prioridad. Ejecuta el bucle de procesamiento matemático a **16 Hz**.

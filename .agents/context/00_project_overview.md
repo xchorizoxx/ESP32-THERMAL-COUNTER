@@ -7,14 +7,23 @@ A top-down person counter using an **MLX90640** thermal sensor (32×24 px, 110°
 1. **Processing Pipeline:** (Core 1)
    - Extract ambient temperature via I2C at 400kHz.
    - Dynamically filter static background using EMA.
-   - Detect spatial thermal "peaks" (people).
-   - Track their movement (Alpha-Beta Tracking) and increment counters (In/Out) if they cross virtual lines.
+   - `IPC_QUEUE_DEPTH`: 4 (Optimized in A1 from 15 to save ~20KB SRAM).
+   - `MAX_TRACKS`: 15 (Universal constant for array sizing).
+   - `MAX_PEAKS`: 15 (Universal constant for array sizing).
+   - ### Tracking System
+   The `AlphaBetaTracker` class manages object detection and counts entries and exits based on predefined thermal thresholds.
    - Everything uses static memory (zero fragmentation).
+   - `GET_CONFIG`: Returns current JSON configuration. Uses **portENTER_CRITICAL** to ensure atomic reads of internal `ThermalConfig` globals across Core 0/Core 1.
 
 2. **Web UI, Network, and OTA:** (Core 0)
    - Creates a SoftAP ("ThermalCounter") at `192.168.4.1`.
    - Embedded HTTP server serving the Web UI (HTML Canvas 2D Dashboard) with `WebSockets` to broadcast live tracks and temperature matrix at 16 FPS.
    - Listens on POST `/update` for wireless firmware updates (Dual-Bank OTA).
+
+## Milestones
+- [x] **Stage A0**: Initial setup and connectivity.
+- [x] **Stage A1**: Bugfixes & Thermal Pre-processing (Chess compositor, Kalman filter).
+- [ ] **Stage A2**: Tracklet-based tracking (Next).
 
 ## Development Environment
 - **Framework**: ESP-IDF v5.5 (CMake), pure C++.

@@ -38,7 +38,15 @@ We use a lightweight state estimator to follow centroids over time.
 - **Anti-Stealing**: Prevents nearby tracks from swapping IDs mistakenly.
 
 ### 5. Feedback Masking
-Generates a binary mask around active tracks. This mask is fed back into Stage 1 to freeze background adaptation.
+Generates a binary mask around active tracks. This## Processing Timeline
+1. **Acquisition**: 16Hz high-speed I2C reads from MLX90640.
+2. **Thermal Pre-processing** (A1):
+   - **FrameAccumulator**: Merges chess sub-pages 0 and 1.
+   - **NoiseFilter**: Scalar per-pixel Kalman filter (NETD reduction).
+3. **Background Modeling**: EMA map updates (selective masking).
+4. **Blob Detection**: Peak finding and multi-stage NMS.
+5. **Tracking**: Alpha-Beta state estimation and ID lifecycle.
+g the 16 Hz real-time requirement.
 
 ---
 

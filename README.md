@@ -117,17 +117,21 @@ graph TD
 
 Processing is divided into 5 sequential stages that transform thermal noise into counting events:
 
-### 1. Pre-processing and "De-Chess" Filter
-### 1. Selective EMA Background Modeling
-Maintains a dynamic model of the environment's base temperature.
-- **Adaptive Learning**: Automatically ignores pixels identified as "Person Tracks" to prevent targets from being absorbed into the background.
+## Architecture
 
-### 2. Peak Detection (Thermal Topology)
-Analyzes the difference between the live frame and the background model.
-- Identifies local maximums that exceed the biological temperature threshold (~30°C).
+The system follows a modular pipeline designed for the **ESP32-S3** (Core 1 for Vision, Core 0 for Connectivity):
 
-### 3. Non-Maximum Suppression (NMS)
-Filters redundant detections. Since a person occupies multiple pixels, NMS ensures each human heat signature is represented by a single centroid.
+1.  **Acquisition**: High-speed I2C reads from the **MLX90640** (16Hz raw sub-pages).
+2.  **Thermal Pre-processing** (Added in A1):
+    -   **Chess Accumulator**: Fuses alternating sub-frames to eliminate visual artifacts and sync the matrix.
+    -   **Kalman Noise Filter**: Per-pixel 1D Kalman filter to reduce NETD noise at high frame rates.
+3.  **Background Modeling**: EMA-based dynamic background map.
+4.  **Detection**: Delta-T thresholding and Multi-stage **NMS** (Non-Maximum Suppression).
+5.  **Tracking**: Linear **Alpha-Beta** filtering for motion estimation and ID persistence.
+6.  **Telemetry**: Real-time WebSocket dispatch (binary/JSON) to the Web UI.
+
+> [!NOTE]
+> Effective stable tracking frequency is **8Hz** (2 sub-frames @ 16Hz = 1 full composed frame).signature is represented by a single centroid.
 
 ### 4. Alpha-Beta Tracking with Identity Verification
 Implements a predictive filter to follow people between frames.

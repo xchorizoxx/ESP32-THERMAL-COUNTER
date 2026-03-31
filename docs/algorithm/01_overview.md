@@ -4,10 +4,17 @@ The thermal vision system for person counting transforms raw data from the MLX90
 
 To achieve this robustly against changes in ambient temperature and sensor noise, the system employs a **5-Step Processing Pipeline** that runs at 16 Hz (16 times per second).
 
-## The 5 Pipeline Steps
+## Execution Flow
+1. **Acquisition**: 16Hz raw sub-frame reads.
+2. **Pre-processing (A1)**:
+   - **Chess Fusion**: Alternating sub-page pixel synchronization.
+   - **Kalman 1D Filter**: Per-pixel noise attenuation.
+3. **Background Model**: Dynamic map estimation (EMA).
+4. **Detection**: Identifying thermal signatures in the delta map.
 
-1. **Dynamic Background (Selective EMA):** The system "learns" the normal temperature of the floor and empty walls. If something changes gradually (e.g., the sun warming the floor), the background adapts. If something changes quickly (e.g., a person enters), it stands out against this background.
-2. **Peak Detection (Topology):** Searches for pixels that are significantly hotter than the background _and_ hotter than the surrounding pixels. These "heat peaks" are candidates for being human heads/shoulders.
+### Selective Filtering
+As of Stage A1, the background model operates on the **Kalman-filtered frame** rather than the raw acquisition frame. This provides a more stable baseline and reduces artifacts caused by thermal drift.
+
 3. **Non-Maximum Suppression (NMS):** Since a person is larger than a single pixel, their body generates a heat "bulge" with several hot pixels. NMS ensures we only keep the _hottest_ pixel of each bulge, eliminating nearby redundant peaks.
 4. **Tracking (Alpha-Beta Filter) and Counting:** Once we have the points (heads), the system tracks them frame by frame. It predicts where they will move and checks if they have crossed the virtual entry or exit lines.
 5. **Feedback Mask:** Locations where people are currently present should not be learned as "floor." A "shadow" is generated around active tracks to tell Step 1 to **freeze** background learning in those zones.

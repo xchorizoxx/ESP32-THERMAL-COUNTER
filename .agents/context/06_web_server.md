@@ -1,7 +1,7 @@
 # Task: Web Server and Tactical HUD
 
 ## Objective
-Serve a high-frequency Cyberpunk/Tactical web interface for debugging and calibration.
+Serve a high-frequency Cyberpunk/Tactical web interface- `GET_CONFIG`: Returns current configuration as JSON. **Atomic snapshot** using `portENTER_CRITICAL` and `portMUX_TYPE` to ensure thread-safety across the dual-core architecture (Core 0 Server vs Core 1 Pipeline).
 
 ## Technical Requirements
 1. **Embedded Assets**: HTML/CSS/JS compressed into C header files.

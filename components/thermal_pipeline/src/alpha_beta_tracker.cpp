@@ -1,4 +1,5 @@
 #include "alpha_beta_tracker.hpp"
+#include "thermal_config.hpp"  // Bug4-fix: MAX_TRACKS / MAX_PEAKS constants
 #include <cstring>
 #include <cmath>
 
@@ -15,7 +16,7 @@ void AlphaBetaTracker::update(const ThermalPeak* peaks, int numPeaks,
                               int& countIn, int& countOut)
 {
     // --- Phase 1: Prediction & Age Update ---
-    for (int i = 0; i < 15; i++) {
+    for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
         if (!tracks_[i].active) continue;
 
         // Prediction: Position = Position + Velocity
@@ -30,9 +31,9 @@ void AlphaBetaTracker::update(const ThermalPeak* peaks, int numPeaks,
     }
 
     // --- Phase 2: Data Association (Greedy Nearest Neighbor) ---
-    bool peakAssigned[15] = {false}; // MAX_PEAKS
+    bool peakAssigned[ThermalConfig::MAX_PEAKS] = {false};
 
-    for (int i = 0; i < 15; i++) {
+    for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
         if (!tracks_[i].active) continue;
 
         int bestPeak = -1;
@@ -84,14 +85,21 @@ void AlphaBetaTracker::update(const ThermalPeak* peaks, int numPeaks,
             freeTrack->v_y      = 0;
             freeTrack->age      = 0;
             freeTrack->active   = true;
-            // Initial state based on line entry position
-            freeTrack->state_y = (peaks[p].y < 12) ? 0 : 2;
+            // Bug2 fix: initial zone uses configurable lines, not hardcoded y < 12
+            if (peaks[p].y < (float)lineEntryY) {
+                freeTrack->state_y = 0;  // Upper zone (entry side)
+            } else if (peaks[p].y > (float)lineExitY) {
+                freeTrack->state_y = 2;  // Lower zone (exit side)
+            } else {
+                freeTrack->state_y = 1;  // Neutral -- track born between lines
+                // NOTE: Stage A3 FSM will discard spurious counts from tracks born here
+            }
         }
     }
 }
 
 Track* AlphaBetaTracker::findFreeTrack() {
-    for (int i = 0; i < 15; i++) {
+    for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
         if (!tracks_[i].active) return &tracks_[i];
     }
     return nullptr;
@@ -122,12 +130,12 @@ void AlphaBetaTracker::evaluateCountingLogic(Track& track,
 
 int AlphaBetaTracker::getActiveCount() const {
     int count = 0;
-    for (int i = 0; i < 15; i++) {
+    for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
         if (tracks_[i].active) count++;
     }
     return count;
 }
 
 int AlphaBetaTracker::getMaxTracks() const {
-    return 15;
+    return ThermalConfig::MAX_TRACKS;  // Bug4-fix: was hardcoded 15
 }

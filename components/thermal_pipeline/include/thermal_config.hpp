@@ -90,7 +90,7 @@ constexpr int MASK_HALF_SIZE = 1; // Square radius (1 = 3×3 px)
 constexpr int PIPELINE_FREQ_HZ = 16; // Pipeline frequency [Hz]
 constexpr int MAX_PEAKS = 15;    // Max. raw peaks per frame
 constexpr int MAX_TRACKS = 15;       // Max. simultaneous tracked persons
-constexpr int IPC_QUEUE_DEPTH = 15; // FreeRTOS queue depth (increased for stability)
+constexpr int IPC_QUEUE_DEPTH = 4;  // Bug3-fix: 15→4 saves ~20 KB SRAM (pipeline drops on full, timeout=0)
 
 // =========================================================================
 //  NETWORK (SoftAP + UDP)

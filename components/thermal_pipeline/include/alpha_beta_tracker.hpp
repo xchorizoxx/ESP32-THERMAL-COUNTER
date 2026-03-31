@@ -8,6 +8,7 @@
  */
 
 #include "thermal_types.hpp"
+#include "thermal_config.hpp"  // Bug4-fix: use ThermalConfig::MAX_TRACKS constant
 
 class AlphaBetaTracker {
 public:
@@ -48,7 +49,7 @@ public:
     int getActiveCount() const;
 
 private:
-    Track   tracks_[15]; // MAX_TRACKS hardcoded to avoid circular dependency
+    Track   tracks_[ThermalConfig::MAX_TRACKS]; // Bug4-fix: was hardcoded 15
     uint8_t nextId_;
 
     /**

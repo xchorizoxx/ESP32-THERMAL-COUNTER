@@ -15,6 +15,8 @@
 #include "nms_suppressor.hpp"
 #include "alpha_beta_tracker.hpp"
 #include "mask_generator.hpp"
+#include "frame_accumulator.hpp"  // A1: chess sub-frame compositor
+#include "noise_filter.hpp"        // A1: Kalman 1D per-pixel noise filter
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
@@ -49,9 +51,15 @@ private:
     QueueHandle_t   configQueue_;
     AlphaBetaTracker tracker_;
 
+    // A1: chess corrector + noise filter
+    FrameAccumulator frame_accumulator_;
+    NoiseFilter      noise_filter_;
+
     // Internal pipeline state
-    float   current_frame_[ThermalConfig::TOTAL_PIXELS];
-    float   display_frame_[ThermalConfig::TOTAL_PIXELS];
+    float   current_frame_[ThermalConfig::TOTAL_PIXELS];   // Raw frame from sensor
+    float   composed_frame_[ThermalConfig::TOTAL_PIXELS];  // A1: chess-fused frame
+    float   filtered_frame_[ThermalConfig::TOTAL_PIXELS];  // A1: Kalman-filtered frame
+    float   display_frame_[ThermalConfig::TOTAL_PIXELS];   // Legacy (kept for compat)
     float   background_map_[ThermalConfig::TOTAL_PIXELS];
     uint8_t blocking_mask_[ThermalConfig::TOTAL_PIXELS];
     

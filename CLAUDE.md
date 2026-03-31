@@ -39,6 +39,22 @@ Maintain these rules to ensure system stability and memory safety:
 
 ---
 
+### System Architecture
+1. **Acquisition**: MLX90640 (16Hz raw sub-frames).
+2. **Pre-processing**: Chess Accumulator & 1D Kalman Noise Filter (8Hz full frames).
+3. **Detection**: Background subtraction, Peak finding, and Multi-stage NMS.
+4. **Tracking**: Alpha-Beta filter with identity persistence.
+5. **Telemetry**: WebSocket dispatch to Web UI.
+
+## Milestones
+- [x] Initial sensor driver.
+- [x] Basic alpha-beta tracking.
+- [x] **Stage A1**: Stabilized pre-processing & Bugfixes.
+- [ ] **Stage A2**: Tracklet-based tracking (Next).
+- [ ] **Stage A3**: Finite State Machine (FSM) for directional counting.
+
+---
+
 ### 4. Vision Pipeline Logic
 1.  **Background Model**: Exponential Moving Average (EMA) with selective masking.
 2.  **Peak Detector**: Finds local maxima > biological threshold and > background delta.
