@@ -13,7 +13,7 @@
 #include "background_model.hpp"
 #include "peak_detector.hpp"
 #include "nms_suppressor.hpp"
-#include "alpha_beta_tracker.hpp"
+#include "tracklet_tracker.hpp"  // A2: replaces AlphaBetaTracker
 #include "mask_generator.hpp"
 #include "frame_accumulator.hpp"  // A1: chess sub-frame compositor
 #include "noise_filter.hpp"        // A1: Kalman 1D per-pixel noise filter
@@ -49,7 +49,9 @@ private:
     Mlx90640Sensor& sensor_;
     QueueHandle_t   ipcQueue_;
     QueueHandle_t   configQueue_;
-    AlphaBetaTracker tracker_;
+    TrackletTracker tracker_;                                // A2
+    Track           track_array_[ThermalConfig::MAX_TRACKS]; // A2: filled by fillTrackArray()
+    int             num_confirmed_tracks_ = 0;               // A2: count of confirmed tracks
 
     // A1: chess corrector + noise filter
     FrameAccumulator frame_accumulator_;

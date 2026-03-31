@@ -169,16 +169,14 @@ void ThermalPipeline::run()
                                      ThermalConfig::NMS_CENTER_X_MIN,
                                      ThermalConfig::NMS_CENTER_X_MAX);
 
-            // --- Step 4: Tracking ---
-            tracker_.update(peaks_, num_peaks_,
-                             ThermalConfig::ALPHA_TRK, ThermalConfig::BETA_TRK,
-                             ThermalConfig::MAX_MATCH_DIST_SQ, ThermalConfig::TRACK_MAX_AGE,
-                             ThermalConfig::DEFAULT_LINE_ENTRY_Y,
-                             ThermalConfig::DEFAULT_LINE_EXIT_Y,
-                             count_in_, count_out_);
+            // --- Step 4: Tracking (A2: TrackletTracker) ---
+            uint32_t ts = xTaskGetTickCount();
+            tracker_.update(peaks_, num_peaks_, ts);
+            tracker_.fillTrackArray(track_array_, &num_confirmed_tracks_);
+            // NOTE: count_in_/count_out_ frozen until A3 (TrackletFSM) is implemented.
 
             // --- Step 5: Masking ---
-            MaskGenerator::generate(tracker_.getTracks(), tracker_.getMaxTracks(),
+            MaskGenerator::generate(track_array_, num_confirmed_tracks_,
                                      blocking_mask_, ThermalConfig::MASK_HALF_SIZE);
         }
 
@@ -194,15 +192,15 @@ void ThermalPipeline::run()
         packet.telemetry.count_in     = (int16_t)count_in_;
         packet.telemetry.count_out    = (int16_t)count_out_;
 
-        const Track* tracks = tracker_.getTracks();
+        // A2: use dense track_array_ (confirmed tracks only, all active = true)
         int tidx = 0;
-        for (int i = 0; i < tracker_.getMaxTracks() && tidx < ThermalConfig::MAX_TRACKS; i++) {
-            if (tracks[i].active) {
-                packet.telemetry.tracks[tidx].id      = tracks[i].id;
-                packet.telemetry.tracks[tidx].x_100   = (int16_t)(tracks[i].x * 100.0f);
-                packet.telemetry.tracks[tidx].y_100   = (int16_t)(tracks[i].y * 100.0f);
-                packet.telemetry.tracks[tidx].v_x_100 = (int16_t)(tracks[i].v_x * 100.0f);
-                packet.telemetry.tracks[tidx].v_y_100 = (int16_t)(tracks[i].v_y * 100.0f);
+        for (int i = 0; i < num_confirmed_tracks_ && tidx < ThermalConfig::MAX_TRACKS; i++) {
+            if (track_array_[i].active) {
+                packet.telemetry.tracks[tidx].id      = track_array_[i].id;
+                packet.telemetry.tracks[tidx].x_100   = (int16_t)(track_array_[i].x   * 100.0f);
+                packet.telemetry.tracks[tidx].y_100   = (int16_t)(track_array_[i].y   * 100.0f);
+                packet.telemetry.tracks[tidx].v_x_100 = (int16_t)(track_array_[i].v_x * 100.0f);
+                packet.telemetry.tracks[tidx].v_y_100 = (int16_t)(track_array_[i].v_y * 100.0f);
                 tidx++;
             }
         }

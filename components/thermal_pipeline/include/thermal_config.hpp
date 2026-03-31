@@ -62,10 +62,18 @@ constexpr int NMS_CENTER_X_MAX = 23; // Right limit of lens central zone
 // =========================================================================
 //  STEP 4 — TRACKING (Alpha-Beta Filter) + COUNTING
 // =========================================================================
+// Legacy Alpha-Beta constants (kept for reference, no longer used by pipeline):
 constexpr float ALPHA_TRK = 0.85f;    // Weight of measured position
 constexpr float BETA_TRK = 0.05f;     // Weight of estimated velocity
 constexpr int MAX_MATCH_DIST_SQ = 25; // Max. squared distance to match (=5px)
 constexpr int TRACK_MAX_AGE = 5;      // Frames without update → remove
+
+// --- TRACKLET TRACKER (A2) ---
+constexpr int   TRACK_CONFIRM_FRAMES  = 3;     ///< Min. consecutive detections for a valid track
+constexpr int   TRACK_MAX_MISSED      = 12;    ///< Frames without detection before expiry
+constexpr float TRACK_MAX_DIST        = 8.0f;  ///< Max match distance [px] — 8px handles fast hand movement on 32x24
+constexpr float TRACK_TEMP_WEIGHT     = 0.25f; ///< Temperature weight in composite match cost
+constexpr float TRACK_DISPLAY_SMOOTH  = 0.4f;  ///< EMA alpha for HUD display position (0=frozen, 1=raw)
 
 // --- Counting Zones (Y-Hysteresis) ---
 // Initial values as straight horizontal lines.
