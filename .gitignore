@@ -35,3 +35,8 @@ Thumbs.db
 *.bin
 *.elf
 *.map
+
+# Agent and Review artifacts
+AGENTES/
+review/
+.agents/rules/

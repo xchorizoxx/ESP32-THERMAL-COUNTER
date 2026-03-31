@@ -2,7 +2,7 @@
 
 ![Version](https://img.shields.io/badge/Version-Alpha--0.6--Tactical--Debug-blue)
 ![Platform](https://img.shields.io/badge/Platform-ESP32--S3-orange)
-![Framework](https://img.shields.io/badge/Framework-ESP--IDF--v5.5-red)
+![Framework](https://img.shields.io/badge/Framework-ESP--IDF--v6.0-red)
 
 [Leer en Español](README_ES.md)
 
