@@ -33,8 +33,12 @@ constexpr float FLOOR_TEMP_MAX_C = 26.0f; // Expected maximum floor temp [°C]
 // =========================================================================
 constexpr int MLX_COLS = 32;
 constexpr int MLX_ROWS = 24;
-constexpr int TOTAL_PIXELS = MLX_COLS * MLX_ROWS; // 768
-constexpr float SENSOR_FOV_DEG = 110.0f;          // Field of View [degrees]
+// TOTAL_PIXELS is now in thermal_types.hpp
+// --- FUTURE / DOCUMENTATION-ONLY CONSTANTS ---
+// These are defined for reference but not currently used in code:
+// constexpr float SENSOR_FOV_DEG = 110.0f;  // Field of View [degrees] - for future auto-calibration
+
+// Currently used emissivity (must match deprecated/alpha_beta_tracker if referenced there)
 constexpr float EMISSIVITY = 0.95f;               // Emissivity for human skin
 
 // =========================================================================
@@ -60,7 +64,7 @@ constexpr int NMS_CENTER_X_MIN = 8;  // Left limit of lens central zone
 constexpr int NMS_CENTER_X_MAX = 23; // Right limit of lens central zone
 
 // =========================================================================
-//  STEP 4 — TRACKING (Alpha-Beta Filter) + COUNTING
+//  STEP 4 — TRACKING (TrackletTracker) + COUNTING
 // =========================================================================
 // Legacy Alpha-Beta constants (kept for reference, no longer used by pipeline):
 constexpr float ALPHA_TRK = 0.85f;    // Weight of measured position
@@ -79,13 +83,18 @@ constexpr float TRACK_DISPLAY_SMOOTH  = 0.4f;  ///< EMA alpha for HUD display po
 // Initial values as straight horizontal lines.
 // TODO: Expand to per-column array after visual calibration to
 //       handle non-linear FOV 110° geometry on wide doors.
+
+struct DoorLineConfig;
+
+extern DoorLineConfig door_lines;  // Config global de lineas
+
 extern int DEFAULT_LINE_ENTRY_Y; // Virtual upper line (entrance)
 extern int DEFAULT_LINE_EXIT_Y;  // Virtual lower line (exit)
+extern int DEFAULT_DEAD_ZONE_LEFT;  // Exclusion lateral (left limit)
+extern int DEFAULT_DEAD_ZONE_RIGHT; // Exclusion lateral (right limit)
 
-// --- UI Commands ---
+// --- UI / HUD ---
 extern int VIEW_MODE;         // 0 = Normal, 1 = Background Subtraction
-extern bool APP_RESET_COUNTS; // Flag to reset counters from Web
-extern bool APP_RETRY_SENSOR; // Flag to retry sensor initialization
 
 // =========================================================================
 //  STEP 5 — FEEDBACK MASK
@@ -97,7 +106,7 @@ constexpr int MASK_HALF_SIZE = 1; // Square radius (1 = 3×3 px)
 // =========================================================================
 constexpr int PIPELINE_FREQ_HZ = 16; // Pipeline frequency [Hz]
 constexpr int MAX_PEAKS = 15;    // Max. raw peaks per frame
-constexpr int MAX_TRACKS = 15;       // Max. simultaneous tracked persons
+// MAX_TRACKS is now in thermal_types.hpp
 constexpr int IPC_QUEUE_DEPTH = 4;  // Bug3-fix: 15→4 saves ~20 KB SRAM (pipeline drops on full, timeout=0)
 
 // =========================================================================

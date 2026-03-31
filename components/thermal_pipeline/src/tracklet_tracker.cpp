@@ -228,24 +228,3 @@ void TrackletTracker::fillTrackArray(Track* out, int* out_count) const
     }
 }
 
-// =========================================================================
-//  Inspection helpers
-// =========================================================================
-
-int TrackletTracker::getActiveCount() const
-{
-    int n = 0;
-    for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
-        if (tracks_[i].active) n++;
-    }
-    return n;
-}
-
-int TrackletTracker::getConfirmedCount() const
-{
-    int n = 0;
-    for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
-        if (tracks_[i].active && tracks_[i].isConfirmed()) n++;
-    }
-    return n;
-}

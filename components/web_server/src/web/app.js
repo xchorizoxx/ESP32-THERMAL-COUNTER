@@ -9,8 +9,15 @@ const CONFIG = {
     line_exit: 16,
     nms_center: 16,
     nms_edge: 4,
-    view_mode: 0 // 0=Normal, 1=Diff
+    view_mode: 0, // 0=Normal, 1=Diff
+    dead_left: 5,
+    dead_right: 26,
+    use_segments: false
 };
+
+let userLines = [];
+let isEditingLines = false;
+let currentLine = null;
 
 let COLOR_THRESHOLDS = { low: 25.0, high: 38.0 };
 let LUT = new Uint8Array(256 * 3); // Lookup table for colors
@@ -355,7 +362,12 @@ function processBinaryFrame(buffer) {
     document.getElementById('scale-max').innerText = `${MAX_T.toFixed(1)}°C`;
     
     // Dibujar Zonas y Tracks sobre el Overlay Vectorial
-    renderCountingZones(CONFIG.line_entry, CONFIG.line_exit);
+    if(!CONFIG.use_segments) {
+        renderCountingZones(CONFIG.line_entry, CONFIG.line_exit, CONFIG.dead_left, CONFIG.dead_right);
+    } else {
+        uiCtx.clearRect(0,0,320,240); // limpiar canvas
+    }
+    renderUserLines();
     renderTracks(tracks);
     
     } catch(e) {
@@ -375,16 +387,32 @@ function renderLoop() {
 }
 
 // --- OVERLAY RENDER ENGINES ---
-function renderCountingZones(eY, xY) {
+function renderCountingZones(eY, xY, dL, dR) {
     uiCtx.clearRect(0,0,320,240);
     uiCtx.save();
     
+    // Zonas Muertas (Limites Verticales)
+    uiCtx.fillStyle = 'rgba(255, 0, 0, 0.15)'; // Muros translúcidos
+    if (dL > 0) uiCtx.fillRect(0, 0, dL * SCALE_X, 240);
+    if (dR < 31) uiCtx.fillRect(dR * SCALE_X, 0, 320 - (dR * SCALE_X), 240);
+    
+    // Límites Verticales (Líneas)
+    uiCtx.setLineDash([4, 4]);
+    uiCtx.strokeStyle = 'rgba(255, 50, 50, 0.6)';
+    uiCtx.lineWidth = 1;
+    if (dL > 0) {
+        uiCtx.beginPath(); uiCtx.moveTo(dL * SCALE_X, 0); uiCtx.lineTo(dL * SCALE_X, 240); uiCtx.stroke();
+    }
+    if (dR < 31) {
+        uiCtx.beginPath(); uiCtx.moveTo(dR * SCALE_X, 0); uiCtx.lineTo(dR * SCALE_X, 240); uiCtx.stroke();
+    }
+
     // Zona Norte
     uiCtx.fillStyle = 'rgba(0, 255, 136, 0.08)';
-    uiCtx.fillRect(0, 0, 320, eY * SCALE_Y);
+    uiCtx.fillRect(dL * SCALE_X, 0, (dR - dL) * SCALE_X, eY * SCALE_Y);
     // Zona Sur
     uiCtx.fillStyle = 'rgba(0, 212, 255, 0.08)';
-    uiCtx.fillRect(0, xY * SCALE_Y, 320, 240 - (xY * SCALE_Y));
+    uiCtx.fillRect(dL * SCALE_X, xY * SCALE_Y, (dR - dL) * SCALE_X, 240 - (xY * SCALE_Y));
     
     // Lineas Dasheadas
     uiCtx.setLineDash([8, 6]);
@@ -403,6 +431,79 @@ function renderCountingZones(eY, xY) {
     uiCtx.beginPath(); uiCtx.moveTo(0, pX); uiCtx.lineTo(320, pX); uiCtx.stroke();
     uiCtx.fillStyle = '#00d4ff'; 
     uiCtx.fillText('SUR ( EXIT )', 5, pX + 12);
+    
+    uiCtx.restore();
+}
+
+function renderUserLines() {
+    uiCtx.save();
+    uiCtx.lineWidth = 2;
+    
+    // draw saved lines
+    userLines.forEach((l, idx) => {
+        uiCtx.strokeStyle = 'rgba(0, 255, 136, 0.9)'; // Greenish for valid line
+        uiCtx.beginPath();
+        let sx1 = l.x1 * SCALE_X;
+        let sy1 = l.y1 * SCALE_Y;
+        let sx2 = l.x2 * SCALE_X;
+        let sy2 = l.y2 * SCALE_Y;
+
+        uiCtx.moveTo(sx1, sy1);
+        uiCtx.lineTo(sx2, sy2);
+        uiCtx.stroke();
+        
+        // draw arrow indicating Entry direction (Right side of the vector p1->p2)
+        // because Left to Right cross product is Entry
+        let dx = sx2 - sx1;
+        let dy = sy2 - sy1;
+        let len = Math.hypot(dx, dy);
+        if(len > 0) {
+            let udx = dx / len;
+            let udy = dy / len;
+            
+            // Perpendicular vector pointing right  (-udy, udx) is left. (+udy, -udx) is Right.
+            // Wait, standard math: right normal is (udy, -udx), left normal is (-udy, udx).
+            // Let's use left normal to point from left to right.
+            let cx = (sx1 + sx2) / 2;
+            let cy = (sy1 + sy2) / 2;
+            
+            let nx = -udy;
+            let ny = udx;
+            
+            uiCtx.strokeStyle = 'var(--neo-green)';
+            uiCtx.fillStyle = 'var(--neo-green)';
+            uiCtx.beginPath();
+            uiCtx.moveTo(cx, cy);
+            uiCtx.lineTo(cx + nx * 12, cy + ny * 12);
+            uiCtx.stroke();
+            
+            // Arrowhead
+            uiCtx.beginPath();
+            uiCtx.moveTo(cx + nx * 12, cy + ny * 12);
+            uiCtx.lineTo(cx + nx * 12 - nx * 4 - ny * 4, cy + ny * 12 - ny * 4 + nx * 4);
+            uiCtx.lineTo(cx + nx * 12 - nx * 4 + ny * 4, cy + ny * 12 - ny * 4 - nx * 4);
+            uiCtx.fill();
+            
+            // Draw circle at p1 to show origin
+            uiCtx.beginPath();
+            uiCtx.arc(sx1, sy1, 3, 0, Math.PI * 2);
+            uiCtx.fill();
+        }
+        
+        // Label
+        uiCtx.fillStyle = 'white';
+        uiCtx.font = '11px Arial';
+        uiCtx.fillText(`L${idx+1}`, sx1 + 5, sy1 - 5);
+    });
+    
+    // draw current line being drawn
+    if(isEditingLines && currentLine) {
+        uiCtx.strokeStyle = 'rgba(255, 255, 0, 0.8)';
+        uiCtx.beginPath();
+        uiCtx.moveTo(currentLine.x1 * SCALE_X, currentLine.y1 * SCALE_Y);
+        uiCtx.lineTo(currentLine.x2 * SCALE_X, currentLine.y2 * SCALE_Y);
+        uiCtx.stroke();
+    }
     
     uiCtx.restore();
 }
@@ -456,12 +557,22 @@ function updateConfigUI(obj) {
     if(document.getElementById('cfg-alpha_ema')) document.getElementById('cfg-alpha_ema').value = obj.alpha_ema;
     if(document.getElementById('cfg-line_entry')) document.getElementById('cfg-line_entry').value = obj.line_entry;
     if(document.getElementById('cfg-line_exit')) document.getElementById('cfg-line_exit').value = obj.line_exit;
+    if(document.getElementById('cfg-dead_left')) document.getElementById('cfg-dead_left').value = obj.dead_left;
+    if(document.getElementById('cfg-dead_right')) document.getElementById('cfg-dead_right').value = obj.dead_right;
     if(document.getElementById('cfg-nms_center')) document.getElementById('cfg-nms_center').value = obj.nms_center;
     if(document.getElementById('cfg-nms_edge')) document.getElementById('cfg-nms_edge').value = obj.nms_edge;
     
+    if(obj.lines && Array.isArray(obj.lines)) {
+        userLines = obj.lines;
+        updateLineList();
+    }
+    CONFIG.use_segments = obj.use_segments || false;
+
     CONFIG.temp_bio = obj.temp_bio || CONFIG.temp_bio;
     CONFIG.line_entry = obj.line_entry || CONFIG.line_entry;
     CONFIG.line_exit = obj.line_exit || CONFIG.line_exit;
+    CONFIG.dead_left = obj.dead_left || CONFIG.dead_left;
+    CONFIG.dead_right = obj.dead_right || CONFIG.dead_right;
     CONFIG.view_mode = obj.view_mode;
     
     // Set UI buttons according to mode
@@ -508,6 +619,103 @@ function rebootEsp() {
     if(confirm('¿Reiniciar el ESP32 por completo?')) {
         fetch('/reboot', {method:'POST'}).then(()=>logMsg("Reboot triggered"));
     }
+}
+
+// --- LINE DRAWING EDITOR ---
+function getMousePos(evt) {
+    const rect = uiCanvas.getBoundingClientRect();
+    const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+    return {
+        x: (clientX - rect.left) / (rect.width / 320),
+        y: (clientY - rect.top) / (rect.height / 240)
+    };
+}
+
+const inputStart = (e) => {
+    if(!isEditingLines) return;
+    if(e.type === 'touchstart') e.preventDefault();
+    if(userLines.length >= 4) {
+        alert("Máximo 4 líneas");
+        isEditingLines = false;
+        toggleLineEditor(true);
+        return;
+    }
+    const pos = getMousePos(e);
+    currentLine = { x1: pos.x / SCALE_X, y1: pos.y / SCALE_Y, x2: pos.x / SCALE_X, y2: pos.y / SCALE_Y };
+};
+
+const inputMove = (e) => {
+    if(!isEditingLines || !currentLine) return;
+    if(e.type === 'touchmove') e.preventDefault();
+    const pos = getMousePos(e);
+    currentLine.x2 = pos.x / SCALE_X;
+    currentLine.y2 = pos.y / SCALE_Y;
+};
+
+const inputEnd = (e) => {
+    if(!isEditingLines || !currentLine) return;
+    if(e.type === 'touchend') e.preventDefault();
+    
+    let dx = currentLine.x2 - currentLine.x1;
+    let dy = currentLine.y2 - currentLine.y1;
+    if(Math.hypot(dx, dy) > 2) { 
+        userLines.push({...currentLine});
+        updateLineList();
+        CONFIG.use_segments = true; 
+    }
+    currentLine = null;
+};
+
+uiCanvas.addEventListener('mousedown', inputStart);
+uiCanvas.addEventListener('mousemove', inputMove);
+uiCanvas.addEventListener('mouseup', inputEnd);
+uiCanvas.addEventListener('touchstart', inputStart, {passive:false});
+uiCanvas.addEventListener('touchmove', inputMove, {passive:false});
+uiCanvas.addEventListener('touchend', inputEnd);
+
+function toggleLineEditor(forceOff = false) {
+    isEditingLines = forceOff ? false : !isEditingLines;
+    const btn = document.getElementById('btn-edit-lines');
+    if(!btn) return;
+    
+    if(isEditingLines) {
+        btn.innerText = "💾 GUARDAR LÍNEAS";
+        btn.classList.add('btn-warn');
+        btn.classList.remove('btn-primary');
+        uiCanvas.style.pointerEvents = "auto";
+        uiCanvas.style.cursor = "crosshair";
+    } else {
+        btn.innerText = "✏ EDITAR LÍNEAS";
+        btn.classList.remove('btn-warn');
+        btn.classList.add('btn-primary');
+        uiCanvas.style.pointerEvents = "none";
+        uiCanvas.style.cursor = "default";
+        
+        if(ws && ws.readyState === 1 && !forceOff) {
+            ws.send(JSON.stringify({ cmd: "SET_COUNTING_LINES", lines: userLines }));
+            logMsg("Saved user lines");
+        }
+    }
+}
+
+function clearAllLines() {
+    userLines = [];
+    CONFIG.use_segments = false;
+    updateLineList();
+    if(ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ cmd: "SET_COUNTING_LINES", lines: userLines }));
+        logMsg("Cleared user lines");
+    }
+}
+
+function updateLineList() {
+    const list = document.getElementById('lines-list');
+    if(!list) return;
+    list.innerHTML = "";
+    userLines.forEach((l, idx) => {
+        list.innerHTML += `<div>Línea ${idx+1}: (${l.x1.toFixed(1)}, ${l.y1.toFixed(1)}) → (${l.x2.toFixed(1)}, ${l.y2.toFixed(1)})</div>`;
+    });
 }
 
 // --- DEBUGGER DRAWER ---

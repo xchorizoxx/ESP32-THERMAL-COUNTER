@@ -12,9 +12,10 @@ namespace ThermalConfig {
     int NMS_RADIUS_EDGE_SQ = 4;
     int DEFAULT_LINE_ENTRY_Y = 11;
     int DEFAULT_LINE_EXIT_Y = 13;
+    int DEFAULT_DEAD_ZONE_LEFT = 5;
+    int DEFAULT_DEAD_ZONE_RIGHT = 26;
     int VIEW_MODE = 0;
-    bool APP_RESET_COUNTS = false;
-    bool APP_RETRY_SENSOR = false;
+    DoorLineConfig door_lines = { .lines = {}, .num_lines = 0, .use_segments = false };
 }
 
 static const char* TAG = "PIPELINE";
@@ -34,7 +35,6 @@ ThermalPipeline::ThermalPipeline(Mlx90640Sensor& sensor, QueueHandle_t ipcQueue,
     memset(current_frame_,   0, sizeof(current_frame_));
     memset(composed_frame_,  0, sizeof(composed_frame_));
     memset(filtered_frame_,  0, sizeof(filtered_frame_));
-    memset(display_frame_,   0, sizeof(display_frame_));
     memset(background_map_,  0, sizeof(background_map_));
     memset(blocking_mask_,   0, sizeof(blocking_mask_));
     memset(peaks_,           0, sizeof(peaks_));
@@ -92,6 +92,12 @@ void ThermalPipeline::run()
                     break;
                 case ConfigCmdType::SET_LINE_EXIT:
                     ThermalConfig::DEFAULT_LINE_EXIT_Y = (int)cmd.value;
+                    break;
+                case ConfigCmdType::SET_DEAD_LEFT:
+                    ThermalConfig::DEFAULT_DEAD_ZONE_LEFT = (int)cmd.value;
+                    break;
+                case ConfigCmdType::SET_DEAD_RIGHT:
+                    ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT = (int)cmd.value;
                     break;
                 case ConfigCmdType::SET_NMS_CENTER:
                     ThermalConfig::NMS_RADIUS_CENTER_SQ = (int)cmd.value;

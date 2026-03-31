@@ -5,34 +5,6 @@ static const char* TAG = "TRACK_FSM";
 
 TrackletFSM::TrackletFSM() {
     memset(states_, 0, sizeof(states_));
-    // Default Map Initialization (A3 testing baseline):
-    // Emulates a Top-Down entry/exit logic by writing values directly
-    // into the map. Zone 1 (IN) = top 10 rows. Zone 2 (OUT) = bottom 10 rows.
-    // Zone 0 (FREE) = middle. Zone 255 (DEAD) = Leftmost and Rightmost walls.
-    for (int y = 0; y < ThermalConfig::MLX_ROWS; y++) {
-        for (int x = 0; x < ThermalConfig::MLX_COLS; x++) {
-            int idx = y * ThermalConfig::MLX_COLS + x;
-            
-            if (y < 10) {
-                zone_map_[idx] = 1; // ZONE_IN
-            } else if (y > 13) {
-                zone_map_[idx] = 2; // ZONE_OUT
-            } else {
-                zone_map_[idx] = 0; // ZONE_FREE (Pasillo)
-            }
-            
-            // Exclusión experimental: un rectángulo central de 18x11 (deja 7 píxeles a cada lado en X)
-            // Cualquier ruido/calor que aparezca de la nada dentro de este cuadro es fantasma instantáneo.
-            if (y >= 6 && y <= 16 && x >= 7 && x <= 24) {
-                zone_map_[idx] = 255; // ZONE_DEAD (Ghost trigger central)
-            }
-        }
-    }
-}
-
-void TrackletFSM::setZoneMap(const uint8_t* new_map) {
-    memcpy(zone_map_, new_map, ThermalConfig::TOTAL_PIXELS);
-    ESP_LOGI(TAG, "Autonomous unified zone map updated (768 bytes).");
 }
 
 TrackletFSM::FsmMemory* TrackletFSM::findState(uint8_t id) {
@@ -45,7 +17,6 @@ TrackletFSM::FsmMemory* TrackletFSM::findState(uint8_t id) {
 }
 
 TrackletFSM::FsmMemory* TrackletFSM::allocateState(uint8_t id) {
-    // Look for an UNBORN (empty/recycled slot)
     for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
         if (states_[i].state == FsmState::UNBORN) {
             states_[i].id = id;
@@ -55,8 +26,35 @@ TrackletFSM::FsmMemory* TrackletFSM::allocateState(uint8_t id) {
     return nullptr;
 }
 
+int TrackletFSM::checkSegmentCrossing(
+    float prev_x, float prev_y,
+    float curr_x, float curr_y,
+    float sx1, float sy1,
+    float sx2, float sy2)
+{
+    float sdx = sx2 - sx1;
+    float sdy = sy2 - sy1;
+
+    float side_prev = sdx * (prev_y - sy1) - sdy * (prev_x - sx1);
+    float side_curr = sdx * (curr_y - sy1) - sdy * (curr_x - sx1);
+
+    if (side_prev > 0.0f && side_curr <= 0.0f) return  1;  // Izq->Der
+    if (side_prev < 0.0f && side_curr >= 0.0f) return -1;  // Der->Izq
+
+    float min_x = sx1 < sx2 ? sx1 : sx2;
+    float max_x = sx1 > sx2 ? sx1 : sx2;
+    float min_y = sy1 < sy2 ? sy1 : sy2;
+    float max_y = sy1 > sy2 ? sy1 : sy2;
+
+    const float MARGIN = 0.5f;
+    if (curr_x < min_x - MARGIN || curr_x > max_x + MARGIN) return 0;
+    if (curr_y < min_y - MARGIN || curr_y > max_y + MARGIN) return 0;
+
+    return 0;
+}
+
 void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) {
-    const Tracklet* tracks = tracker.getTracks();
+    Tracklet* tracks = const_cast<Tracklet*>(tracker.getTracks());
 
     // 1) Clean up FSM memory of inactive tracks
     for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
@@ -81,68 +79,92 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
         const Tracklet& t = tracks[i];
         if (!t.active || !t.isConfirmed()) continue;
 
-        // O(1) Matrix Lookup
         int px = (int)t.x();
         int py = (int)t.y();
         
-        // Force bounds explicitly to prevent arbitrary segfaults
-        if (px < 0) px = 0;
-        if (px > ThermalConfig::MLX_COLS - 1) px = ThermalConfig::MLX_COLS - 1;
-        if (py < 0) py = 0;
-        if (py > ThermalConfig::MLX_ROWS - 1) py = ThermalConfig::MLX_ROWS - 1;
-        
-        uint8_t map_val = zone_map_[py * ThermalConfig::MLX_COLS + px];
-        
-        FsmMemory* mem = findState(t.id);
-        
-        // Allocate FSM for newly confirmed tracks
-        if (mem == nullptr) {
-            mem = allocateState(t.id);
-            if (!mem) continue; 
+        // Exclusión Vertical (Zonas Muertas)
+        // Tracks outside the configured vertical bounds are ignored completely.
+        if (px < ThermalConfig::DEFAULT_DEAD_ZONE_LEFT || px > ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT) {
+            tracks[i].zone_state = 2; // Render as Amber/Neutral
+            continue; 
         }
         
-        // If the track is a GHOST, force abandonment for telemetry visually but skip maths
-        if (mem->state == FsmState::GHOST) {
-            const_cast<Tracklet&>(t).zone_state = 3; 
-            continue;
-        }
+        // Track counting debounce: prevent double-counting when multiple segments are crossed
+        bool already_counted_in = false;
+        bool already_counted_out = false;
+        
+        if (ThermalConfig::door_lines.use_segments && ThermalConfig::door_lines.num_lines > 0) {
+            // Nuevo modo: Segmentos dibujables
+            if (t.history.count >= 2) {
+                int prev_idx = (t.history.head - 1 + TrackHistory::CAPACITY) % TrackHistory::CAPACITY;
+                float prev_x = t.history.entries[prev_idx].x;
+                float prev_y = t.history.entries[prev_idx].y;
 
-        // FSM Execution Core
-        if (mem->state == FsmState::UNBORN) {
-            if (map_val == 255) { // ZONE_DEAD (Exclusion wall)
-                mem->state = FsmState::GHOST;
-                ESP_LOGI(TAG, "Track %d spawned in ZONE_DEAD. Ghosted.", t.id);
-            } else if (map_val == 1) { // ZONE_IN
-                mem->state = FsmState::TRACKING_IN;
-            } else if (map_val == 2) { // ZONE_OUT
-                mem->state = FsmState::TRACKING_OUT;
+                for (int li = 0; li < ThermalConfig::door_lines.num_lines; li++) {
+                    const CountingSegment& seg = ThermalConfig::door_lines.lines[li];
+                    if (!seg.enabled) continue;
+
+                    int cross = checkSegmentCrossing(
+                        prev_x, prev_y, t.x(), t.y(),
+                        seg.x1, seg.y1, seg.x2, seg.y2
+                    );
+
+                    if (cross == 1 && !already_counted_out) {
+                        countOut++;
+                        already_counted_out = true;
+                        ESP_LOGI(TAG, "Track ID=%d crossed line '%s' -> +1 OUT", t.id, seg.name);
+                    } else if (cross == -1 && !already_counted_in) {
+                        countIn++;
+                        already_counted_in = true;
+                        ESP_LOGI(TAG, "Track ID=%d crossed line '%s' -> +1 IN", t.id, seg.name);
+                    }
+                }
             }
-            // If ZONE_FREE (0), stay UNBORN until contacting a relevant territory
-            
-        } else if (mem->state == FsmState::TRACKING_IN) {
-            if (map_val == 2) { // Touched OUT directly -> +1 OUT
-                countOut++;
-                mem->state = FsmState::TRACKING_OUT;
-                ESP_LOGI(TAG, "Track %d crossed IN->OUT. CntOUT: %d", t.id, countOut);
-            }
-            
-        } else if (mem->state == FsmState::TRACKING_OUT) {
-            if (map_val == 1) { // Touched IN directly -> +1 IN
-                countIn++;
-                mem->state = FsmState::TRACKING_IN;
-                ESP_LOGI(TAG, "Track %d crossed OUT->IN. CntIN: %d", t.id, countIn);
-            }
-        }
-        
-        // 3) Push logical states back into Tracklet for UX Web Telemetry rendering
-        if (mem->state == FsmState::GHOST) {
-            const_cast<Tracklet&>(t).zone_state = 3;
-        } else if (mem->state == FsmState::TRACKING_IN) {
-            const_cast<Tracklet&>(t).zone_state = 0; // Usually rendered as green
-        } else if (mem->state == FsmState::TRACKING_OUT) {
-            const_cast<Tracklet&>(t).zone_state = 2; // Usually rendered as blue 
+            tracks[i].zone_state = 2; // Neutral display for segment mode 
+
         } else {
-            const_cast<Tracklet&>(t).zone_state = 1; // UNBORN or FREE (Gray/Neutral)
+            // Modo legacy: usar lineEntryY / lineExitY horizontal
+            FsmMemory* mem = findState(t.id);
+            
+            // Allocate FSM for newly confirmed valid tracks
+            if (mem == nullptr) {
+                mem = allocateState(t.id);
+                if (!mem) continue; 
+            }
+
+            // FSM Execution Core
+            if (mem->state == FsmState::UNBORN) {
+                if (py <= ThermalConfig::DEFAULT_LINE_ENTRY_Y) {
+                    mem->state = FsmState::TRACKING_IN;
+                } else if (py >= ThermalConfig::DEFAULT_LINE_EXIT_Y) {
+                    mem->state = FsmState::TRACKING_OUT;
+                }
+                // Stay UNBORN if in the middle neutral zone
+                
+            } else if (mem->state == FsmState::TRACKING_IN) {
+                if (py >= ThermalConfig::DEFAULT_LINE_EXIT_Y) { // Crossed OUT line
+                    countOut++;
+                    mem->state = FsmState::TRACKING_OUT;
+                    ESP_LOGI(TAG, "Track %d crossed IN->OUT. CntOUT: %d", t.id, countOut);
+                }
+                
+            } else if (mem->state == FsmState::TRACKING_OUT) {
+                if (py <= ThermalConfig::DEFAULT_LINE_ENTRY_Y) { // Crossed IN line
+                    countIn++;
+                    mem->state = FsmState::TRACKING_IN;
+                    ESP_LOGI(TAG, "Track %d crossed OUT->IN. CntIN: %d", t.id, countIn);
+                }
+            }
+            
+            // 3) Push logical states back into Tracklet for Web UI Highlighting
+            // JS Palette: 1=Green(Norte/IN), 2=Amber(Neutral/Unborn), 3=Cyan(Sur/OUT)
+            if (mem->state == FsmState::TRACKING_IN) {
+                tracks[i].zone_state = 1; 
+            } else if (mem->state == FsmState::TRACKING_OUT) {
+                tracks[i].zone_state = 3; 
+            } else {
+                tracks[i].zone_state = 2; 
+            }
         }
     }
 }

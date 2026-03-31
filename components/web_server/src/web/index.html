@@ -142,6 +142,32 @@
                         <input type="range" id="cfg-line_exit" min="0" max="23" step="1" oninput="document.getElementById('val-line_exit').innerText=this.value">
                         <small>Fila Y donde comienza el conteo de egreso (0-23).</small>
                     </div>
+
+                    <!-- Custom lines panel -->
+                    <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin:15px 0;">
+                    <div class="form-group">
+                        <label style="color:var(--neo-green); font-weight:bold;">Líneas de Conteo Personalizadas (Segmentos)</label>
+                        <button type="button" class="btn-primary" id="btn-edit-lines" onclick="toggleLineEditor()" style="width:100%; margin-top:8px;">
+                            ✏ EDITAR LÍNEAS
+                        </button>
+                        <div id="lines-list" style="margin-top: 12px; font-size: 0.75rem;">
+                            <!-- Populated by updateLineList() -->
+                        </div>
+                        <button type="button" class="btn-warn" onclick="clearAllLines()" style="width:100%; margin-top: 12px; background:rgba(255,60,90,0.15); color:var(--neo-red);">
+                            🗑 BORRAR TODAS
+                        </button>
+                        <small>Dibuja líneas directamente en el Live Feed interactivo.</small>
+                    </div>
+                    <div class="form-group" style="padding-top:10px; border-top:1px solid rgba(255,255,255,0.1);">
+                        <label>Zona Muerta Izquierda: Col <span id="val-dead_left" class="val-badge">5</span></label>
+                        <input type="range" id="cfg-dead_left" min="0" max="31" step="1" oninput="document.getElementById('val-dead_left').innerText=this.value">
+                        <small>Todo lo que esté a la izquierda de esta columna será ignorado.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Zona Muerta Derecha: Col <span id="val-dead_right" class="val-badge">26</span></label>
+                        <input type="range" id="cfg-dead_right" min="0" max="31" step="1" oninput="document.getElementById('val-dead_right').innerText=this.value">
+                        <small>Todo lo que esté a la derecha de esta columna será ignorado.</small>
+                    </div>
                 </div>
             </div>
 

@@ -92,7 +92,8 @@ esp_err_t Mlx90640Sensor::readFrame(float* outBuffer)
     
     ambientTemp_ = ta;
 
-    // Emissivity fixed at 0.95 for human skin/clothing
+    // Emissivity for skin/clothing - keep in sync with ThermalConfig::EMISSIVITY (thermal_config.hpp;
+    // not included here: mlx90640_driver must not depend on thermal_pipeline).
     MLX90640_CalculateTo(frameData_, &params_, 0.95f, tr, outBuffer);
 
     return ESP_OK;

@@ -9,7 +9,39 @@
 
 #include <stdint.h>
 #include <cstring>
+
+/**
+ * @brief Segmento de linea de conteo en coordenadas del sensor (0..31 x 0..23).
+ *
+ * Define un segmento que, cuando un track lo cruza, dispara un conteo.
+ * La direccion del cruce determina si es IN o OUT.
+ */
+struct __attribute__((packed)) CountingSegment {
+    float x1;         // Punto inicio X [0..31]
+    float y1;         // Punto inicio Y [0..23]
+    float x2;         // Punto fin X [0..31]
+    float y2;         // Punto fin Y [0..23]
+    uint8_t id;       // ID de la linea (para multiples lineas)
+    char name[16];    // Nombre descriptivo
+    bool enabled;     // Activa/inactiva
+};
+
+constexpr int MAX_COUNTING_LINES = 4;  // Maximo de lineas por puerta
+
+namespace ThermalConfig {
+    constexpr int MAX_TRACKS = 15;       // Max. simultaneous tracked persons
+    constexpr int TOTAL_PIXELS = 768;    // 32x24
+}
+
 #include "thermal_config.hpp"
+
+namespace ThermalConfig {
+    struct DoorLineConfig {
+        CountingSegment lines[MAX_COUNTING_LINES];
+        uint8_t         num_lines;
+        bool            use_segments;  // false = usar Y horizontal legacy
+    };
+}
 
 // =========================================================================
 //  Vision Pipeline Structures (Core 1)
@@ -27,8 +59,7 @@ struct ThermalPeak {
 };
 
 /**
- * @brief Track of a person followed across frames.
- * Managed by AlphaBetaTracker (Step 4).
+ * @brief Dense track snapshot for mask generation + telemetry (from TrackletTracker::fillTrackArray).
  */
 struct Track {
     uint8_t id;             ///< Unique track identifier
@@ -38,7 +69,7 @@ struct Track {
     float   v_y;            ///< Estimated Y velocity [px/frame]
     uint8_t age;            ///< Frames since last real update
     bool    active;         ///< false = expired track (age > TRACK_MAX_AGE)
-    uint8_t state_y;        ///< State machine: 0=Upper, 1=Neutral, 2=Lower
+    uint8_t state_y;        ///< HUD tint / zone from TrackletFSM (0=unborn, 1=in, 2=neutral, 3=out)
 };
 
 // =========================================================================
@@ -102,6 +133,8 @@ enum class ConfigCmdType {
     SET_EMA_ALPHA,
     SET_LINE_ENTRY,
     SET_LINE_EXIT,
+    SET_DEAD_LEFT,
+    SET_DEAD_RIGHT,
     SET_NMS_CENTER,
     SET_NMS_EDGE,
     SET_VIEW_MODE,

@@ -72,9 +72,49 @@ static void loadConfigFromNvs(void) {
     readFloat("alpha_ema",  ThermalConfig::EMA_ALPHA);
     readInt  ("line_entry", ThermalConfig::DEFAULT_LINE_ENTRY_Y);
     readInt  ("line_exit",  ThermalConfig::DEFAULT_LINE_EXIT_Y);
+    readInt  ("dead_left",  ThermalConfig::DEFAULT_DEAD_ZONE_LEFT);
+    readInt  ("dead_right", ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT);
     readInt  ("nms_center", ThermalConfig::NMS_RADIUS_CENTER_SQ);
     readInt  ("nms_edge",   ThermalConfig::NMS_RADIUS_EDGE_SQ);
     readInt  ("view_mode",  ThermalConfig::VIEW_MODE);
+
+    size_t lines_len = 512;
+    char lines_buf[512];
+    if (nvs_get_str(h, "seg_lines", lines_buf, &lines_len) == ESP_OK) {
+        cJSON* lines_root = cJSON_Parse(lines_buf);
+        if (lines_root) {
+            if (cJSON_IsArray(lines_root)) {
+                int n = cJSON_GetArraySize(lines_root);
+                n = n > MAX_COUNTING_LINES ? MAX_COUNTING_LINES : n;
+                ThermalConfig::door_lines.num_lines = 0;
+                for (int i = 0; i < n; i++) {
+                    cJSON* l = cJSON_GetArrayItem(lines_root, i);
+                    if (cJSON_IsObject(l)) {
+                        CountingSegment& s = ThermalConfig::door_lines.lines[i];
+                        cJSON* jx1 = cJSON_GetObjectItem(l, "x1");
+                        cJSON* jy1 = cJSON_GetObjectItem(l, "y1");
+                        cJSON* jx2 = cJSON_GetObjectItem(l, "x2");
+                        cJSON* jy2 = cJSON_GetObjectItem(l, "y2");
+                        s.x1 = cJSON_IsNumber(jx1) ? (float)jx1->valuedouble : 0.f;
+                        s.y1 = cJSON_IsNumber(jy1) ? (float)jy1->valuedouble : 0.f;
+                        s.x2 = cJSON_IsNumber(jx2) ? (float)jx2->valuedouble : 0.f;
+                        s.y2 = cJSON_IsNumber(jy2) ? (float)jy2->valuedouble : 0.f;
+                        s.id = i + 1;
+                        s.enabled = true;
+                        snprintf(s.name, sizeof(s.name), "Linea %d", i + 1);
+                        ThermalConfig::door_lines.num_lines++;
+                    }
+                }
+            }
+            cJSON_Delete(lines_root);
+        }
+    }
+    int8_t use_seg = 0;
+    if (nvs_get_i8(h, "use_segments", &use_seg) == ESP_OK) {
+        ThermalConfig::door_lines.use_segments = (use_seg != 0);
+    } else {
+        ThermalConfig::door_lines.use_segments = false;
+    }
 
     nvs_close(h);
     ESP_LOGI(TAG, "NVS: configuration loaded - temp_bio=%.1f delta_t=%.1f alpha=%.2f entry=%d exit=%d nms_c=%d nms_e=%d mode=%d",
@@ -105,9 +145,29 @@ static esp_err_t saveConfigToNvs(void) {
     nvs_set_i32(h, "alpha_ema",  (int32_t)(ThermalConfig::EMA_ALPHA          * 1000.0f));
     nvs_set_i32(h, "line_entry", (int32_t) ThermalConfig::DEFAULT_LINE_ENTRY_Y);
     nvs_set_i32(h, "line_exit",  (int32_t) ThermalConfig::DEFAULT_LINE_EXIT_Y);
+    nvs_set_i32(h, "dead_left",  (int32_t) ThermalConfig::DEFAULT_DEAD_ZONE_LEFT);
+    nvs_set_i32(h, "dead_right", (int32_t) ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT);
     nvs_set_i32(h, "nms_center", (int32_t) ThermalConfig::NMS_RADIUS_CENTER_SQ);
     nvs_set_i32(h, "nms_edge",   (int32_t) ThermalConfig::NMS_RADIUS_EDGE_SQ);
     nvs_set_i32(h, "view_mode",  (int32_t) ThermalConfig::VIEW_MODE);
+
+    cJSON* lines_arr = cJSON_CreateArray();
+    for (int i = 0; i < ThermalConfig::door_lines.num_lines; i++) {
+        const CountingSegment& s = ThermalConfig::door_lines.lines[i];
+        cJSON* l = cJSON_CreateObject();
+        cJSON_AddNumberToObject(l, "x1", s.x1);
+        cJSON_AddNumberToObject(l, "y1", s.y1);
+        cJSON_AddNumberToObject(l, "x2", s.x2);
+        cJSON_AddNumberToObject(l, "y2", s.y2);
+        cJSON_AddItemToArray(lines_arr, l);
+    }
+    char* str_lines = cJSON_PrintUnformatted(lines_arr);
+    if (str_lines) {
+        nvs_set_str(h, "seg_lines", str_lines);
+        free(str_lines);
+    }
+    cJSON_Delete(lines_arr);
+    nvs_set_i8(h, "use_segments", ThermalConfig::door_lines.use_segments ? 1 : 0);
 
     err = nvs_commit(h);
     nvs_close(h);
@@ -263,6 +323,8 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
         snap_alpha_ema  = ThermalConfig::EMA_ALPHA;
         snap_line_entry = ThermalConfig::DEFAULT_LINE_ENTRY_Y;
         snap_line_exit  = ThermalConfig::DEFAULT_LINE_EXIT_Y;
+        int snap_dead_left = ThermalConfig::DEFAULT_DEAD_ZONE_LEFT;
+        int snap_dead_right = ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT;
         snap_nms_center = ThermalConfig::NMS_RADIUS_CENTER_SQ;
         snap_nms_edge   = ThermalConfig::NMS_RADIUS_EDGE_SQ;
         snap_view_mode  = ThermalConfig::VIEW_MODE;
@@ -275,9 +337,27 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
         cJSON_AddNumberToObject(resp, "alpha_ema",  (double)snap_alpha_ema);
         cJSON_AddNumberToObject(resp, "line_entry", (double)snap_line_entry);
         cJSON_AddNumberToObject(resp, "line_exit",  (double)snap_line_exit);
+        cJSON_AddNumberToObject(resp, "dead_left",  (double)snap_dead_left);
+        cJSON_AddNumberToObject(resp, "dead_right", (double)snap_dead_right);
         cJSON_AddNumberToObject(resp, "nms_center", (double)snap_nms_center);
         cJSON_AddNumberToObject(resp, "nms_edge",   (double)snap_nms_edge);
         cJSON_AddNumberToObject(resp, "view_mode",  (double)snap_view_mode);
+
+        cJSON_AddBoolToObject(resp, "use_segments", ThermalConfig::door_lines.use_segments);
+        cJSON* lines_arr = cJSON_CreateArray();
+        for (int i = 0; i < ThermalConfig::door_lines.num_lines; i++) {
+            const CountingSegment& s = ThermalConfig::door_lines.lines[i];
+            cJSON* l = cJSON_CreateObject();
+            cJSON_AddNumberToObject(l, "x1", s.x1);
+            cJSON_AddNumberToObject(l, "y1", s.y1);
+            cJSON_AddNumberToObject(l, "x2", s.x2);
+            cJSON_AddNumberToObject(l, "y2", s.y2);
+            cJSON_AddNumberToObject(l, "id", s.id);
+            cJSON_AddStringToObject(l, "name", s.name);
+            cJSON_AddItemToArray(lines_arr, l);
+        }
+        cJSON_AddItemToObject(resp, "lines", lines_arr);
+
         wsSendJson(req, resp);
         cJSON_Delete(resp);
     }
@@ -296,6 +376,8 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
             else if (strcmp(param->valuestring, "alpha_ema")  == 0) { cfgCmd.type = ConfigCmdType::SET_EMA_ALPHA; cfgCmd.value = (float)val->valuedouble; }
             else if (strcmp(param->valuestring, "line_entry") == 0) { cfgCmd.type = ConfigCmdType::SET_LINE_ENTRY; cfgCmd.value = (float)val->valuedouble; }
             else if (strcmp(param->valuestring, "line_exit")  == 0) { cfgCmd.type = ConfigCmdType::SET_LINE_EXIT;  cfgCmd.value = (float)val->valuedouble; }
+            else if (strcmp(param->valuestring, "dead_left")  == 0) { cfgCmd.type = ConfigCmdType::SET_DEAD_LEFT;  cfgCmd.value = (float)val->valuedouble; }
+            else if (strcmp(param->valuestring, "dead_right") == 0) { cfgCmd.type = ConfigCmdType::SET_DEAD_RIGHT; cfgCmd.value = (float)val->valuedouble; }
             else if (strcmp(param->valuestring, "nms_center") == 0) { cfgCmd.type = ConfigCmdType::SET_NMS_CENTER; cfgCmd.value = (float)val->valuedouble; }
             else if (strcmp(param->valuestring, "nms_edge")   == 0) { cfgCmd.type = ConfigCmdType::SET_NMS_EDGE;   cfgCmd.value = (float)val->valuedouble; }
             else if (strcmp(param->valuestring, "view_mode")  == 0) { cfgCmd.type = ConfigCmdType::SET_VIEW_MODE;  cfgCmd.value = (float)val->valuedouble; }
@@ -305,6 +387,55 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
                 xQueueSend(s_configQueue, &cfgCmd, 0);
                 ESP_LOGI(TAG, "Config queued: %s = %.3f", param->valuestring, val->valuedouble);
             }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    //  SET_COUNTING_LINES — applies segment configuration
+    // -------------------------------------------------------------------------
+    else if (strcmp(cmd->valuestring, "SET_COUNTING_LINES") == 0) {
+        cJSON* lines_arr = cJSON_GetObjectItem(root, "lines");
+        if (cJSON_IsArray(lines_arr)) {
+            int n = cJSON_GetArraySize(lines_arr);
+            n = n > MAX_COUNTING_LINES ? MAX_COUNTING_LINES : n;
+            
+            portENTER_CRITICAL(&s_config_mux);
+            ThermalConfig::door_lines.num_lines = 0;
+            for (int i = 0; i < n; i++) {
+                cJSON* line = cJSON_GetArrayItem(lines_arr, i);
+                if (!cJSON_IsObject(line)) continue;
+                
+                CountingSegment& seg = ThermalConfig::door_lines.lines[i];
+                cJSON* x1 = cJSON_GetObjectItem(line, "x1");
+                cJSON* y1 = cJSON_GetObjectItem(line, "y1");
+                cJSON* x2 = cJSON_GetObjectItem(line, "x2");
+                cJSON* y2 = cJSON_GetObjectItem(line, "y2");
+                
+                if (cJSON_IsNumber(x1) && cJSON_IsNumber(y1) &&
+                    cJSON_IsNumber(x2) && cJSON_IsNumber(y2)) {
+                    seg.x1 = (float)x1->valuedouble;
+                    seg.y1 = (float)y1->valuedouble;
+                    seg.x2 = (float)x2->valuedouble;
+                    seg.y2 = (float)y2->valuedouble;
+                    seg.enabled = true;
+                    seg.id = i + 1;
+                    snprintf(seg.name, sizeof(seg.name), "Linea %d", i + 1);
+                    ThermalConfig::door_lines.num_lines++;
+                }
+            }
+            ThermalConfig::door_lines.use_segments = (ThermalConfig::door_lines.num_lines > 0);
+            portEXIT_CRITICAL(&s_config_mux);
+            
+            if (s_configQueue) {
+                AppConfigCmd cfgCmd;
+                cfgCmd.type  = ConfigCmdType::APPLY_CONFIG;
+                cfgCmd.value = 0;
+                xQueueSend(s_configQueue, &cfgCmd, 0);
+            }
+            
+            ESP_LOGI(TAG, "Counting lines updated: %d segments, use_segments=%d",
+                     ThermalConfig::door_lines.num_lines,
+                     ThermalConfig::door_lines.use_segments);
         }
     }
 

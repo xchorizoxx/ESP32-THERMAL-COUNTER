@@ -63,7 +63,6 @@ private:
     float   current_frame_[ThermalConfig::TOTAL_PIXELS];   // Raw frame from sensor
     float   composed_frame_[ThermalConfig::TOTAL_PIXELS];  // A1: chess-fused frame
     float   filtered_frame_[ThermalConfig::TOTAL_PIXELS];  // A1: Kalman-filtered frame
-    float   display_frame_[ThermalConfig::TOTAL_PIXELS];   // Legacy (kept for compat)
     float   background_map_[ThermalConfig::TOTAL_PIXELS];
     uint8_t blocking_mask_[ThermalConfig::TOTAL_PIXELS];
     

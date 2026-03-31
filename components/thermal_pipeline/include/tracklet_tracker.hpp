@@ -106,7 +106,7 @@ struct Tracklet {
     // Alpha 0.4: weights recent observation ~60% heavier than history.
     float        display_x;        ///< Smoothed X for HUD rendering
     float        display_y;        ///< Smoothed Y for HUD rendering
-    uint8_t      zone_state;       ///< 0=North, 1=Neutral, 2=South, 3=Discarded (A3)
+    uint8_t      zone_state;       ///< HUD: 1=legacy IN / spawn default, 2=neutral or segment mode, 3=legacy OUT
     TrackHistory history;
 
     /** @brief Latest confirmed X position (sub-pixel). */
@@ -159,12 +159,8 @@ public:
      * @param out_count Number of entries written
      */
     void fillTrackArray(Track* out, int* out_count) const;
-
-    // Inspection helpers
     const Tracklet* getTracks()         const { return tracks_; }
     int             getMaxTracks()      const { return ThermalConfig::MAX_TRACKS; }
-    int             getActiveCount()    const;
-    int             getConfirmedCount() const;
 
 private:
     Tracklet tracks_[ThermalConfig::MAX_TRACKS];
