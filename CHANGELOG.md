@@ -1,6 +1,6 @@
 # CHANGELOG - Thermal Door Detector
 
-## [Alpha 0.6] - 2026-03-20 (Current)
+## [Alpha 0.7] - 2026-03-31 (Current)
 # Changelog
 
 All notable changes to this project will be documented in this file.
