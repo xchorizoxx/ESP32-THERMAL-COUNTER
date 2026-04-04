@@ -18,7 +18,12 @@ namespace ThermalConfig {
 constexpr int I2C_SDA_PIN = 8;      // GPIO for SDA of MLX90640
 constexpr int I2C_SCL_PIN = 9;      // GPIO for SCL of MLX90640
 constexpr uint8_t MLX_ADDR = 0x33;  // Default I2C address
-constexpr int I2C_FREQ_HZ = 400000; // 400 kHz Fast Mode
+// Fast-Mode Plus (FM+): 1 MHz.
+// Compatible con MLX90640 (datasheet §7.4) y ESP32-S3 I2C hardware.
+// REQUISITO HARDWARE: pull-ups externos de 1kΩ en SDA y SCL.
+// Con cables cortos (<10cm) puede operar a 1MHz sin problemas.
+// Si hay errores I2C frecuentes, bajar a 800000 (800 kHz).
+constexpr int I2C_FREQ_HZ = 1000000; // 1 MHz Fast-Mode Plus
 
 // =========================================================================
 //  PHYSICAL ENVIRONMENT (edit according to installation)
@@ -104,7 +109,7 @@ constexpr int MASK_HALF_SIZE = 1; // Square radius (1 = 3×3 px)
 // =========================================================================
 //  SYSTEM AND CAPACITY
 // =========================================================================
-constexpr int PIPELINE_FREQ_HZ = 16; // Pipeline frequency [Hz]
+constexpr int PIPELINE_FREQ_HZ = 32; // Pipeline frequency [Hz]
 constexpr int MAX_PEAKS = 15;    // Max. raw peaks per frame
 // MAX_TRACKS is now in thermal_types.hpp
 constexpr int IPC_QUEUE_DEPTH = 4;  // Bug3-fix: 15→4 saves ~20 KB SRAM (pipeline drops on full, timeout=0)

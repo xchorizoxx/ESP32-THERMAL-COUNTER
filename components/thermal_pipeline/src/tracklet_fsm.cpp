@@ -81,25 +81,48 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
     for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
         const Tracklet& t = tracks[i];
         if (!t.active || !t.isConfirmed()) continue;
-
-        const float px = t.x();
         const float py = t.y();
-        
-        // Exclusión Vertical (Zonas Muertas)
-        // Tracks outside the configured vertical bounds are ignored completely.
-        if (px < ThermalConfig::DEFAULT_DEAD_ZONE_LEFT || px > ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT) {
-            tracks[i].zone_state = 2; // Render as Amber/Neutral
-            continue; 
-        }
+
         
         // Track counting debounce: prevent double-counting when multiple segments are crossed
         bool already_counted_in = false;
         bool already_counted_out = false;
         
         if (ThermalConfig::door_lines.use_segments && ThermalConfig::door_lines.num_lines > 0) {
-            // Nuevo modo: Segmentos dibujables
+            // Detección de cruce con lookback dinámico:
+            //
+            // PROBLEMA RAZ: a 8 Hz efectivos y 3.6m de altura con FOV 110°,
+            //   una persona a 1 m/s solo mueve ~0.12 px/frame → con lookback=1 el
+            //   vector es demasiado corto para cruzar ninguna línea.
+            //
+            // SOLUCIÓN: usar las últimas LOOKBACK muestras del historial CRUDO
+            //   (no el display_x suavizado con EMA) para construir un vector más largo
+            //   y robusto. Cooldown post-cruce evita doble conteo.
+            FsmMemory* mem = findState(t.id);
+            if (mem == nullptr) {
+                mem = allocateState(t.id);
+                if (!mem) continue;
+            }
+
+            // Decrementar cooldown si está activo
+            if (mem->cross_streak > 0) {
+                mem->cross_streak--;
+                tracks[i].zone_state = 2;
+                continue; // Evitar doble conteo mientras dure el cooldown
+            }
+
+            // Necesitamos al menos 2 muestras para tener vector
             if (t.history.count >= 2) {
-                int prev_idx = (t.history.head - 1 + TrackHistory::CAPACITY) % TrackHistory::CAPACITY;
+                // Lookback dinámico: máximo 6 frames, o lo disponible
+                const int LOOKBACK = (t.history.count >= 6) ? 6 : (int)(t.history.count - 1);
+                const int COOLDOWN = LOOKBACK + 2; // Frames de espera post-cruce
+
+                // Posición actual: historial crudo (no display_x EMA-suavizado)
+                float curr_x = t.history.entries[t.history.head].x;
+                float curr_y = t.history.entries[t.history.head].y;
+
+                // Posición N frames atrás
+                int prev_idx = (t.history.head - LOOKBACK + TrackHistory::CAPACITY) % TrackHistory::CAPACITY;
                 float prev_x = t.history.entries[prev_idx].x;
                 float prev_y = t.history.entries[prev_idx].y;
 
@@ -108,18 +131,20 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
                     if (!seg.enabled) continue;
 
                     int cross = checkSegmentCrossing(
-                        prev_x, prev_y, t.x(), t.y(),
+                        prev_x, prev_y, curr_x, curr_y,
                         seg.x1, seg.y1, seg.x2, seg.y2
                     );
 
                     if (cross == 1 && !already_counted_out) {
                         countOut++;
                         already_counted_out = true;
-                        ESP_LOGI(TAG, "Track ID=%d crossed line '%s' -> +1 OUT", t.id, seg.name);
+                        mem->cross_streak = (int8_t)COOLDOWN;
+                        ESP_LOGI(TAG, "Track ID=%d crossed '%s' -> +1 OUT (lb=%d)", t.id, seg.name, LOOKBACK);
                     } else if (cross == -1 && !already_counted_in) {
                         countIn++;
                         already_counted_in = true;
-                        ESP_LOGI(TAG, "Track ID=%d crossed line '%s' -> +1 IN", t.id, seg.name);
+                        mem->cross_streak = (int8_t)COOLDOWN;
+                        ESP_LOGI(TAG, "Track ID=%d crossed '%s' -> +1 IN (lb=%d)", t.id, seg.name, LOOKBACK);
                     }
                 }
             }

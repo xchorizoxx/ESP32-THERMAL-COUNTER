@@ -33,8 +33,10 @@ public:
 
 private:
     struct FsmMemory {
-        uint8_t  id;       // Tracklet ID
-        FsmState state;    // Logical FSM state
+        uint8_t  id;             // Tracklet ID
+        FsmState state;          // Logical FSM state
+        int8_t   cross_streak;   // +N = N frames cruzando en sentido +1, -N en sentido -1
+        int      last_line_idx;  // Índice de la última línea cruzada (para no contar 2 veces)
     };
     
     FsmMemory states_[ThermalConfig::MAX_TRACKS];

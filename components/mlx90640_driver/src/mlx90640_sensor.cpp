@@ -61,8 +61,9 @@ esp_err_t Mlx90640Sensor::init()
         return ESP_FAIL;
     }
 
-    // 4. Default refresh rate (16Hz)
-    setRefreshRate(0x05); 
+    // Refresh rate 32 Hz (0x06) — requiere I2C FM+ 1 MHz para tener margen de procesamiento.
+    // Tabla: 0x04=8Hz, 0x05=16Hz, 0x06=32Hz, 0x07=64Hz
+    setRefreshRate(0x06);
 
     initialized_ = true;
     ESP_LOGI(TAG, "Sensor Hardware and Parameters Initialized successfully");

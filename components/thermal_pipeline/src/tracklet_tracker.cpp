@@ -30,8 +30,8 @@ TrackletTracker::TrackletTracker() : next_id_(1)
 
 float TrackletTracker::computeCost(const Tracklet& t, const ThermalPeak& p) const
 {
-    const float dx = t.pred_x - (float)p.x;
-    const float dy = t.pred_y - (float)p.y;
+    const float dx = t.pred_x - p.x;
+    const float dy = t.pred_y - p.y;
     const float dist = sqrtf(dx * dx + dy * dy);
 
     // Normalise distance to [0, 1] against the rejection gate
@@ -106,13 +106,13 @@ void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
         if (best >= 0) {
             // Update existing track
             Tracklet& t = tracks_[best];
-            t.history.push((float)peaks[p].x, (float)peaks[p].y, timestamp);
-            t.pred_x         = (float)peaks[p].x;
-            t.pred_y         = (float)peaks[p].y;
+            t.history.push(peaks[p].x, peaks[p].y, timestamp);
+            t.pred_x         = peaks[p].x;
+            t.pred_y         = peaks[p].y;
             // EMA for display position — smooths visual jumps without affecting prediction
             const float alpha = ThermalConfig::TRACK_DISPLAY_SMOOTH;
-            t.display_x = alpha * (float)peaks[p].x + (1.0f - alpha) * t.display_x;
-            t.display_y = alpha * (float)peaks[p].y + (1.0f - alpha) * t.display_y;
+            t.display_x = alpha * peaks[p].x + (1.0f - alpha) * t.display_x;
+            t.display_y = alpha * peaks[p].y + (1.0f - alpha) * t.display_y;
             // Fast EMA for temperature (weight 0.2 on new measurement)
             t.avg_temperature = t.avg_temperature * 0.8f + peaks[p].temperature * 0.2f;
             t.confirmed       = (t.confirmed < 255) ? t.confirmed + 1 : 255;
@@ -130,17 +130,17 @@ void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
                 slot->confirmed       = 1;
                 slot->missed          = 0;
                 slot->avg_temperature = peaks[p].temperature;
-                slot->pred_x          = (float)peaks[p].x;
-                slot->pred_y          = (float)peaks[p].y;
+                slot->pred_x          = peaks[p].x;
+                slot->pred_y          = peaks[p].y;
                 // Init display position to raw position (no history yet to smooth from)
-                slot->display_x       = (float)peaks[p].x;
-                slot->display_y       = (float)peaks[p].y;
+                slot->display_x       = peaks[p].x;
+                slot->display_y       = peaks[p].y;
                 slot->zone_state      = 1;  // Neutral by default — FSM corrects in A3
-                slot->history.push((float)peaks[p].x, (float)peaks[p].y, timestamp);
+                slot->history.push(peaks[p].x, peaks[p].y, timestamp);
                 ESP_LOGD(TAG, "New track ID=%u at (%.1f, %.1f) temp=%.1f°C",
                          slot->id, slot->pred_x, slot->pred_y, slot->avg_temperature);
             } else {
-                ESP_LOGW(TAG, "Track pool full — peak at (%u,%u) dropped",
+                ESP_LOGW(TAG, "Track pool full — peak at (%.1f,%.1f) dropped",
                          peaks[p].x, peaks[p].y);
             }
         }

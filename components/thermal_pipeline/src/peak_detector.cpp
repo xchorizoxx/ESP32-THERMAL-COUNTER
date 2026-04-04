@@ -37,8 +37,20 @@ void PeakDetector::detect(const float* currentFrame, const float* backgroundMap,
 
             // All conditions met → it is a peak
             if (*numPeaks < maxPeaks) {
-                peaks[*numPeaks].x = (uint8_t)c;
-                peaks[*numPeaks].y = (uint8_t)r;
+                // Centroide sub-píxel ponderado por temperatura en el vecindario 3×3.
+                // Reduce saltos discretos cuando la persona se mueve entre celdas.
+                float sum_w = 0.0f, sum_wx = 0.0f, sum_wy = 0.0f;
+                for (int dr2 = -1; dr2 <= 1; dr2++) {
+                    for (int dc2 = -1; dc2 <= 1; dc2++) {
+                        float w = currentFrame[(r + dr2) * cols + (c + dc2)];
+                        if (w < tempMin) w = 0.0f; // no pesar píxeles fríos
+                        sum_w  += w;
+                        sum_wx += w * (float)(c + dc2);
+                        sum_wy += w * (float)(r + dr2);
+                    }
+                }
+                peaks[*numPeaks].x = (sum_w > 0.0f) ? (sum_wx / sum_w) : (float)c;
+                peaks[*numPeaks].y = (sum_w > 0.0f) ? (sum_wy / sum_w) : (float)r;
                 peaks[*numPeaks].temperature = val;
                 peaks[*numPeaks].suppressed  = false;
                 (*numPeaks)++;

@@ -52,9 +52,9 @@ namespace ThermalConfig {
  * Produced by PeakDetector (Step 2), consumed by NmsSuppressor (Step 3).
  */
 struct ThermalPeak {
-    uint8_t x;              ///< Column [0..31]
-    uint8_t y;              ///< Row [0..23]
-    float   temperature;    ///< Temperature in °C
+    float   x;              ///< Column [0.0..31.0] — sub-pixel centroid
+    float   y;              ///< Row [0.0..23.0]    — sub-pixel centroid
+    float   temperature;    ///< Temperature in °C (peak temperature)
     bool    suppressed;     ///< NMS flag: true = suppressed by a hotter peak
 };
 

@@ -22,8 +22,8 @@ void NmsSuppressor::suppress(ThermalPeak* peaks, int numPeaks,
     for (int j = 0; j < numPeaks; j++) {
         if (peaks[j].suppressed) continue;
 
-        const int xj = peaks[j].x;
-        const int yj = peaks[j].y;
+        const float xj = peaks[j].x;
+        const float yj = peaks[j].y;
 
         // Radius² according to position (center vs lens edge)
         const int radiusSq = (xj >= centerXMin && xj <= centerXMax)
@@ -34,11 +34,11 @@ void NmsSuppressor::suppress(ThermalPeak* peaks, int numPeaks,
         for (int k = j + 1; k < numPeaks; k++) {
             if (peaks[k].suppressed) continue;
 
-            const int dx = (int)xj - (int)peaks[k].x;
-            const int dy = (int)yj - (int)peaks[k].y;
-            const int d2 = dx * dx + dy * dy;
+            const float dx = xj - peaks[k].x;
+            const float dy = yj - peaks[k].y;
+            const float d2 = dx * dx + dy * dy;
 
-            if (d2 <= radiusSq) {
+            if (d2 <= (float)radiusSq) {
                 peaks[k].suppressed = true;
             }
         }
