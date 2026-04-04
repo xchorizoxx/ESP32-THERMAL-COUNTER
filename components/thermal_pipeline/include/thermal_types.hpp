@@ -7,8 +7,8 @@
  * and communication payloads (TelemetryPayload, ImagePayload, IpcPacket).
  */
 
-#include <stdint.h>
 #include <cstring>
+#include <stdint.h>
 
 /**
  * @brief Segmento de linea de conteo en coordenadas del sensor (0..31 x 0..23).
@@ -17,31 +17,31 @@
  * La direccion del cruce determina si es IN o OUT.
  */
 struct __attribute__((packed)) CountingSegment {
-    float x1;         // Punto inicio X [0..31]
-    float y1;         // Punto inicio Y [0..23]
-    float x2;         // Punto fin X [0..31]
-    float y2;         // Punto fin Y [0..23]
-    uint8_t id;       // ID de la linea (para multiples lineas)
-    char name[16];    // Nombre descriptivo
-    bool enabled;     // Activa/inactiva
+  float x1;      // Punto inicio X [0..31]
+  float y1;      // Punto inicio Y [0..23]
+  float x2;      // Punto fin X [0..31]
+  float y2;      // Punto fin Y [0..23]
+  uint8_t id;    // ID de la linea (para multiples lineas)
+  char name[16]; // Nombre descriptivo
+  bool enabled;  // Activa/inactiva
 };
 
-constexpr int MAX_COUNTING_LINES = 4;  // Maximo de lineas por puerta
+constexpr int MAX_COUNTING_LINES = 4; // Maximo de lineas por puerta
 
 namespace ThermalConfig {
-    constexpr int MAX_TRACKS = 15;       // Max. simultaneous tracked persons
-    constexpr int TOTAL_PIXELS = 768;    // 32x24
-}
+constexpr int MAX_TRACKS = 20;    // Max. simultaneous tracked persons
+constexpr int TOTAL_PIXELS = 768; // 32x24
+} // namespace ThermalConfig
 
 #include "thermal_config.hpp"
 
 namespace ThermalConfig {
-    struct DoorLineConfig {
-        CountingSegment lines[MAX_COUNTING_LINES];
-        uint8_t         num_lines;
-        bool            use_segments;  // false = usar Y horizontal legacy
-    };
-}
+struct DoorLineConfig {
+  CountingSegment lines[MAX_COUNTING_LINES];
+  uint8_t num_lines;
+  bool use_segments; // false = usar Y horizontal legacy
+};
+} // namespace ThermalConfig
 
 // =========================================================================
 //  Vision Pipeline Structures (Core 1)
@@ -52,24 +52,26 @@ namespace ThermalConfig {
  * Produced by PeakDetector (Step 2), consumed by NmsSuppressor (Step 3).
  */
 struct ThermalPeak {
-    float   x;              ///< Column [0.0..31.0] — sub-pixel centroid
-    float   y;              ///< Row [0.0..23.0]    — sub-pixel centroid
-    float   temperature;    ///< Temperature in °C (peak temperature)
-    bool    suppressed;     ///< NMS flag: true = suppressed by a hotter peak
+  float x;           ///< Column [0.0..31.0] — sub-pixel centroid
+  float y;           ///< Row [0.0..23.0]    — sub-pixel centroid
+  float temperature; ///< Temperature in °C (peak temperature)
+  bool suppressed;   ///< NMS flag: true = suppressed by a hotter peak
 };
 
 /**
- * @brief Dense track snapshot for mask generation + telemetry (from TrackletTracker::fillTrackArray).
+ * @brief Dense track snapshot for mask generation + telemetry (from
+ * TrackletTracker::fillTrackArray).
  */
 struct Track {
-    uint8_t id;             ///< Unique track identifier
-    float   x;              ///< Smoothed X position (sub-pixel)
-    float   y;              ///< Smoothed Y position (sub-pixel)
-    float   v_x;            ///< Estimated X velocity [px/frame]
-    float   v_y;            ///< Estimated Y velocity [px/frame]
-    uint8_t age;            ///< Frames since last real update
-    bool    active;         ///< false = expired track (age > TRACK_MAX_AGE)
-    uint8_t state_y;        ///< HUD tint / zone from TrackletFSM (0=unborn, 1=in, 2=neutral, 3=out)
+  uint8_t id;      ///< Unique track identifier
+  float x;         ///< Smoothed X position (sub-pixel)
+  float y;         ///< Smoothed Y position (sub-pixel)
+  float v_x;       ///< Estimated X velocity [px/frame]
+  float v_y;       ///< Estimated Y velocity [px/frame]
+  uint8_t age;     ///< Frames since last real update
+  bool active;     ///< false = expired track (age > TRACK_MAX_MISSED)
+  uint8_t state_y; ///< HUD tint / zone from TrackletFSM (0=unborn, 1=in,
+                   ///< 2=neutral, 3=out)
 };
 
 // =========================================================================
@@ -81,11 +83,11 @@ struct Track {
  * Uses fixed-point ×100 to avoid floats on the network.
  */
 struct __attribute__((packed)) TrackInfo {
-    uint8_t id;
-    int16_t x_100;          ///< X position × 100 (e.g., 1520 = 15.20)
-    int16_t y_100;          ///< Y position × 100 (e.g., 1200 = 12.00)
-    int16_t v_x_100;        ///< X velocity × 100
-    int16_t v_y_100;        ///< Y velocity × 100
+  uint8_t id;
+  int16_t x_100;   ///< X position × 100 (e.g., 1520 = 15.20)
+  int16_t y_100;   ///< Y position × 100 (e.g., 1200 = 12.00)
+  int16_t v_x_100; ///< X velocity × 100
+  int16_t v_y_100; ///< Y velocity × 100
 };
 
 /**
@@ -94,12 +96,12 @@ struct __attribute__((packed)) TrackInfo {
  * Size: ~85 bytes (varies with num_tracks).
  */
 struct __attribute__((packed)) TelemetryPayload {
-    uint32_t frame_id;
-    float    ambient_temp;  ///< Ta read from MLX90640 sensor
-    int16_t  count_in;
-    int16_t  count_out;
-    uint8_t  num_tracks;
-    TrackInfo tracks[ThermalConfig::MAX_TRACKS];
+  uint32_t frame_id;
+  float ambient_temp; ///< Ta read from MLX90640 sensor
+  int16_t count_in;
+  int16_t count_out;
+  uint8_t num_tracks;
+  TrackInfo tracks[ThermalConfig::MAX_TRACKS];
 };
 
 /**
@@ -109,8 +111,8 @@ struct __attribute__((packed)) TelemetryPayload {
  * Size: ~1540 bytes.
  */
 struct __attribute__((packed)) ImagePayload {
-    uint32_t frame_id;
-    int16_t  pixels[ThermalConfig::TOTAL_PIXELS];
+  uint32_t frame_id;
+  int16_t pixels[ThermalConfig::TOTAL_PIXELS];
 };
 
 /**
@@ -119,32 +121,32 @@ struct __attribute__((packed)) ImagePayload {
  * can send both UDP packets per frame.
  */
 struct IpcPacket {
-    TelemetryPayload telemetry;
-    ImagePayload     image;
-    bool             sensor_ok;
+  TelemetryPayload telemetry;
+  ImagePayload image;
+  bool sensor_ok;
 };
 
 // =========================================================================
 //  UI Commands (Core 0 -> Core 1)
 // =========================================================================
 enum class ConfigCmdType {
-    SET_TEMP_BIO,
-    SET_DELTA_T,
-    SET_EMA_ALPHA,
-    SET_LINE_ENTRY,
-    SET_LINE_EXIT,
-    SET_DEAD_LEFT,
-    SET_DEAD_RIGHT,
-    SET_SENSOR_HEIGHT,
-    SET_PERSON_DIAMETER,
-    SET_VIEW_MODE,
-    RESET_COUNTS,
-    RETRY_SENSOR,
-    SAVE_CONFIG,    ///< Persist current config to NVS flash
-    APPLY_CONFIG    ///< Batch-apply all parameters (handled in Core 0)
+  SET_TEMP_BIO,
+  SET_DELTA_T,
+  SET_EMA_ALPHA,
+  SET_LINE_ENTRY,
+  SET_LINE_EXIT,
+  SET_DEAD_LEFT,
+  SET_DEAD_RIGHT,
+  SET_SENSOR_HEIGHT,
+  SET_PERSON_DIAMETER,
+  SET_VIEW_MODE,
+  RESET_COUNTS,
+  RETRY_SENSOR,
+  SAVE_CONFIG, ///< Persist current config to NVS flash
+  APPLY_CONFIG ///< Batch-apply all parameters (handled in Core 0)
 };
 
 struct AppConfigCmd {
-    ConfigCmdType type;
-    float value;
+  ConfigCmdType type;
+  float value;
 };
