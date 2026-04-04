@@ -74,8 +74,8 @@ static void loadConfigFromNvs(void) {
     readInt  ("line_exit",  ThermalConfig::DEFAULT_LINE_EXIT_Y);
     readInt  ("dead_left",  ThermalConfig::DEFAULT_DEAD_ZONE_LEFT);
     readInt  ("dead_right", ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT);
-    readInt  ("nms_center", ThermalConfig::NMS_RADIUS_CENTER_SQ);
-    readInt  ("nms_edge",   ThermalConfig::NMS_RADIUS_EDGE_SQ);
+    readFloat("sensor_h",   ThermalConfig::SENSOR_HEIGHT_M);
+    readFloat("person_d",   ThermalConfig::PERSON_DIAMETER_M);
     readInt  ("view_mode",  ThermalConfig::VIEW_MODE);
 
     size_t lines_len = 512;
@@ -117,11 +117,11 @@ static void loadConfigFromNvs(void) {
     }
 
     nvs_close(h);
-    ESP_LOGI(TAG, "NVS: configuration loaded - temp_bio=%.1f delta_t=%.1f alpha=%.2f entry=%d exit=%d nms_c=%d nms_e=%d mode=%d",
+    ESP_LOGI(TAG, "NVS: configuration loaded - temp_bio=%.1f delta_t=%.1f alpha=%.2f entry=%d exit=%d height=%.2f p_diam=%.2f mode=%d",
              ThermalConfig::BIOLOGICAL_TEMP_MIN, ThermalConfig::BACKGROUND_DELTA_T,
              ThermalConfig::EMA_ALPHA,
              ThermalConfig::DEFAULT_LINE_ENTRY_Y, ThermalConfig::DEFAULT_LINE_EXIT_Y,
-             ThermalConfig::NMS_RADIUS_CENTER_SQ, ThermalConfig::NMS_RADIUS_EDGE_SQ,
+             ThermalConfig::SENSOR_HEIGHT_M, ThermalConfig::PERSON_DIAMETER_M,
              ThermalConfig::VIEW_MODE);
 }
 
@@ -147,8 +147,8 @@ static esp_err_t saveConfigToNvs(void) {
     nvs_set_i32(h, "line_exit",  (int32_t) ThermalConfig::DEFAULT_LINE_EXIT_Y);
     nvs_set_i32(h, "dead_left",  (int32_t) ThermalConfig::DEFAULT_DEAD_ZONE_LEFT);
     nvs_set_i32(h, "dead_right", (int32_t) ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT);
-    nvs_set_i32(h, "nms_center", (int32_t) ThermalConfig::NMS_RADIUS_CENTER_SQ);
-    nvs_set_i32(h, "nms_edge",   (int32_t) ThermalConfig::NMS_RADIUS_EDGE_SQ);
+    nvs_set_i32(h, "sensor_h",   (int32_t)(ThermalConfig::SENSOR_HEIGHT_M * 1000.0f));
+    nvs_set_i32(h, "person_d",   (int32_t)(ThermalConfig::PERSON_DIAMETER_M * 1000.0f));
     nvs_set_i32(h, "view_mode",  (int32_t) ThermalConfig::VIEW_MODE);
 
     cJSON* lines_arr = cJSON_CreateArray();
@@ -315,7 +315,7 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
         // Bug5-fix: atomic snapshot — all globals read inside a single critical section
         // to prevent torn reads on Xtensa LX7 during a Core 0/Core 1 context switch.
         float snap_temp_bio, snap_delta_t, snap_alpha_ema;
-        int   snap_line_entry, snap_line_exit, snap_nms_center, snap_nms_edge, snap_view_mode;
+        int   snap_line_entry, snap_line_exit, snap_view_mode;
 
         portENTER_CRITICAL(&s_config_mux);
         snap_temp_bio   = ThermalConfig::BIOLOGICAL_TEMP_MIN;
@@ -323,10 +323,11 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
         snap_alpha_ema  = ThermalConfig::EMA_ALPHA;
         snap_line_entry = ThermalConfig::DEFAULT_LINE_ENTRY_Y;
         snap_line_exit  = ThermalConfig::DEFAULT_LINE_EXIT_Y;
+        float snap_sensor_height, snap_person_diameter;
         int snap_dead_left = ThermalConfig::DEFAULT_DEAD_ZONE_LEFT;
         int snap_dead_right = ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT;
-        snap_nms_center = ThermalConfig::NMS_RADIUS_CENTER_SQ;
-        snap_nms_edge   = ThermalConfig::NMS_RADIUS_EDGE_SQ;
+        snap_sensor_height = ThermalConfig::SENSOR_HEIGHT_M;
+        snap_person_diameter = ThermalConfig::PERSON_DIAMETER_M;
         snap_view_mode  = ThermalConfig::VIEW_MODE;
         portEXIT_CRITICAL(&s_config_mux);
 
@@ -339,8 +340,8 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
         cJSON_AddNumberToObject(resp, "line_exit",  (double)snap_line_exit);
         cJSON_AddNumberToObject(resp, "dead_left",  (double)snap_dead_left);
         cJSON_AddNumberToObject(resp, "dead_right", (double)snap_dead_right);
-        cJSON_AddNumberToObject(resp, "nms_center", (double)snap_nms_center);
-        cJSON_AddNumberToObject(resp, "nms_edge",   (double)snap_nms_edge);
+        cJSON_AddNumberToObject(resp, "sensor_height", (double)snap_sensor_height);
+        cJSON_AddNumberToObject(resp, "person_diameter",   (double)snap_person_diameter);
         cJSON_AddNumberToObject(resp, "view_mode",  (double)snap_view_mode);
 
         cJSON_AddBoolToObject(resp, "use_segments", ThermalConfig::door_lines.use_segments);
@@ -378,8 +379,8 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
             else if (strcmp(param->valuestring, "line_exit")  == 0) { cfgCmd.type = ConfigCmdType::SET_LINE_EXIT;  cfgCmd.value = (float)val->valuedouble; }
             else if (strcmp(param->valuestring, "dead_left")  == 0) { cfgCmd.type = ConfigCmdType::SET_DEAD_LEFT;  cfgCmd.value = (float)val->valuedouble; }
             else if (strcmp(param->valuestring, "dead_right") == 0) { cfgCmd.type = ConfigCmdType::SET_DEAD_RIGHT; cfgCmd.value = (float)val->valuedouble; }
-            else if (strcmp(param->valuestring, "nms_center") == 0) { cfgCmd.type = ConfigCmdType::SET_NMS_CENTER; cfgCmd.value = (float)val->valuedouble; }
-            else if (strcmp(param->valuestring, "nms_edge")   == 0) { cfgCmd.type = ConfigCmdType::SET_NMS_EDGE;   cfgCmd.value = (float)val->valuedouble; }
+            else if (strcmp(param->valuestring, "sensor_height") == 0) { cfgCmd.type = ConfigCmdType::SET_SENSOR_HEIGHT; cfgCmd.value = (float)val->valuedouble; }
+            else if (strcmp(param->valuestring, "person_diameter") == 0) { cfgCmd.type = ConfigCmdType::SET_PERSON_DIAMETER;   cfgCmd.value = (float)val->valuedouble; }
             else if (strcmp(param->valuestring, "view_mode")  == 0) { cfgCmd.type = ConfigCmdType::SET_VIEW_MODE;  cfgCmd.value = (float)val->valuedouble; }
             else { send = false; }
 

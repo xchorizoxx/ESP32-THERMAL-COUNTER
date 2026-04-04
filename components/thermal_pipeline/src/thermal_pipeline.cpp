@@ -1,6 +1,7 @@
 #include "thermal_pipeline.hpp"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "fov_correction.hpp"
 #include <cstring>
 #include <cmath>
 
@@ -8,8 +9,8 @@ namespace ThermalConfig {
     float EMA_ALPHA = 0.05f;
     float BIOLOGICAL_TEMP_MIN = 25.0f;
     float BACKGROUND_DELTA_T = 1.5f;
-    int NMS_RADIUS_CENTER_SQ = 16;
-    int NMS_RADIUS_EDGE_SQ = 4;
+    float SENSOR_HEIGHT_M = 3.0f;
+    float PERSON_DIAMETER_M = 0.7f;
     int DEFAULT_LINE_ENTRY_Y = 11;
     int DEFAULT_LINE_EXIT_Y = 13;
     int DEFAULT_DEAD_ZONE_LEFT = 0;
@@ -42,6 +43,7 @@ ThermalPipeline::ThermalPipeline(Mlx90640Sensor& sensor, QueueHandle_t ipcQueue,
 
 void ThermalPipeline::init()
 {
+    FovCorrection::init(ThermalConfig::SENSOR_HEIGHT_M);
     ESP_LOGI(TAG, "Pipeline initialized (Standard stack: %.1f KB)",
              (float)(sizeof(current_frame_) + sizeof(background_map_) + sizeof(blocking_mask_)) / 1024.0f);
 }
@@ -99,11 +101,14 @@ void ThermalPipeline::run()
                 case ConfigCmdType::SET_DEAD_RIGHT:
                     ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT = (int)cmd.value;
                     break;
-                case ConfigCmdType::SET_NMS_CENTER:
-                    ThermalConfig::NMS_RADIUS_CENTER_SQ = (int)cmd.value;
+                case ConfigCmdType::SET_SENSOR_HEIGHT:
+                    ThermalConfig::SENSOR_HEIGHT_M = cmd.value;
+                    FovCorrection::init(cmd.value);
+                    ESP_LOGI(TAG, "Sensor height updated: %.2f m", cmd.value);
                     break;
-                case ConfigCmdType::SET_NMS_EDGE:
-                    ThermalConfig::NMS_RADIUS_EDGE_SQ = (int)cmd.value;
+                case ConfigCmdType::SET_PERSON_DIAMETER:
+                    ThermalConfig::PERSON_DIAMETER_M = cmd.value;
+                    ESP_LOGI(TAG, "Person diameter updated: %.2f m", cmd.value);
                     break;
                 case ConfigCmdType::SET_VIEW_MODE:
                     ThermalConfig::VIEW_MODE = (int)cmd.value;
@@ -169,11 +174,12 @@ void ThermalPipeline::run()
                                   ThermalConfig::MAX_PEAKS);
 
             // --- Step 3: NMS ---
-            NmsSuppressor::suppress(peaks_, num_peaks_,
-                                     ThermalConfig::NMS_RADIUS_CENTER_SQ,
-                                     ThermalConfig::NMS_RADIUS_EDGE_SQ,
-                                     ThermalConfig::NMS_CENTER_X_MIN,
-                                     ThermalConfig::NMS_CENTER_X_MAX);
+            // Calculate dynamic physical radius logic
+            float radius_px = (ThermalConfig::PERSON_DIAMETER_M / 2.0f) * FovCorrection::getPixelsPerMeter();
+            int radius_sq = (int)(radius_px * radius_px);
+            if (radius_sq < 1) radius_sq = 1;
+
+            NmsSuppressor::suppress(peaks_, num_peaks_, radius_sq);
 
             // --- Step 4: Tracking (A2: TrackletTracker) ---
             uint32_t ts = xTaskGetTickCount();

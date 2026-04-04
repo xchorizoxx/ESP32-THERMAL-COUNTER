@@ -63,10 +63,8 @@ constexpr float NOISE_MARGIN_C = 0.5f; // Sensor noise margin [°C]
 // =========================================================================
 //  STEP 3 — NMS (Non-Maximum Suppression) Adaptive
 // =========================================================================
-extern int NMS_RADIUS_CENTER_SQ;     // Squared radius in central zone (=radius 4)
-extern int NMS_RADIUS_EDGE_SQ;       // Squared radius at edges (=radius 2)
-constexpr int NMS_CENTER_X_MIN = 8;  // Left limit of lens central zone
-constexpr int NMS_CENTER_X_MAX = 23; // Right limit of lens central zone
+extern float SENSOR_HEIGHT_M;        // Altura del sensor sobre el suelo [m]
+extern float PERSON_DIAMETER_M;      // Diametro fisico de la persona [m]
 
 // =========================================================================
 //  STEP 4 — TRACKING (TrackletTracker) + COUNTING

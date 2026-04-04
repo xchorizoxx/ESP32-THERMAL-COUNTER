@@ -7,8 +7,8 @@ const CONFIG = {
     alpha_ema: 0.05,
     line_entry: 8,
     line_exit: 16,
-    nms_center: 16,
-    nms_edge: 4,
+    sensor_height: 3.0,
+    person_diameter: 0.7,
     view_mode: 0, // 0=Normal, 1=Diff
     dead_left: 0,
     dead_right: 31,
@@ -618,8 +618,8 @@ function updateConfigUI(obj) {
     if(document.getElementById('cfg-line_exit')) document.getElementById('cfg-line_exit').value = obj.line_exit;
     if(document.getElementById('cfg-dead_left')) document.getElementById('cfg-dead_left').value = obj.dead_left;
     if(document.getElementById('cfg-dead_right')) document.getElementById('cfg-dead_right').value = obj.dead_right;
-    if(document.getElementById('cfg-nms_center')) document.getElementById('cfg-nms_center').value = obj.nms_center;
-    if(document.getElementById('cfg-nms_edge')) document.getElementById('cfg-nms_edge').value = obj.nms_edge;
+    if(document.getElementById('cfg-sensor_height')) document.getElementById('cfg-sensor_height').value = obj.sensor_height;
+    if(document.getElementById('cfg-person_diameter')) document.getElementById('cfg-person_diameter').value = obj.person_diameter;
     
     if(obj.lines && Array.isArray(obj.lines)) {
         userLines = obj.lines;

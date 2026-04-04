@@ -2,6 +2,7 @@ idf_component_register(
     SRCS "src/background_model.cpp"
          "src/peak_detector.cpp"
          "src/nms_suppressor.cpp"
+         "src/fov_correction.cpp"      # Phase 5 Geometric FOV correction
          "src/tracklet_tracker.cpp"    # A2: replaces alpha_beta_tracker
          "src/hungarian_algorithm.cpp" # A2: bipartite matching
          "src/tracklet_fsm.cpp"        # A3: Matrix State Machine

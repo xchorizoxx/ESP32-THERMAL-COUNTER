@@ -1,8 +1,6 @@
 #include "nms_suppressor.hpp"
 
-void NmsSuppressor::suppress(ThermalPeak* peaks, int numPeaks,
-                             int rCenterSq, int rEdgeSq,
-                             int centerXMin, int centerXMax)
+void NmsSuppressor::suppress(ThermalPeak* peaks, int numPeaks, int radiusSq)
 {
     if (numPeaks <= 1) return;
 
@@ -24,11 +22,6 @@ void NmsSuppressor::suppress(ThermalPeak* peaks, int numPeaks,
 
         const float xj = peaks[j].x;
         const float yj = peaks[j].y;
-
-        // Radius² according to position (center vs lens edge)
-        const int radiusSq = (xj >= centerXMin && xj <= centerXMax)
-                             ? rCenterSq
-                             : rEdgeSq;
 
         // Suppress colder k-peaks within the radius
         for (int k = j + 1; k < numPeaks; k++) {

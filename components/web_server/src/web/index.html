@@ -192,14 +192,16 @@
                     </div>
                 </div>
                 <div class="card form-card">
-                    <h3>Topología NMS</h3>
+                    <h3>Topología Biométrica Espacial</h3>
                     <div class="form-group">
-                        <label>Radio NMS Centro: <span id="val-nms_center" class="val-badge">16</span> px</label>
-                        <input type="range" id="cfg-nms_center" min="1" max="100" step="1" oninput="document.getElementById('val-nms_center').innerText=this.value">
+                        <label>Altura del Sensor: <span id="val-sensor_height" class="val-badge">3.5</span> m</label>
+                        <input type="range" id="cfg-sensor_height" min="1.5" max="5.0" step="0.1" oninput="document.getElementById('val-sensor_height').innerText=this.value">
+                        <small>Ajusta cómo la cámara compensa el FOV y distancias planas.</small>
                     </div>
                     <div class="form-group">
-                        <label>Radio NMS Borde: <span id="val-nms_edge" class="val-badge">4</span> px</label>
-                        <input type="range" id="cfg-nms_edge" min="1" max="100" step="1" oninput="document.getElementById('val-nms_edge').innerText=this.value">
+                        <label>Diámetro de la Persona: <span id="val-person_diameter" class="val-badge">0.7</span> m</label>
+                        <input type="range" id="cfg-person_diameter" min="0.4" max="1.5" step="0.1" oninput="document.getElementById('val-person_diameter').innerText=this.value">
+                        <small>Tamaño del bloque biológico para el NMS lineal.</small>
                     </div>
                 </div>
             </div>

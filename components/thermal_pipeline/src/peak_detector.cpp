@@ -1,5 +1,6 @@
 #include "peak_detector.hpp"
 #include "thermal_config.hpp"
+#include "fov_correction.hpp"
 
 void PeakDetector::detect(const float* currentFrame, const float* backgroundMap,
                           ThermalPeak* peaks, int* numPeaks,
@@ -49,8 +50,14 @@ void PeakDetector::detect(const float* currentFrame, const float* backgroundMap,
                         sum_wy += w * (float)(r + dr2);
                     }
                 }
-                peaks[*numPeaks].x = (sum_w > 0.0f) ? (sum_wx / sum_w) : (float)c;
-                peaks[*numPeaks].y = (sum_w > 0.0f) ? (sum_wy / sum_w) : (float)r;
+                float cx_raw = (sum_w > 0.0f) ? (sum_wx / sum_w) : (float)c;
+                float cy_raw = (sum_w > 0.0f) ? (sum_wy / sum_w) : (float)r;
+
+                // Corrección FOV: Transforma las coordenadas
+                FovCorrection::correct(cx_raw, cy_raw);
+
+                peaks[*numPeaks].x = cx_raw;
+                peaks[*numPeaks].y = cy_raw;
                 peaks[*numPeaks].temperature = val;
                 peaks[*numPeaks].suppressed  = false;
                 (*numPeaks)++;
