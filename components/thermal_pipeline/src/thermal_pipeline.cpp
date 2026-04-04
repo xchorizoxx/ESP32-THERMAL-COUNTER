@@ -12,8 +12,8 @@ namespace ThermalConfig {
     int NMS_RADIUS_EDGE_SQ = 4;
     int DEFAULT_LINE_ENTRY_Y = 11;
     int DEFAULT_LINE_EXIT_Y = 13;
-    int DEFAULT_DEAD_ZONE_LEFT = 5;
-    int DEFAULT_DEAD_ZONE_RIGHT = 26;
+    int DEFAULT_DEAD_ZONE_LEFT = 0;
+    int DEFAULT_DEAD_ZONE_RIGHT = 31;
     int VIEW_MODE = 0;
     DoorLineConfig door_lines = { .lines = {}, .num_lines = 0, .use_segments = false };
 }

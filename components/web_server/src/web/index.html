@@ -44,6 +44,7 @@
                         <button class="btn-pill active" data-mode="normal" onclick="setVisionMode('normal')">Normal</button>
                         <button class="btn-pill" data-mode="raw" onclick="setVisionMode('raw')">Raw</button>
                         <button class="btn-pill" data-mode="diff" onclick="setVisionMode('diff')">Diferencial</button>
+                        <button class="btn-pill" id="btn-trail" onclick="toggleTrail()">Trail</button>
                     </div>
                 </div>
                 <div class="canvas-container" style="position:relative;">
@@ -132,16 +133,21 @@
                         <input type="range" id="cfg-alpha_ema" min="0.01" max="0.50" step="0.01" oninput="document.getElementById('val-alpha_ema').innerText=this.value">
                         <small>Memoria costera. Menor = fondo más estable.</small>
                     </div>
-                    <div class="form-group" style="padding-top:10px; border-top:1px solid rgba(255,255,255,0.1);">
-                        <label>Línea de Entrada (Norte): Fila <span id="val-line_entry" class="val-badge">8</span></label>
-                        <input type="range" id="cfg-line_entry" min="0" max="23" step="1" oninput="document.getElementById('val-line_entry').innerText=this.value">
-                        <small>Fila Y donde comienza el conteo de ingreso (0-23).</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Línea de Salida (Sur): Fila <span id="val-line_exit" class="val-badge">16</span></label>
-                        <input type="range" id="cfg-line_exit" min="0" max="23" step="1" oninput="document.getElementById('val-line_exit').innerText=this.value">
-                        <small>Fila Y donde comienza el conteo de egreso (0-23).</small>
-                    </div>
+                    <details style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;">
+                        <summary style="cursor:pointer; font-size:0.85rem; color:var(--text-muted); margin-bottom:10px;">
+                            ⚙ Modo Legacy — Líneas Horizontales Norte/Sur
+                        </summary>
+                        <div class="form-group">
+                            <label>Línea de Entrada (Norte): Fila <span id="val-line_entry" class="val-badge">8</span></label>
+                            <input type="range" id="cfg-line_entry" min="0" max="23" step="1" oninput="document.getElementById('val-line_entry').innerText=this.value">
+                            <small>Solo aplica cuando NO hay líneas de segmento dibujadas.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Línea de Salida (Sur): Fila <span id="val-line_exit" class="val-badge">16</span></label>
+                            <input type="range" id="cfg-line_exit" min="0" max="23" step="1" oninput="document.getElementById('val-line_exit').innerText=this.value">
+                            <small>Solo aplica cuando NO hay líneas de segmento dibujadas.</small>
+                        </div>
+                    </details>
 
                     <!-- Custom lines panel -->
                     <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin:15px 0;">

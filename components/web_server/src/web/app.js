@@ -10,14 +10,15 @@ const CONFIG = {
     nms_center: 16,
     nms_edge: 4,
     view_mode: 0, // 0=Normal, 1=Diff
-    dead_left: 5,
-    dead_right: 26,
+    dead_left: 0,
+    dead_right: 31,
     use_segments: false
 };
 
 let userLines = [];
 let isEditingLines = false;
 let currentLine = null;
+let showTrajectoryTrail = false; // Toggle de trail de trayectoria por track
 
 let COLOR_THRESHOLDS = { low: 25.0, high: 38.0 };
 let LUT = new Uint8Array(256 * 3); // Lookup table for colors
@@ -54,9 +55,25 @@ const scaleCvs = document.getElementById('scaleCanvas');
 const scaleCtx = scaleCvs.getContext('2d');
 
 // --- INITIALIZATION ---
+function drawTempScale() {
+    // Pinta el canvas de la barra de escala con la LUT activa (200x10 px)
+    const imgData = scaleCtx.createImageData(200, 10);
+    const d = imgData.data;
+    for (let x = 0; x < 200; x++) {
+        const lutIdx = Math.floor((x / 199) * 255) * 3;
+        const r = LUT[lutIdx], g = LUT[lutIdx + 1], b = LUT[lutIdx + 2];
+        for (let y = 0; y < 10; y++) {
+            const px = (y * 200 + x) * 4;
+            d[px] = r; d[px+1] = g; d[px+2] = b; d[px+3] = 255;
+        }
+    }
+    scaleCtx.putImageData(imgData, 0, 0);
+}
+
 window.onload = () => {
     logMsg("App init");
-    regenerateLUT(); 
+    regenerateLUT();
+    drawTempScale();
     applyVisionModeClass('normal');
     connectWebSocket();
 };
@@ -235,20 +252,28 @@ function processBinaryFrame(buffer) {
         let t;
         if(window.clientTracks[tid]) {
             t = window.clientTracks[tid];
-            t.x = t.x * 0.7 + tx * 0.3;     // EMA espacial suaviza saltos enteros
-            t.y = t.y * 0.7 + ty * 0.3;
-            t.vx = t.vx * 0.8 + tvx * 0.2;  // EMA vector de velocidad suaviza brincos
-            t.vy = t.vy * 0.8 + tvy * 0.2;
+            // El firmware envía display_x/y ya suavizados con EMA α=0.65.
+            // No aplicar segundo filtro — usamos la posición directamente.
+            t.x  = tx;
+            t.y  = ty;
+            // Suavizado mínimo de velocidad solo para estabilidad visual del vector.
+            t.vx = t.vx * 0.5 + tvx * 0.5;
+            t.vy = t.vy * 0.5 + tvy * 0.5;
         } else {
             t = { id: tid, x: tx, y: ty, vx: tvx, vy: tvy };
             window.clientTracks[tid] = t;
         }
         unseenIds.delete(tid.toString());
         
-        // Inferir zona visual desde posición Y para UI (basado en thresholds actuales)
-        if (t.y < CONFIG.line_entry) t.zone_state = 1; // Norte
-        else if (t.y >= CONFIG.line_exit) t.zone_state = 3; // Sur
-        else t.zone_state = 2; // Neutra
+        // Zona visual: en modo legacy se infiere de Y; en modo segmentos siempre
+        // neutral (ambar) porque Norte/Sur no aplica a segmentos arbitrarios.
+        if (!CONFIG.use_segments) {
+            if (t.y < CONFIG.line_entry)       t.zone_state = 1; // Norte - verde
+            else if (t.y >= CONFIG.line_exit)  t.zone_state = 3; // Sur - cyan
+            else                               t.zone_state = 2; // Neutra - ambar
+        } else {
+            t.zone_state = 2; // Segmentos: ambar (en transito)
+        }
         
         tracks.push(t);
     }
@@ -362,12 +387,16 @@ function processBinaryFrame(buffer) {
     document.getElementById('scale-max').innerText = `${MAX_T.toFixed(1)}°C`;
     
     // Dibujar Zonas y Tracks sobre el Overlay Vectorial
-    if(!CONFIG.use_segments) {
+    uiCtx.clearRect(0, 0, 320, 240);
+    if (!CONFIG.use_segments) {
+        // Modo legacy: zonas Norte/Neutra/Sur + exclusiones laterales
         renderCountingZones(CONFIG.line_entry, CONFIG.line_exit, CONFIG.dead_left, CONFIG.dead_right);
     } else {
-        uiCtx.clearRect(0,0,320,240); // limpiar canvas
+        // Modo segmentos: solo exclusiones laterales (referencia visual de calibracion)
+        renderDeadZones(CONFIG.dead_left, CONFIG.dead_right);
     }
     renderUserLines();
+    renderTrajectoryTrails(tracks);
     renderTracks(tracks);
     
     } catch(e) {
@@ -387,25 +416,19 @@ function renderLoop() {
 }
 
 // --- OVERLAY RENDER ENGINES ---
+function renderDeadZones(dL, dR) {
+    // Las zonas muertas se mantienen activas lógicamente, pero se ocultan visualmente 
+    // a petición del usuario para limpiar el HUD.
+}
+
 function renderCountingZones(eY, xY, dL, dR) {
     uiCtx.clearRect(0,0,320,240);
     uiCtx.save();
     
-    // Zonas Muertas (Limites Verticales)
-    uiCtx.fillStyle = 'rgba(255, 0, 0, 0.15)'; // Muros translúcidos
-    if (dL > 0) uiCtx.fillRect(0, 0, dL * SCALE_X, 240);
-    if (dR < 31) uiCtx.fillRect(dR * SCALE_X, 0, 320 - (dR * SCALE_X), 240);
+    // Zonas Muertas laterales ocultas visualmente.
     
-    // Límites Verticales (Líneas)
-    uiCtx.setLineDash([4, 4]);
-    uiCtx.strokeStyle = 'rgba(255, 50, 50, 0.6)';
-    uiCtx.lineWidth = 1;
-    if (dL > 0) {
-        uiCtx.beginPath(); uiCtx.moveTo(dL * SCALE_X, 0); uiCtx.lineTo(dL * SCALE_X, 240); uiCtx.stroke();
-    }
-    if (dR < 31) {
-        uiCtx.beginPath(); uiCtx.moveTo(dR * SCALE_X, 0); uiCtx.lineTo(dR * SCALE_X, 240); uiCtx.stroke();
-    }
+    // Límites Verticales: solo relleno suave (sin líneas discontinuas agresivas)
+    // Las líneas discontinuas de conteo horizontal siguen intactas debajo.
 
     // Zona Norte
     uiCtx.fillStyle = 'rgba(0, 255, 136, 0.08)';
@@ -508,6 +531,42 @@ function renderUserLines() {
     uiCtx.restore();
 }
 
+function renderTrajectoryTrails(trackletData) {
+    // Dibuja la trayectoria histórica de cada track como línea con opacidad decreciente.
+    // trackletData: array de objetos con { id, trailPoints: [{x,y},...] } enviados desde firmware.
+    // En esta versión, el trail se construye en el cliente guardando hasta 15 posiciones por ID.
+    if (!showTrajectoryTrail) return;
+    if (!window.trackTrails) window.trackTrails = {};
+
+    trackletData.forEach(t => {
+        if (!window.trackTrails[t.id]) window.trackTrails[t.id] = [];
+        const trail = window.trackTrails[t.id];
+        trail.push({ x: t.x, y: t.y });
+        if (trail.length > 15) trail.shift(); // Máximo 15 puntos
+
+        if (trail.length < 2) return;
+
+        uiCtx.save();
+        for (let i = 1; i < trail.length; i++) {
+            const alpha = i / trail.length; // 0=transparente (antiguo), 1=sólido (más reciente)
+            uiCtx.globalAlpha = alpha * 0.7;
+            uiCtx.strokeStyle = '#ffb300'; // Ámbar — mismo color que zona neutral
+            uiCtx.lineWidth = 1.5;
+            uiCtx.beginPath();
+            uiCtx.moveTo(trail[i-1].x * SCALE_X, trail[i-1].y * SCALE_Y);
+            uiCtx.lineTo(trail[i].x * SCALE_X, trail[i].y * SCALE_Y);
+            uiCtx.stroke();
+        }
+        uiCtx.restore();
+    });
+
+    // Limpiar trails de tracks que ya no están activos
+    const activeIds = new Set(trackletData.map(t => t.id));
+    Object.keys(window.trackTrails).forEach(id => {
+        if (!activeIds.has(parseInt(id))) delete window.trackTrails[id];
+    });
+}
+
 function renderTracks(tracks) {
     if(!tracks.length) return;
     uiCtx.save();
@@ -567,6 +626,12 @@ function updateConfigUI(obj) {
         updateLineList();
     }
     CONFIG.use_segments = obj.use_segments || false;
+    // Mostrar/ocultar sliders de modo legacy según el modo activo
+    const legacyFields = ['line_entry', 'line_exit'];
+    legacyFields.forEach(fid => {
+        const group = document.getElementById(`cfg-${fid}`)?.closest('.form-group, details');
+        if (group) group.style.display = CONFIG.use_segments ? 'none' : '';
+    });
 
     CONFIG.temp_bio = obj.temp_bio || CONFIG.temp_bio;
     CONFIG.line_entry = obj.line_entry || CONFIG.line_entry;
@@ -674,6 +739,17 @@ uiCanvas.addEventListener('touchstart', inputStart, {passive:false});
 uiCanvas.addEventListener('touchmove', inputMove, {passive:false});
 uiCanvas.addEventListener('touchend', inputEnd);
 
+function toggleTrail() {
+    showTrajectoryTrail = !showTrajectoryTrail;
+    const btn = document.getElementById('btn-trail');
+    if (btn) {
+        btn.classList.toggle('active', showTrajectoryTrail);
+    }
+    if (!showTrajectoryTrail && window.trackTrails) {
+        window.trackTrails = {}; // Limpiar trails al desactivar
+    }
+}
+
 function toggleLineEditor(forceOff = false) {
     isEditingLines = forceOff ? false : !isEditingLines;
     const btn = document.getElementById('btn-edit-lines');
@@ -703,6 +779,11 @@ function clearAllLines() {
     userLines = [];
     CONFIG.use_segments = false;
     updateLineList();
+    // Restaurar sliders legacy al limpiar líneas
+    ['line_entry', 'line_exit'].forEach(fid => {
+        const group = document.getElementById(`cfg-${fid}`)?.closest('.form-group, details');
+        if (group) group.style.display = '';
+    });
     if(ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ cmd: "SET_COUNTING_LINES", lines: userLines }));
         logMsg("Cleared user lines");

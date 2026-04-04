@@ -77,7 +77,7 @@ constexpr int   TRACK_CONFIRM_FRAMES  = 3;     ///< Min. consecutive detections 
 constexpr int   TRACK_MAX_MISSED      = 12;    ///< Frames without detection before expiry
 constexpr float TRACK_MAX_DIST        = 8.0f;  ///< Max match distance [px] — 8px handles fast hand movement on 32x24
 constexpr float TRACK_TEMP_WEIGHT     = 0.25f; ///< Temperature weight in composite match cost
-constexpr float TRACK_DISPLAY_SMOOTH  = 0.4f;  ///< EMA alpha for HUD display position (0=frozen, 1=raw)
+constexpr float TRACK_DISPLAY_SMOOTH  = 0.65f; ///< EMA alpha for HUD display position. 0.65: reactive but stable. (0=frozen, 1=raw)
 
 // --- Counting Zones (Y-Hysteresis) ---
 // Initial values as straight horizontal lines.

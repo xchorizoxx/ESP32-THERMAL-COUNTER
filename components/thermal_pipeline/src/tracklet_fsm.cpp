@@ -1,5 +1,6 @@
 #include "tracklet_fsm.hpp"
 #include "esp_log.h"
+#include <cmath>
 
 static const char* TAG = "TRACK_FSM";
 
@@ -32,25 +33,27 @@ int TrackletFSM::checkSegmentCrossing(
     float sx1, float sy1,
     float sx2, float sy2)
 {
-    float sdx = sx2 - sx1;
-    float sdy = sy2 - sy1;
+    // Intersección paramétrica de dos segmentos finitos:
+    //   Track:   P(t) = prev + t*(curr-prev),   t ∈ [0,1]
+    //   Linea:   Q(u) = (sx1,sy1) + u*((sx2,sy2)-(sx1,sy1)),  u ∈ [0,1]
+    // Solo cuenta si t ∈ [0,1] (cruce en este frame) Y u ∈ [0,1] (dentro del segmento).
 
-    float side_prev = sdx * (prev_y - sy1) - sdy * (prev_x - sx1);
-    float side_curr = sdx * (curr_y - sy1) - sdy * (curr_x - sx1);
+    const float d1x = curr_x - prev_x;
+    const float d1y = curr_y - prev_y;
+    const float d2x = sx2 - sx1;
+    const float d2y = sy2 - sy1;
 
-    if (side_prev > 0.0f && side_curr <= 0.0f) return  1;  // Izq->Der
-    if (side_prev < 0.0f && side_curr >= 0.0f) return -1;  // Der->Izq
+    const float denom = d1x * d2y - d1y * d2x;
+    if (fabsf(denom) < 1e-6f) return 0;   // Paralelos o colineales
 
-    float min_x = sx1 < sx2 ? sx1 : sx2;
-    float max_x = sx1 > sx2 ? sx1 : sx2;
-    float min_y = sy1 < sy2 ? sy1 : sy2;
-    float max_y = sy1 > sy2 ? sy1 : sy2;
+    const float t = ((sx1 - prev_x) * d2y - (sy1 - prev_y) * d2x) / denom;
+    const float u = ((sx1 - prev_x) * d1y - (sy1 - prev_y) * d1x) / denom;
 
-    const float MARGIN = 0.5f;
-    if (curr_x < min_x - MARGIN || curr_x > max_x + MARGIN) return 0;
-    if (curr_y < min_y - MARGIN || curr_y > max_y + MARGIN) return 0;
+    if (t < 0.0f || t > 1.0f) return 0;   // El track no cruzo en este frame
+    if (u < 0.0f || u > 1.0f) return 0;   // Cruce fuera de los extremos del segmento
 
-    return 0;
+    // denom > 0: track cruzo de izquierda a derecha respecto al vector del segmento
+    return (denom > 0.0f) ? 1 : -1;
 }
 
 void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) {
@@ -79,8 +82,8 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
         const Tracklet& t = tracks[i];
         if (!t.active || !t.isConfirmed()) continue;
 
-        int px = (int)t.x();
-        int py = (int)t.y();
+        const float px = t.x();
+        const float py = t.y();
         
         // Exclusión Vertical (Zonas Muertas)
         // Tracks outside the configured vertical bounds are ignored completely.

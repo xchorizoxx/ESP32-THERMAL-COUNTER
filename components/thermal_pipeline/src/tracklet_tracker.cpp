@@ -202,12 +202,14 @@ void TrackletTracker::fillTrackArray(Track* out, int* out_count) const
         t.state_y  = tracks_[i].zone_state;
         t.age      = tracks_[i].missed;  // Exposes "coasting" frames
 
-        // Velocity: difference between the two most-recent history entries
+        // Velocity: media de las últimas min(count,4) muestras del historial.
+        // Más robusta que el diff de 1 frame — elimina jitter del vector en el HUD.
         if (tracks_[i].history.count >= 2) {
-            const int h    = tracks_[i].history.head;
-            const int prev = (h - 1 + TrackHistory::CAPACITY) % TrackHistory::CAPACITY;
-            t.v_x = tracks_[i].history.entries[h].x - tracks_[i].history.entries[prev].x;
-            t.v_y = tracks_[i].history.entries[h].y - tracks_[i].history.entries[prev].y;
+            const int samples = (tracks_[i].history.count < 4) ? tracks_[i].history.count : 4;
+            const int h       = tracks_[i].history.head;
+            const int prev    = (h - samples + TrackHistory::CAPACITY) % TrackHistory::CAPACITY;
+            t.v_x = (tracks_[i].history.entries[h].x - tracks_[i].history.entries[prev].x) / (float)samples;
+            t.v_y = (tracks_[i].history.entries[h].y - tracks_[i].history.entries[prev].y) / (float)samples;
         } else {
             t.v_x = 0.0f;
             t.v_y = 0.0f;
