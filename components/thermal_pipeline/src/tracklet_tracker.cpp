@@ -53,21 +53,21 @@ void TrackletTracker::predictAll()
     }
 }
 
-int TrackletTracker::findBestTrack(const ThermalPeak& p, bool* already_matched) const
-{
-    int   best_idx  = -1;
-    float best_cost = 1.0f;  // Rejection threshold: cost >= 1.0 → no match
-
-    for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
-        if (!tracks_[i].active || already_matched[i]) continue;
-        const float cost = computeCost(tracks_[i], p);
-        if (cost < best_cost) {
-            best_cost = cost;
-            best_idx  = i;
-        }
-    }
-    return best_idx;
-}
+// int TrackletTracker::findBestTrack(const ThermalPeak& p, bool* already_matched) const
+// {
+//     int   best_idx  = -1;
+//     float best_cost = 1.0f;  // Rejection threshold: cost >= 1.0 → no match
+// 
+//     for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
+//         if (!tracks_[i].active || already_matched[i]) continue;
+//         const float cost = computeCost(tracks_[i], p);
+//         if (cost < best_cost) {
+//             best_cost = cost;
+//             best_idx  = i;
+//         }
+//     }
+//     return best_idx;
+// }
 
 Tracklet* TrackletTracker::allocateTrack()
 {
@@ -89,60 +89,119 @@ Tracklet* TrackletTracker::allocateTrack()
 //  update() — Main pipeline entry point
 // =========================================================================
 
+void TrackletTracker::hungarianMatch(const ThermalPeak* peaks, int numPeaks,
+                                     int* assignment, bool* peak_assigned) const
+{
+    // Recopilar tracks activos
+    int active_idx[ThermalConfig::MAX_TRACKS];
+    int num_active = 0;
+    for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
+        if (tracks_[i].active) active_idx[num_active++] = i;
+    }
+
+    // Recopilar picos válidos (no suprimidos)
+    int valid_peaks[ThermalConfig::MAX_TRACKS];
+    int num_valid = 0;
+    for (int p = 0; p < numPeaks && num_valid < ThermalConfig::MAX_TRACKS; p++) {
+        if (!peaks[p].suppressed) valid_peaks[num_valid++] = p;
+    }
+
+    // Inicializar outputs
+    for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) assignment[i] = -1;
+    for (int p = 0; p < numPeaks; p++) peak_assigned[p] = false;
+
+    if (num_active == 0 || num_valid == 0) return;
+
+    // Dimensión de la matriz cuadrada (máx de los dos conjuntos)
+    const int N = (num_active > num_valid) ? num_active : num_valid;
+
+    // Matriz de costos (N×N)
+    static float cost[HungarianAlgorithm::MAX_N][HungarianAlgorithm::MAX_N];
+    
+    // Construir matriz de costos
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            if (i < num_active && j < num_valid) {
+                float c = computeCost(tracks_[active_idx[i]], peaks[valid_peaks[j]]);
+                cost[i][j] = (c >= 1.0f) ? HungarianAlgorithm::INF : c; // Gate de rechazo
+            } else {
+                cost[i][j] = 0.0f; // Celda virtual (sin penalización)
+            }
+        }
+    }
+
+    // Resolver asignación óptima
+    int hungarian_assignment[HungarianAlgorithm::MAX_N];
+    HungarianAlgorithm::solve(cost, N, hungarian_assignment);
+
+    // Extraer la asignación válida (rechazar virtuales y celdas INF)
+    for (int i = 0; i < num_active; i++) {
+        int peak_col = hungarian_assignment[i];
+        if (peak_col >= 0 && peak_col < num_valid) {
+            if (cost[i][peak_col] < HungarianAlgorithm::INF) {
+                assignment[active_idx[i]] = valid_peaks[peak_col];
+                peak_assigned[valid_peaks[peak_col]] = true;
+            }
+        }
+    }
+}
+
 void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
                              uint32_t timestamp)
 {
     // --- Phase 1: Advance predictions for all active tracks ---
     predictAll();
 
-    // --- Phase 2: Greedy matching — each non-suppressed peak → best track ---
+    // --- Phase 2: Hungarian optimal assignment — minimizes total cost globally ---
+    static int  assignment[ThermalConfig::MAX_TRACKS];   // assignment[track_i] = peak_idx
+    static bool peak_assigned[ThermalConfig::MAX_TRACKS]; // peak_assigned[peak_p] = true if used
     bool matched_tracks[ThermalConfig::MAX_TRACKS] = {false};
 
-    for (int p = 0; p < numPeaks; p++) {
-        if (peaks[p].suppressed) continue;
+    hungarianMatch(peaks, numPeaks, assignment, peak_assigned);
 
-        const int best = findBestTrack(peaks[p], matched_tracks);
-
-        if (best >= 0) {
-            // Update existing track
-            Tracklet& t = tracks_[best];
-            t.history.push(peaks[p].x, peaks[p].y, timestamp);
-            t.pred_x         = peaks[p].x;
-            t.pred_y         = peaks[p].y;
-            // EMA for display position — smooths visual jumps without affecting prediction
+    // Apply assignments from Hungarian result
+    for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
+        if (!tracks_[i].active) continue;
+        const int pi = assignment[i];
+        if (pi >= 0) {
+            // Track matched to peak pi
+            Tracklet& t = tracks_[i];
+            t.history.push(peaks[pi].x, peaks[pi].y, timestamp);
+            t.pred_x          = peaks[pi].x;
+            t.pred_y          = peaks[pi].y;
             const float alpha = ThermalConfig::TRACK_DISPLAY_SMOOTH;
-            t.display_x = alpha * peaks[p].x + (1.0f - alpha) * t.display_x;
-            t.display_y = alpha * peaks[p].y + (1.0f - alpha) * t.display_y;
-            // Fast EMA for temperature (weight 0.2 on new measurement)
-            t.avg_temperature = t.avg_temperature * 0.8f + peaks[p].temperature * 0.2f;
+            t.display_x = alpha * peaks[pi].x + (1.0f - alpha) * t.display_x;
+            t.display_y = alpha * peaks[pi].y + (1.0f - alpha) * t.display_y;
+            t.avg_temperature = t.avg_temperature * 0.8f + peaks[pi].temperature * 0.2f;
             t.confirmed       = (t.confirmed < 255) ? t.confirmed + 1 : 255;
             t.missed          = 0;
-            matched_tracks[best] = true;
+            matched_tracks[i] = true;
+        }
+    }
 
+    // Spawn new tracks for unmatched peaks
+    for (int p = 0; p < numPeaks; p++) {
+        if (peaks[p].suppressed || peak_assigned[p]) continue;
+        Tracklet* slot = allocateTrack();
+        if (slot) {
+            memset(slot, 0, sizeof(Tracklet));
+            slot->active          = true;
+            slot->id              = next_id_++;
+            if (next_id_ == 0) next_id_ = 1;
+            slot->confirmed       = 1;
+            slot->missed          = 0;
+            slot->avg_temperature = peaks[p].temperature;
+            slot->pred_x          = peaks[p].x;
+            slot->pred_y          = peaks[p].y;
+            slot->display_x       = peaks[p].x;
+            slot->display_y       = peaks[p].y;
+            slot->zone_state      = 2; // Neutral — FSM corrige en A3
+            slot->history.push(peaks[p].x, peaks[p].y, timestamp);
+            ESP_LOGD(TAG, "New track ID=%u at (%.1f, %.1f) temp=%.1f°C",
+                     slot->id, slot->pred_x, slot->pred_y, slot->avg_temperature);
         } else {
-            // No match → spawn a new track
-            Tracklet* slot = allocateTrack();
-            if (slot) {
-                memset(slot, 0, sizeof(Tracklet));
-                slot->active          = true;
-                slot->id              = next_id_++;
-                if (next_id_ == 0) next_id_ = 1;  // Skip reserved ID=0
-                slot->confirmed       = 1;
-                slot->missed          = 0;
-                slot->avg_temperature = peaks[p].temperature;
-                slot->pred_x          = peaks[p].x;
-                slot->pred_y          = peaks[p].y;
-                // Init display position to raw position (no history yet to smooth from)
-                slot->display_x       = peaks[p].x;
-                slot->display_y       = peaks[p].y;
-                slot->zone_state      = 1;  // Neutral by default — FSM corrects in A3
-                slot->history.push(peaks[p].x, peaks[p].y, timestamp);
-                ESP_LOGD(TAG, "New track ID=%u at (%.1f, %.1f) temp=%.1f°C",
-                         slot->id, slot->pred_x, slot->pred_y, slot->avg_temperature);
-            } else {
-                ESP_LOGW(TAG, "Track pool full — peak at (%.1f,%.1f) dropped",
-                         peaks[p].x, peaks[p].y);
-            }
+            ESP_LOGW(TAG, "Track pool full — peak at (%.1f,%.1f) dropped",
+                     peaks[p].x, peaks[p].y);
         }
     }
 

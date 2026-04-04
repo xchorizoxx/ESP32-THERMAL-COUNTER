@@ -19,6 +19,7 @@
 
 #include "thermal_types.hpp"
 #include "thermal_config.hpp"
+#include "hungarian_algorithm.hpp"
 #include <cstring>
 #include <cstdint>
 
@@ -130,7 +131,7 @@ struct Tracklet {
  *
  * update() phases:
  *   1. Predict — advance pred_x/pred_y using history
- *   2. Match   — greedy assignment: each peak → best-cost active track
+ *   2. Match   — Hungarian optimal assignment (Kuhn-Munkres, O(N³))
  *   3. Miss    — increment missed counter for unmatched tracks
  *   4. Expire  — deactivate tracks that exceeded TRACK_MAX_MISSED
  *
@@ -175,12 +176,25 @@ private:
      */
     float computeCost(const Tracklet& t, const ThermalPeak& p) const;
 
+    // findBestTrack replaced by hungarianMatch for globally optimal assignment.
+    // Kept here for reference; no longer called.
+    // int findBestTrack(const ThermalPeak& p, bool* already_matched) const;
+
     /**
-     * @brief Linear search for the lowest-cost unmatched track.
-     * @param already_matched Bitmap of already-assigned tracks (in-out)
-     * @return Index into tracks_[], or -1 if no valid match found.
+     * @brief Globally optimal assignment via Kuhn-Munkres (Hungarian) algorithm.
+     *
+     * Builds a cost matrix (active tracks × valid peaks) and delegates to
+     * HungarianAlgorithm::solve(). Guarantees that simultaneous crossings
+     * do NOT cause ID swaps.
+     *
+     * @param peaks         Detected peaks array (may include suppressed entries)
+     * @param numPeaks      Total entries in peaks[]
+     * @param assignment    Output: assignment[i] = index of peak assigned to track i,
+     *                      -1 if track i has no assignment this frame (miss)
+     * @param peak_assigned Output: peak_assigned[p] = true if peak p was assigned
      */
-    int findBestTrack(const ThermalPeak& p, bool* already_matched) const;
+    void hungarianMatch(const ThermalPeak* peaks, int numPeaks,
+                        int* assignment, bool* peak_assigned) const;
 
     /**
      * @brief Returns a free slot, recycling unconfirmed tracks when full.

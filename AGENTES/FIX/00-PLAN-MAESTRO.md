@@ -33,5 +33,5 @@
 - [ ] Fase 1 — Quick wins
 - [x] Fase 2 — HUD redesign
 - [x] Fase 3 — Pipeline firmware
-- [ ] Fase 4 — Hungarian algorithm
+- [x] Fase 4 — Hungarian algorithm
 - [ ] Fase 5 — FOV correction
