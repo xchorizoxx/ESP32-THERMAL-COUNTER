@@ -204,10 +204,11 @@ void ThermalPipeline::run()
         memset(&packet, 0, sizeof(IpcPacket)); // Safety: zero-init
         
         packet.sensor_ok              = sensor_ok;
-        packet.telemetry.frame_id     = frame_id_++;
+        packet.telemetry.frame_id     = frame_id_;
+        frame_id_ = (frame_id_ == UINT32_MAX) ? 1 : frame_id_ + 1;
         packet.telemetry.ambient_temp = sensor_.getAmbientTemp();
-        packet.telemetry.count_in     = (int16_t)count_in_;
-        packet.telemetry.count_out    = (int16_t)count_out_;
+        packet.telemetry.count_in     = sat16(count_in_);
+        packet.telemetry.count_out    = sat16(count_out_);
 
         // A2: use dense track_array_ (confirmed tracks only, all active = true)
         // P04/P10-fix: Si el sensor falló, no encolar datos de un frame congelado.

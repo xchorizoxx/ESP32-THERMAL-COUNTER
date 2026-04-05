@@ -8,6 +8,7 @@
 #include "esp_system.h" // For esp_restart
 #include <string.h>
 #include "esp_app_format.h"
+#include "fov_correction.hpp"
 #include <sys/param.h>  // For MIN()
 
 static const char *TAG        = "HTTP_SERVER";
@@ -344,10 +345,15 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
         cJSON_AddNumberToObject(resp, "person_diameter",   (double)snap_person_diameter);
         cJSON_AddNumberToObject(resp, "view_mode",  (double)snap_view_mode);
 
-        cJSON_AddBoolToObject(resp, "use_segments", ThermalConfig::door_lines.use_segments);
+        ThermalConfig::DoorLineConfig dl_snap;
+        portENTER_CRITICAL(&ThermalConfig::door_lines_mux);
+        dl_snap = ThermalConfig::door_lines;
+        portEXIT_CRITICAL(&ThermalConfig::door_lines_mux);
+
+        cJSON_AddBoolToObject(resp, "use_segments", dl_snap.use_segments);
         cJSON* lines_arr = cJSON_CreateArray();
-        for (int i = 0; i < ThermalConfig::door_lines.num_lines; i++) {
-            const CountingSegment& s = ThermalConfig::door_lines.lines[i];
+        for (int i = 0; i < dl_snap.num_lines; i++) {
+            const CountingSegment& s = dl_snap.lines[i];
             cJSON* l = cJSON_CreateObject();
             cJSON_AddNumberToObject(l, "x1", s.x1);
             cJSON_AddNumberToObject(l, "y1", s.y1);
@@ -370,21 +376,38 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
         cJSON *param = cJSON_GetObjectItem(root, "param");
         cJSON *val   = cJSON_GetObjectItem(root, "val");
         if (cJSON_IsString(param) && cJSON_IsNumber(val)) {
+            struct ParamRange { const char* name; ConfigCmdType type; float min_val; float max_val; };
+            static const ParamRange kParams[] = {
+                { "temp_bio",        ConfigCmdType::SET_TEMP_BIO,        15.0f,  45.0f  },
+                { "delta_t",         ConfigCmdType::SET_DELTA_T,          0.3f,  10.0f  },
+                { "alpha_ema",       ConfigCmdType::SET_EMA_ALPHA,        0.01f,  0.5f  },
+                { "line_entry",      ConfigCmdType::SET_LINE_ENTRY,       0.0f,  24.0f  },
+                { "line_exit",       ConfigCmdType::SET_LINE_EXIT,        0.0f,  24.0f  },
+                { "dead_left",       ConfigCmdType::SET_DEAD_LEFT,        0.0f,  32.0f  },
+                { "dead_right",      ConfigCmdType::SET_DEAD_RIGHT,       0.0f,  32.0f  },
+                { "sensor_height",   ConfigCmdType::SET_SENSOR_HEIGHT,    0.5f,  10.0f  },
+                { "person_diameter", ConfigCmdType::SET_PERSON_DIAMETER,  0.2f,   2.0f  },
+                { "view_mode",       ConfigCmdType::SET_VIEW_MODE,        0.0f,   4.0f  }
+            };
+            
             AppConfigCmd cfgCmd;
-            bool send = true;
-            if      (strcmp(param->valuestring, "temp_bio")   == 0) { cfgCmd.type = ConfigCmdType::SET_TEMP_BIO;  cfgCmd.value = (float)val->valuedouble; }
-            else if (strcmp(param->valuestring, "delta_t")    == 0) { cfgCmd.type = ConfigCmdType::SET_DELTA_T;   cfgCmd.value = (float)val->valuedouble; }
-            else if (strcmp(param->valuestring, "alpha_ema")  == 0) { cfgCmd.type = ConfigCmdType::SET_EMA_ALPHA; cfgCmd.value = (float)val->valuedouble; }
-            else if (strcmp(param->valuestring, "line_entry") == 0) { cfgCmd.type = ConfigCmdType::SET_LINE_ENTRY; cfgCmd.value = (float)val->valuedouble; }
-            else if (strcmp(param->valuestring, "line_exit")  == 0) { cfgCmd.type = ConfigCmdType::SET_LINE_EXIT;  cfgCmd.value = (float)val->valuedouble; }
-            else if (strcmp(param->valuestring, "dead_left")  == 0) { cfgCmd.type = ConfigCmdType::SET_DEAD_LEFT;  cfgCmd.value = (float)val->valuedouble; }
-            else if (strcmp(param->valuestring, "dead_right") == 0) { cfgCmd.type = ConfigCmdType::SET_DEAD_RIGHT; cfgCmd.value = (float)val->valuedouble; }
-            else if (strcmp(param->valuestring, "sensor_height") == 0) { cfgCmd.type = ConfigCmdType::SET_SENSOR_HEIGHT; cfgCmd.value = (float)val->valuedouble; }
-            else if (strcmp(param->valuestring, "person_diameter") == 0) { cfgCmd.type = ConfigCmdType::SET_PERSON_DIAMETER;   cfgCmd.value = (float)val->valuedouble; }
-            else if (strcmp(param->valuestring, "view_mode")  == 0) { cfgCmd.type = ConfigCmdType::SET_VIEW_MODE;  cfgCmd.value = (float)val->valuedouble; }
-            else { send = false; }
+            bool matched = false;
+            for (const auto& p : kParams) {
+                if (strcmp(param->valuestring, p.name) == 0) {
+                    float v = (float)val->valuedouble;
+                    if (v < p.min_val || v > p.max_val) {
+                        ESP_LOGW(TAG, "SET_PARAM: %s=%.3f out of range [%.2f, %.2f], rejected",
+                                 p.name, v, p.min_val, p.max_val);
+                        return;
+                    }
+                    cfgCmd.type  = p.type;
+                    cfgCmd.value = v;
+                    matched = true;
+                    break;
+                }
+            }
 
-            if (send && s_configQueue) {
+            if (matched && s_configQueue) {
                 xQueueSend(s_configQueue, &cfgCmd, 0);
                 ESP_LOGI(TAG, "Config queued: %s = %.3f", param->valuestring, val->valuedouble);
             }
@@ -527,6 +550,9 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
 
     // Load saved parameters from NVS before starting (NVS already init'd in main)
     loadConfigFromNvs();
+
+    // FIX BUG-01: Re-initialize FOV LUT with the height loaded from NVS
+    FovCorrection::init(ThermalConfig::SENSOR_HEIGHT_M);
 
     httpd_config_t config      = HTTPD_DEFAULT_CONFIG();
     config.core_id             = 0;   // PRO_CPU (Core 0)

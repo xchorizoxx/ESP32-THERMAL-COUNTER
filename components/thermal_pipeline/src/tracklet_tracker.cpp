@@ -116,7 +116,7 @@ void TrackletTracker::hungarianMatch(const ThermalPeak* peaks, int numPeaks,
     const int N = (num_active > num_valid) ? num_active : num_valid;
 
     // Matriz de costos (N×N)
-    static float cost[HungarianAlgorithm::MAX_N][HungarianAlgorithm::MAX_N];
+    float cost[HungarianAlgorithm::MAX_N][HungarianAlgorithm::MAX_N];
     
     // Construir matriz de costos
     for (int i = 0; i < N; i++) {

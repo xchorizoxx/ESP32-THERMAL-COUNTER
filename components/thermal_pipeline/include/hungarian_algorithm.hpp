@@ -1,6 +1,7 @@
 /**
  * @file hungarian_algorithm.hpp
- * @brief Kuhn-Munkres (Hungarian) optimal assignment algorithm — standalone module.
+ * @brief Kuhn-Munkres (Hungarian) optimal assignment algorithm — standalone
+ * module.
  *
  * Solves the classic assignment problem in O(N³) using the Jonker-Volgenant
  * potential-based approach. Designed for N ≤ MAX_N (15) to avoid heap
@@ -28,7 +29,7 @@ namespace HungarianAlgorithm {
 static constexpr float INF = 1e9f;
 
 /// Maximum matrix dimension supported (must match ThermalConfig::MAX_TRACKS).
-static constexpr int MAX_N = 15;
+static constexpr int MAX_N = 20;
 
 /**
  * @brief Solve an N×N assignment problem in-place.

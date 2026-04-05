@@ -20,6 +20,13 @@
 #include "noise_filter.hpp"        // A1: Kalman 1D per-pixel noise filter
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include <stdint.h>
+
+static inline int16_t sat16(int v) {
+    if (v > INT16_MAX) return INT16_MAX;
+    if (v < INT16_MIN) return INT16_MIN;
+    return (int16_t)v;
+}
 
 class ThermalPipeline {
 public:

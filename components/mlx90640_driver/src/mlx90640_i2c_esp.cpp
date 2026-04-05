@@ -126,6 +126,11 @@ extern "C" int MLX90640_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress, uint1
 
 extern "C" void MLX90640_I2CFreqSet(int freq)
 {
+    // NOTE: This function only updates the stored frequency.
+    // It does NOT reconfigure the running I2C bus.
+    // Frequency changes require calling MLX90640_I2CDeinit() + MLX90640_I2CInit().
+    // This function is provided for API compatibility only and is NOT called
+    // anywhere in this project.
     s_freq_hz = freq;
 }
 
