@@ -84,7 +84,10 @@ extern "C" int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16
     if (bytes_to_read > sizeof(s_i2c_buffer)) return -1;
 
     // Combined transmit/receive for atomicity
-    esp_err_t err = i2c_master_transmit_receive(s_dev_handle, addr_buf, 2, s_i2c_buffer, bytes_to_read, 500);
+    // P13-fix: Timeout reducido de 500ms a 100ms.
+    // A 16Hz, un frame dura ~62.5ms. Esperar 500ms colapsaría 8 frames.
+    // 100ms da margen suficiente sin degradar el pipeline.
+    esp_err_t err = i2c_master_transmit_receive(s_dev_handle, addr_buf, 2, s_i2c_buffer, bytes_to_read, 100);
 
     if (err == ESP_ERR_INVALID_RESPONSE) {
         ESP_LOGW(TAG, "I2C NACK at [0x%04X] (Bus Busy or No Response)", startAddress);

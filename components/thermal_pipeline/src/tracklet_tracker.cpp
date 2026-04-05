@@ -186,8 +186,20 @@ void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
         if (slot) {
             memset(slot, 0, sizeof(Tracklet));
             slot->active          = true;
-            slot->id              = next_id_++;
-            if (next_id_ == 0) next_id_ = 1;
+            // P11-fix: Bucle do-while para garantizar que el nuevo ID no colisiona
+            // con ningún track persistente activo, evitando fusiones temporales en FSM.
+            do {
+                slot->id = next_id_++;
+                if (next_id_ == 0) next_id_ = 1;
+                bool id_in_use = false;
+                for (int k = 0; k < ThermalConfig::MAX_TRACKS; k++) {
+                    if (tracks_[k].active && tracks_[k].id == slot->id && &tracks_[k] != slot) {
+                        id_in_use = true;
+                        break;
+                    }
+                }
+                if (!id_in_use) break;
+            } while (true);
             slot->confirmed       = 1;
             slot->missed          = 0;
             slot->avg_temperature = peaks[p].temperature;

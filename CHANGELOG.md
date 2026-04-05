@@ -1,6 +1,27 @@
 # CHANGELOG - Thermal Door Detector
 
-## [Alpha 0.7] - 2026-03-31 (Current)
+## [Alpha 0.8] - 2026-04-04 (Current)
+### [Stage A3-B1] - Metric Refinement & USB Implementation
+#### Added
+- **USB Network Support**: TinyUSB (ECM/RNDIS) implementation for local access via cable, activated by long-pressing the BOOT button (2.0s).
+- **RGB Status LED**: Visual indicator on GPIO 48 for system states (Blue: Booting, Green: OK, Purple: USB Mode).
+- **Geometric FOV Correction**: Physical mapping of pixels to real meters based on sensor height (`SENSOR_HEIGHT_M`).
+- **Sub-pixel Extraction**: Centroid calculation using 1st-order thermal moments for smoother tracking.
+- **Physical Tracking**: Target association based on Euclidean distance in meters instead of pixels.
+- **I2C Fast-Mode Plus**: 1 MHz bus support for 32 Hz acquisition from the MLX90640.
+- **System Hardening**: Integrated Watchdog (WDT) in TelemetryTask and Spinlocks in ThermalConfig for thread safety.
+- **Responsive Web UI**: New Desktop-optimized Grid with bilinear interpolation in the thermal viewer.
+
+### Changed
+- **Unified Limits**: Adjusted `MAX_PEAKS` and `MAX_TRACKS` to 20 for memory consistency.
+- **Memory Optimization**: Removal of redundant parameters in `thermal_config.hpp`.
+- **Frontend Refactor**: Migrated to a modular JS component for HUD rendering.
+
+### Removed
+- **Obsolete Parameters**: Cleaned up `DOOR_HEIGHT_M` (legacy), `ALPHA_TRK`, and redundant temperature ranges.
+
+
+## [Alpha 0.7] - 2026-03-31
 # Changelog
 
 All notable changes to this project will be documented in this file.

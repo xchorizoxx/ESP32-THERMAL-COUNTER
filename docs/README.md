@@ -62,16 +62,17 @@ Files in `.agents/context/` are optimized summaries for AI assistants:
 
 These documents may be outdated; the source of truth are the files in this directory (`docs/`).
 
-## Documentation Versioning
+## Documentation Versioning (Alpha 0.8)
 
-Documentation is versioned along with the code:
+Documentation is versioned along with the code milestones:
 
-- Stage A0: Initial MVP
-- Stage A1: Pipeline with Kalman, Chess accumulator
-- Stage A2: TrackletTracker (documented in [`ALGORITHM.md`](ALGORITHM.md))
-- Stage A3: TrackletFSM with configurable lines (current)
+- **Stage A0**: Initial MVP.
+- **Stage A1**: Pipeline with Kalman, Chess accumulator.
+- **Stage A2**: TrackletTracker (documented in [`ALGORITHM.md`](ALGORITHM.md)).
+- **Stage A3**: TrackletFSM with configurable lines.
+- **Stage A3-B1 (Current)**: Refinement & Hardening (FIX). Includes USB Network, RGB LED, Sub-pixel moments, and Physical FOV Correction.
 
-See [`CHANGELOG.md`](../CHANGELOG.md) for detailed history.
+See [`CHANGELOG.md`](../CHANGELOG.md) for detailed history and the **FIX** folder for the implementation phases.
 
 ## Legal Notes
 

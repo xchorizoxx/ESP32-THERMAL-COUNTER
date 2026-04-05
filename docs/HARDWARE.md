@@ -60,13 +60,26 @@ Project configured at **400kHz (Fast Mode)**:
 
 ## ESP32-S3 Pins (Summary)
 
-| GPIO | Function | Current Use | Notes |
-|------|----------|-------------|-------|
-| 8 | SDA | MLX90640 I2C data | Pull-up 1kΩ |
-| 9 | SCL | MLX90640 I2C clock | Pull-up 1kΩ |
-| - | - | - | Avoid 0, 2, 5, 12, 15 (strapping pins) |
+| GPIO | Function | ESP32-S3 Pin | Peripheral | Function |
+| :--- | :--- | :--- |
+| GPIO 8 | MLX90640 | I2C SDA (Fast-Mode Plus 1MHz) |
+| GPIO 9 | MLX90640 | I2C SCL (Fast-Mode Plus 1MHz) |
+| GPIO 0 | BOOT Button | Hold 2s for USB Network Activation |
+| GPIO 48 | RGB LED | WS2812 System Status Indicator |
+| 5V / GND | ALL | Shared Power Supply |
 
-## Future Extensions
+---
+
+## Status LED (RGB)
+The ESP32-S3 built-in NeoPixel (GPIO 48) provides real-time feedback of the system state:
+- **Blue**: System booting and hardware initialization.
+- **Green**: Operating mode. WiFi SoftAP and Thermal Vision are active.
+- **Purple**: **USB Network Mode** is currently enabled (192.168.4.1 / 192.168.7.1).
+
+## Physical Controls
+- **BOOT Button (GPIO 0)**: 
+  - To enable the USB network interface (RNDIS/ECM), hold the BOOT button for **2.0 seconds** until the LED turns purple. 
+  - This mode allows you to view the web dashboard via a USB cable connected to your PC, without disconnecting from your local WiFi.
 
 ### RTC (DS3231)
 - Same I2C bus (GPIO 8/9)

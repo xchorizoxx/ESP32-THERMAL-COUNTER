@@ -27,7 +27,35 @@
 #include "telemetry_task.hpp"
 #include "http_server.hpp" // [NEW]
 
+// Hardware/Peripherals
+#include "status_led.hpp"
+#include "usb_network.hpp"
+#include "driver/gpio.h"
+
 static const char* TAG = "MAIN";
+
+#define BOOT_BUTTON_GPIO 0
+
+static void boot_button_task(void* arg) {
+    gpio_set_direction((gpio_num_t)BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);
+    gpio_set_pull_mode((gpio_num_t)BOOT_BUTTON_GPIO, GPIO_PULLUP_ONLY);
+
+    uint8_t press_count = 0;
+    while (1) {
+        if (gpio_get_level((gpio_num_t)BOOT_BUTTON_GPIO) == 0) {
+            press_count++;
+            if (press_count >= 20) { // 20 * 100ms = 2 seconds
+                ESP_LOGI(TAG, "Boot button held for 2s! Activating USB Network...");
+                StatusLed::set_color(128, 0, 128); // Purple (It uses brightness limit internally)
+                UsbNetwork::init();
+                vTaskDelete(NULL); // Run once, then exit
+            }
+        } else {
+            press_count = 0;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
 
 extern "C" void app_main(void)
 {
@@ -43,6 +71,10 @@ extern "C" void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    // Initialize Status LED immediately so we can show boot state
+    StatusLed::init();
+    StatusLed::set_color(0, 0, 255); // Blue during boot
 
     // -------------------------------------------------------------------------
     // Step 2: Configure system Watchdog
@@ -115,8 +147,17 @@ extern "C" void app_main(void)
 
     // -------------------------------------------------------------------------
     // Step 5.1: Configuration Command Queue (Core 0 -> Core 1)
+    // P08-fix: Migrado de xQueueCreate (heap) a xQueueCreateStatic (zero-heap).
     // -------------------------------------------------------------------------
-    QueueHandle_t configQueue = xQueueCreate(10, sizeof(AppConfigCmd));
+    static StaticQueue_t configQueueBuffer;
+    static uint8_t configQueueStorage[10 * sizeof(AppConfigCmd)];
+
+    QueueHandle_t configQueue = xQueueCreateStatic(
+        10,
+        sizeof(AppConfigCmd),
+        configQueueStorage,
+        &configQueueBuffer
+    );
     if (configQueue == NULL) {
         ESP_LOGE(TAG, "FAILED to create Config Queue — aborting");
         return;
@@ -204,6 +245,13 @@ extern "C" void app_main(void)
     } else {
         ESP_LOGW(TAG, "[OTA] esp_ota_mark_app_valid failed: %s", esp_err_to_name(ota_valid));
     }
+
+    // -------------------------------------------------------------------------
+    // Step 9: Start Boot Button listener for USB networking
+    // -------------------------------------------------------------------------
+    xTaskCreate(boot_button_task, "BootBtnListener", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
+
+    StatusLed::set_color(0, 255, 0); // Green when fully booted
 
     // --- Self-Monitoring: Profile Stack High Water Mark ---
     UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);

@@ -7,6 +7,7 @@
 
 #include "telemetry_task.hpp"
 #include "esp_log.h"
+#include "esp_task_wdt.h"  // P05-fix: WDT registration for zombie-task prevention
 #include "http_server.hpp" // [NEW] Added for WebSockets
 
 static const char* TAG = "TELEMETRY";
@@ -24,6 +25,8 @@ void TelemetryTask::init()
 
 void TelemetryTask::TaskWrapper(void* pvParameters)
 {
+    // P05-fix: Register this task with the WDT to prevent zombie-task on network freeze.
+    esp_task_wdt_add(NULL);
     auto* self = static_cast<TelemetryTask*>(pvParameters);
     self->run();
     vTaskDelete(NULL);
@@ -58,6 +61,10 @@ void TelemetryTask::run()
 
         // [NEW] Send via WebSocket to HTTP clients
         HttpServer::broadcastFrame(packet.image, packet.telemetry, packet.sensor_ok);
+
+        // P05-fix: Reset WDT after each successful iteration.
+        // If the network freezes and blocks here, the system restarts in 5s.
+        esp_task_wdt_reset();
 
         ESP_LOGD(TAG, "Frame %lu transmitted: IN=%d OUT=%d tracks=%d",
                  packet.telemetry.frame_id,

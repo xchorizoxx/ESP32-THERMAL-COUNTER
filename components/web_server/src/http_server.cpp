@@ -400,7 +400,9 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
             int n = cJSON_GetArraySize(lines_arr);
             n = n > MAX_COUNTING_LINES ? MAX_COUNTING_LINES : n;
             
-            portENTER_CRITICAL(&s_config_mux);
+            // P02-fix: Usar door_lines_mux (el mismo que usa TrackletFSM en Core 1)
+            // para garantizar exclusión mutua cross-core en door_lines.
+            portENTER_CRITICAL(&ThermalConfig::door_lines_mux);
             ThermalConfig::door_lines.num_lines = 0;
             for (int i = 0; i < n; i++) {
                 cJSON* line = cJSON_GetArrayItem(lines_arr, i);
@@ -425,7 +427,7 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
                 }
             }
             ThermalConfig::door_lines.use_segments = (ThermalConfig::door_lines.num_lines > 0);
-            portEXIT_CRITICAL(&s_config_mux);
+            portEXIT_CRITICAL(&ThermalConfig::door_lines_mux);
             
             if (s_configQueue) {
                 AppConfigCmd cfgCmd;
@@ -496,6 +498,12 @@ esp_err_t HttpServer::wsHandler(httpd_req_t *req) {
     if (ret != ESP_OK) return ret;
 
     if (ws_pkt.len > 0) {
+        // P06/P09-fix: Limitar longitud para prevenir heap exhaustion por payloads maliciosos.
+        // Ningún comando JSON válido del protocolo supera 1024 bytes.
+        if (ws_pkt.len > 1024) {
+            ESP_LOGW(TAG, "WS frame too large (%zu bytes), rejecting", ws_pkt.len);
+            return ESP_ERR_INVALID_SIZE;
+        }
         buf = (uint8_t *)calloc(1, ws_pkt.len + 1);
         if (!buf) return ESP_ERR_NO_MEM;
         ws_pkt.payload = buf;

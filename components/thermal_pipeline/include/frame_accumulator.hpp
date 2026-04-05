@@ -24,7 +24,7 @@
 
 class FrameAccumulator {
 public:
-    FrameAccumulator() : initialized_(false)
+    FrameAccumulator() : seen_page0_(false), seen_page1_(false)
     {
         memset(composed_, 0, sizeof(composed_));
     }
@@ -58,11 +58,11 @@ public:
             }
         }
 
-        // Mark as ready after sub-page 1 is received for the first time,
-        // ensuring both halves of the chessboard contain valid data.
-        if (!initialized_ && subpage == 1) {
-            initialized_ = true;
-        }
+        // P12-fix: Detectar cualquier estado de inicio asíncrono.
+        // El pipeline solo arranca cuando AMBAS páginas han sido vistas al menos
+        // una vez, independientemente del orden de arranque del sensor.
+        if (subpage == 0) seen_page0_ = true;
+        if (subpage == 1) seen_page1_ = true;
 
         memcpy(composed, composed_, ThermalConfig::TOTAL_PIXELS * sizeof(float));
     }
@@ -70,9 +70,10 @@ public:
     /**
      * @brief Returns true once a full chess cycle (both sub-frames) has been received.
      *
+     * P12-fix: listo cuando se han visto ambas páginas (no importa el orden).
      * The pipeline should skip processing until this returns true.
      */
-    bool isReady() const { return initialized_; }
+    bool isReady() const { return seen_page0_ && seen_page1_; }
 
     /**
      * @brief Resets the accumulator to the uninitialized state.
@@ -81,11 +82,13 @@ public:
      */
     void reset()
     {
-        initialized_ = false;
+        seen_page0_ = false;
+        seen_page1_ = false;
         memset(composed_, 0, sizeof(composed_));
     }
 
 private:
     float composed_[ThermalConfig::TOTAL_PIXELS];  // Fused pixel buffer
-    bool  initialized_;                             // True after first complete chess cycle
+    bool  seen_page0_;  // P12-fix: True once sub-page 0 has been received
+    bool  seen_page1_;  // P12-fix: True once sub-page 1 has been received
 };

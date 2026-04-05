@@ -375,3 +375,49 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 .log-line { margin-bottom: 2px; border-bottom: 1px dashed #333; padding-bottom: 2px; }
 .log-err { color: #ef4444; }
+
+/* --- PC / DESKTOP RESPONSIVE LAYOUT (Grid) --- */
+@media (min-width: 768px) {
+    /* Centrar todo el cuerpo */
+    body {
+        align-items: center;
+    }
+    
+    /* App bar centrada con max-width */
+    .app-bar, main {
+        width: 100%;
+        max-width: 1100px;
+    }
+
+    /* Padding de main (menos en PC) */
+    main {
+        padding-bottom: 80px; 
+    }
+
+    /* Transformar la vision a Grid: Camara izq, Controles der */
+    #view-vision.active {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 24px;
+        align-items: start;
+    }
+
+    /* El Nav bottom más estrecho y centrado */
+    .bottom-nav {
+        left: 50%;
+        transform: translateX(-50%);
+        max-width: 600px;
+    }
+
+    /* El debug drawer también centrado y con límites */
+    .drawer {
+        left: 50%;
+        transform: translateX(-50%);
+        max-width: 600px;
+    }
+
+    /* Stats pueden ser más columnas */
+    .stats-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}

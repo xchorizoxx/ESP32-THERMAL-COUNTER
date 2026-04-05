@@ -17,6 +17,8 @@ namespace ThermalConfig {
     int DEFAULT_DEAD_ZONE_RIGHT = 31;
     int VIEW_MODE = 0;
     DoorLineConfig door_lines = { .lines = {}, .num_lines = 0, .use_segments = false };
+    // P02-fix: Spinlock dedicado para acceso cross-core a door_lines.
+    portMUX_TYPE door_lines_mux = portMUX_INITIALIZER_UNLOCKED;
 }
 
 static const char* TAG = "PIPELINE";
@@ -208,8 +210,11 @@ void ThermalPipeline::run()
         packet.telemetry.count_out    = (int16_t)count_out_;
 
         // A2: use dense track_array_ (confirmed tracks only, all active = true)
+        // P04/P10-fix: Si el sensor falló, no encolar datos de un frame congelado.
+        // Forzar tracks = 0 para que la UI muestre estado de error limpio.
+        const int tracks_to_send = sensor_ok ? num_confirmed_tracks_ : 0;
         int tidx = 0;
-        for (int i = 0; i < num_confirmed_tracks_ && tidx < ThermalConfig::MAX_TRACKS; i++) {
+        for (int i = 0; i < tracks_to_send && tidx < ThermalConfig::MAX_TRACKS; i++) {
             if (track_array_[i].active) {
                 packet.telemetry.tracks[tidx].id      = track_array_[i].id;
                 packet.telemetry.tracks[tidx].x_100   = (int16_t)(track_array_[i].x   * 100.0f);

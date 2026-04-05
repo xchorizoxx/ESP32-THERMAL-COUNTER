@@ -9,6 +9,7 @@
  */
 
 #include <stdint.h>
+#include "freertos/FreeRTOS.h"   // portMUX_TYPE (P02-fix)
 
 namespace ThermalConfig {
 
@@ -82,6 +83,12 @@ constexpr float TRACK_DISPLAY_SMOOTH =
 //       handle non-linear FOV 110° geometry on wide doors.
 
 struct DoorLineConfig;
+
+// P02-fix: Mutex dedicado para door_lines.
+// TrackletFSM (Core 1) lee door_lines concurrentemente mientras HTTP Server (Core 0)
+// la reescribe. Este spinlock protege todas las lecturas y escrituras de door_lines.
+// Uso: portENTER_CRITICAL(&ThermalConfig::door_lines_mux) / portEXIT_CRITICAL(...)
+extern portMUX_TYPE door_lines_mux;
 
 extern DoorLineConfig door_lines; // Config global de lineas
 

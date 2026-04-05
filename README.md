@@ -8,8 +8,8 @@ Embedded person counting system using thermal vision (32×24 pixels). Zero optic
 |-----------|-------|
 | Sensor | Melexis MLX90640 (32×24 thermopile, 110° FOV) |
 | Processor | ESP32-S3 dual-core @ 240MHz |
-| Acquisition | 16 Hz (sub-frames) |
-| Processing | 8 Hz (full composed frames) |
+| Acquisition | 32 Hz (sub-frames) |
+| Processing | 16 Hz (full composed frames) |
 | Architecture | Core 1 (Vision) + Core 0 (Network/Web) |
 | Tracking | TrackletTracker with 20-frame circular history (Stage A2) |
 | Counting | TrackletFSM with configurable line segments (Stage A3) |
@@ -26,24 +26,30 @@ Embedded person counting system using thermal vision (32×24 pixels). Zero optic
   ├── BackgroundModel (selective EMA update)
   ├── PeakDetector (local maxima detection)
   ├── NmsSuppressor (adaptive radius: center vs edges)
-  ├── TrackletTracker (20-frame history, composite matching)
   └── TrackletFSM (bidirectional counting, dead zones)
 
 [Core 0] TelemetryTask + HTTP Server (priority 2-5)
   ├── WiFi SoftAP "ThermalCounter"
-  ├── Binary WebSocket (1.5 KB/frame, 16 FPS)
-  ├── UDP broadcast (optional, port 4210)
-  └── OTA handler (/update)
+  ├── USB Network (RNDIS/ECM)
+  └── Browser WebSocket (16 FPS)
 
 IPC: FreeRTOS Queue (depth 4, static allocation)
 ```
 
-## Quick Start
+## Main Features
+- **Sub-pixel Detection**: Heat centroids calculated with sub-pixel precision for smooth tracking.
+- **Dual Connectivity**: WiFi (SoftAP) and **USB (RNDIS/ECM)** for direct local access.
+- **Visual Feedback**: RGB LED (GPIO 48) for system status (Blue: Booting, Green: Operating, Purple: USB Mode).
+- **Responsive Web UI**: Adaptive layout for mobile and PC monitors (Desktop-optimized grid).
+- **Privacy First**: 100% local processing; no images ever leave the device.
+- **Dynamic Config**: Adjustable thresholds via web panel, persisted to NVS flash.
 
-1. **Hardware**: Connect ESP32-S3 to MLX90640 via I2C (GPIO 8/9, 400kHz)
-2. **Flash**: VS Code + ESP-IDF extension → "Build, Flash and Monitor"
-3. **Connect**: Join WiFi "ThermalCounter" / password: `counter1234`
-4. **Configure**: Open http://192.168.4.1 → adjust thresholds → Save to Flash
+## Quick Start
+1. **Hardware**: Connect ESP32-S3 to MLX90640 via I2C (GPIO 8/9).
+2. **BOOT Button**: Hold for 2s to activate **USB Network Mode**.
+3. **Flash**: VS Code + ESP-IDF extension → "Build, Flash and Monitor".
+4. **Connect**: Join WiFi "ThermalCounter" or use USB cable (IP: 192.168.4.1).
+5. **Config**: Open http://192.168.4.1 in your browser → adjust thresholds → Save to Flash.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for detailed system design.
 

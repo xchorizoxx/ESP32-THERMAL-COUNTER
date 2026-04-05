@@ -60,16 +60,27 @@ Suppression radius to eliminate multiple detections of the same person.
 3. If multiple nearby points → increase radius
 4. If small people not detected → decrease radius
 
-### Counting Lines
+# System Configuration (Alpha 0.8 / Stage A3-B1)
 
-**Segment Mode (Stage A3, recommended):**
-- Draw arbitrary lines on canvas (not just horizontal)
-- Supports diagonal lines, curves, multiple segments
-- Up to 4 simultaneous lines
+This guide documents the configurable parameters in `thermal_config.hpp` and `thermal_types.hpp`, updated during the **Refinement & Hardening (FIX)** phases to support metric-space tracking.
 
-**Legacy Mode (horizontal Y lines):**
-- `Line Entry Y`: Virtual north line (below = entry)
-- `Line Exit Y`: Virtual south line (above = exit)
+### 1. Physical Parameters (Metric Space - Stage A3-B1)
+These parameters are critical for **FOV Correction** to work correctly and for distances to be calculated in meters.
+
+-   `SENSOR_HEIGHT_M`: Height at which the sensor is installed above the floor (e.g., 2.8, 3.6).
+-   `PERSON_DIAMETER_M`: Expected physical diameter of a person (typically 0.5m or 0.6m). Used for NMS (Non-Maximum Suppression) to avoid multiple false detections.
+-   `EMISSIVITY`: Emissivity value of the environment (default 0.95). Do not change unless the floor is highly reflective.
+
+### 2. Tracker Capacity (Memory)
+Controlled in `thermal_types.hpp` and `thermal_config.hpp`:
+- `MAX_PEAKS`: Maximum heat spots detected per frame (20).
+- `MAX_TRACKS`: Maximum simultaneous persons in the system (20).
+- `IPC_QUEUE_DEPTH`: Keep at 4 for static memory stability.
+
+### 3. I2C High-Speed Tuning (1 MHz)
+To reach the **32 Hz** acquisition rate, the I2C bus must be configured in **Fast-Mode Plus**:
+- `I2C_FREQ_HZ`: 1,000,000.
+- **Hardware Requirement**: It is mandatory to use **external 1kΩ or 2.2kΩ Pull-Up resistors**. The ESP32's internal pull-ups are insufficient for this frequency.
 
 ### Dead Zones
 

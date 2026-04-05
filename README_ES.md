@@ -8,8 +8,8 @@ Sistema embebido para conteo de personas mediante visión térmica (32×24 píxe
 |-----------|-------|
 | Sensor | Melexis MLX90640 (termopila 32×24, 110° FOV) |
 | Procesador | ESP32-S3 dual-core @ 240MHz |
-| Adquisición | 16 Hz (sub-frames) |
-| Procesamiento | 8 Hz (frames completos) |
+| Adquisición | 32 Hz (sub-frames) |
+| Procesamiento | 16 Hz (frames completos) |
 | Arquitectura | Core 1 (Visión) + Core 0 (Red/Web) |
 | Tracking | TrackletTracker con historial 20 frames (Stage A2) |
 | Conteo | TrackletFSM con líneas configurables (Stage A3) |
@@ -38,12 +38,22 @@ Sistema embebido para conteo de personas mediante visión térmica (32×24 píxe
 IPC: FreeRTOS Queue (profundidad 4, asignación estática)
 ```
 
+## Características Principales
+
+- **Detección Sub-píxel**: Centroides de calor calculados con precisión sub-píxel para trayectorias suaves.
+- **Conectividad Dual**: WiFi (SoftAP) para visualización y **USB (RNDIS/ECM)** para acceso local directo.
+- **Feedback Visual**: LED RGB (GPIO 48) para estados (Boot: Azul, Operativo: Verde, USB: Morado).
+- **Web UI Responsiva**: Layout adaptable para móviles y monitores de PC (Vista Dividida).
+- **Control de Privacidad**: Procesamiento local; sin datos en la nube.
+- **Configuración Dinámica**: Parámetros ajustables desde la web y persistentes en NVS.
+
 ## Inicio Rápido
 
-1. **Hardware**: Conectar ESP32-S3 al MLX90640 vía I2C (GPIO 8/9, 400kHz)
-2. **Flash**: VS Code + extensión ESP-IDF → "Build, Flash and Monitor"
-3. **Conectar**: Unirse a WiFi "ThermalCounter" / contraseña: `counter1234`
-4. **Configurar**: Abrir http://192.168.4.1 → ajustar umbrales → Guardar en Flash
+1. **Hardware**: Conectar ESP32-S3 al MLX90640 vía I2C (GPIO 8/9).
+2. **Botón BOOT**: Mantener presionado 2s para activar el **Modo USB Network**.
+3. **Flash**: VS Code + extensión ESP-IDF → "Build, Flash and Monitor".
+4. **Conectar**: WiFi "ThermalCounter" o cable USB (192.168.4.1).
+5. **Configurar**: Abrir navegador → ajustar umbrales → Guardar en Flash.
 
 Ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) para diseño detallado del sistema.
 

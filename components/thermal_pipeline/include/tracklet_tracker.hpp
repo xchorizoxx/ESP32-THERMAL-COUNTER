@@ -163,6 +163,25 @@ public:
     const Tracklet* getTracks()         const { return tracks_; }
     int             getMaxTracks()      const { return ThermalConfig::MAX_TRACKS; }
 
+    /**
+     * @brief P03-fix: Establece el zone_state de un track por ID.
+     *
+     * Permite que TrackletFSM modifique zone_state sin necesitar const_cast.
+     * Reemplaza el acceso directo `tracks[i].zone_state = X` desde la FSM.
+     *
+     * @param id         Track ID to modify
+     * @param zone_state New zone state (1=IN, 2=neutral, 3=OUT)
+     */
+    void setZoneState(uint8_t id, uint8_t zone_state)
+    {
+        for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
+            if (tracks_[i].active && tracks_[i].id == id) {
+                tracks_[i].zone_state = zone_state;
+                return;
+            }
+        }
+    }
+
 private:
     Tracklet tracks_[ThermalConfig::MAX_TRACKS];
     uint8_t  next_id_;  ///< Rolling ID counter (1..255)

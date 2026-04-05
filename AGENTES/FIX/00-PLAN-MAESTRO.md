@@ -30,8 +30,9 @@
 
 ## Estado de fases
 
-- [ ] Fase 1 — Quick wins
+- [x] Fase 1 — Quick wins
 - [x] Fase 2 — HUD redesign
 - [x] Fase 3 — Pipeline firmware
 - [x] Fase 4 — Hungarian algorithm
 - [ ] Fase 5 — FOV correction
+- [x] Fase 6 — Hardening, securización y prevención de UB

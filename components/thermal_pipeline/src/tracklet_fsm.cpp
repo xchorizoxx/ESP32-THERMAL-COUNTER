@@ -1,6 +1,7 @@
 #include "tracklet_fsm.hpp"
 #include "esp_log.h"
 #include <cmath>
+#include "freertos/portmacro.h"  // portENTER_CRITICAL / portEXIT_CRITICAL (P02-fix)
 
 static const char* TAG = "TRACK_FSM";
 
@@ -57,7 +58,16 @@ int TrackletFSM::checkSegmentCrossing(
 }
 
 void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) {
-    Tracklet* tracks = const_cast<Tracklet*>(tracker.getTracks());
+
+    // P02-fix: Snapshot atómico de door_lines para evitar torn-reads durante
+    // escrituras concurrentes del HTTP Server (Core 0) en esta configuración.
+    ThermalConfig::DoorLineConfig dl_snap;
+    portENTER_CRITICAL(&ThermalConfig::door_lines_mux);
+    dl_snap = ThermalConfig::door_lines;
+    portEXIT_CRITICAL(&ThermalConfig::door_lines_mux);
+
+    // P03-fix: Puntero const — no usamos const_cast; escrituras van via setZoneState()
+    const Tracklet* all = tracker.getTracks();
 
     // 1) Clean up FSM memory of inactive tracks
     for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
@@ -65,7 +75,7 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
         
         bool found = false;
         for (int j = 0; j < ThermalConfig::MAX_TRACKS; j++) {
-            if (tracks[j].active && tracks[j].id == states_[i].id) {
+            if (all[j].active && all[j].id == states_[i].id) {
                 found = true;
                 break;
             }
@@ -79,7 +89,7 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
 
     // 2) Process each confirmed active track
     for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
-        const Tracklet& t = tracks[i];
+        const Tracklet& t = all[i];
         if (!t.active || !t.isConfirmed()) continue;
         const float py = t.y();
 
@@ -88,7 +98,7 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
         bool already_counted_in = false;
         bool already_counted_out = false;
         
-        if (ThermalConfig::door_lines.use_segments && ThermalConfig::door_lines.num_lines > 0) {
+        if (dl_snap.use_segments && dl_snap.num_lines > 0) {
             // Detección de cruce con lookback dinámico:
             //
             // PROBLEMA RAZ: a 8 Hz efectivos y 3.6m de altura con FOV 110°,
@@ -107,7 +117,7 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
             // Decrementar cooldown si está activo
             if (mem->cross_streak > 0) {
                 mem->cross_streak--;
-                tracks[i].zone_state = 2;
+                tracker.setZoneState(t.id, 2);  // P03-fix
                 continue; // Evitar doble conteo mientras dure el cooldown
             }
 
@@ -126,8 +136,8 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
                 float prev_x = t.history.entries[prev_idx].x;
                 float prev_y = t.history.entries[prev_idx].y;
 
-                for (int li = 0; li < ThermalConfig::door_lines.num_lines; li++) {
-                    const CountingSegment& seg = ThermalConfig::door_lines.lines[li];
+                for (int li = 0; li < dl_snap.num_lines; li++) {
+                    const CountingSegment& seg = dl_snap.lines[li];
                     if (!seg.enabled) continue;
 
                     int cross = checkSegmentCrossing(
@@ -148,7 +158,7 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
                     }
                 }
             }
-            tracks[i].zone_state = 2; // Neutral display for segment mode 
+            tracker.setZoneState(t.id, 2); // P03-fix: Neutral display for segment mode
 
         } else {
             // Modo legacy: usar lineEntryY / lineExitY horizontal
@@ -187,11 +197,11 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
             // 3) Push logical states back into Tracklet for Web UI Highlighting
             // JS Palette: 1=Green(Norte/IN), 2=Amber(Neutral/Unborn), 3=Cyan(Sur/OUT)
             if (mem->state == FsmState::TRACKING_IN) {
-                tracks[i].zone_state = 1; 
+                tracker.setZoneState(t.id, 1);  // P03-fix
             } else if (mem->state == FsmState::TRACKING_OUT) {
-                tracks[i].zone_state = 3; 
+                tracker.setZoneState(t.id, 3);  // P03-fix
             } else {
-                tracks[i].zone_state = 2; 
+                tracker.setZoneState(t.id, 2);  // P03-fix
             }
         }
     }

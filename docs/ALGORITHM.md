@@ -13,6 +13,27 @@ The previous tracker (Alpha-Beta) suffered from:
 
 TrackletTracker solves these problems through position history and proportional memory.
 
+#### B. Sub-pixel Extraction (Stage A3-B1)
+
+To avoid "jumping" between pixels, we calculate the exact position of the heat patch using **First-Order Thermal Moments** (local Center of Mass):
+
+$$x_{sub} = \frac{\sum (x_i \cdot T_i)}{\sum T_i}$$
+$$y_{sub} = \frac{\sum (y_i \cdot T_i)}{\sum T_i}$$
+
+Where $T_i$ is the temperature of the pixels adjacent to the local maximum. This allows for fluid trajectories even on the low-resolution grid (32x24).
+
+#### C. Geometric FOV Correction (Stage A3-B1)
+### Phase 2: Tracking (Stage A3-B1)
+
+The system maintains a history of up to 20 frames per person. Detection association is performed using a **Cost-based Assignment Algorithm** based on **Physical Euclidean Distance (in meters)**.
+
+1.  **Ray Angles**: We calculate the angle $\theta$ from the optical axis based on the sub-pixel position.
+2.  **Planar Projection**: We use the sensor height ($h = SENSOR\_HEIGHT\_M$) to find the real distance:
+    -   $X_{meters} = h \cdot \tan(\theta_x)$
+    -   $Y_{meters} = h \cdot \tan(\theta_y)$
+
+This normalizes movement: a 1-meter step looks the same (same tracking cost) anywhere in the field of view.
+
 ### Data Structures
 
 **TrackHistory (Circular Buffer):**

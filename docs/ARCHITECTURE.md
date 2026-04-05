@@ -26,18 +26,51 @@ Dual-core embedded system for person counting using Melexis MLX90640 thermal sen
 └──────────────────────────┴──────────────────────────────────┘
 ```
 
-### Core 1: Vision Pipeline (16 Hz)
+### Hardware Abstraction
 
-Deterministic execution with maximum priority. Never blocks on network operations.
+| Core | Task | Priority | Responsibility | Frequency |
+| :--- | :--- | :--- | :--- | :--- |
+| **APP_CPU (1)** | **ThermalPipe** | **MAX (24)** | MLX Acquisition + Vision Engine | **32 Hz** (sub-frames) / **16 Hz** (pipe) |
+| **PRO_CPU (0)** | **TelemetryTX** | **Med (2)** | UDP broadcast + Web Server | Varies |
 
-| Stage | Function | Output |
-|-------|----------|--------|
-| **Acquisition** | MLX90640 I2C read in Chess mode | Alternating sub-frames |
-| **Pre-processing** | FrameAccumulator + NoiseFilter (1D Kalman) | Filtered 32×24 frame |
-| **Background Modeling** | Selective EMA with feedback mask | Updated background map |
-| **Detection** | Peak detection + adaptive NMS | List of thermal peaks |
-| **Tracking** | TrackletTracker (20-frame history) | Tracks with velocity |
-| **Counting** | TrackletFSM with configurable lines | IN/OUT counters |
+---
+
+## Reliability & Hardening (Alpha 0.8 / Stage A3-B1)
+The system has been hardened to ensure 24/7 industrial stability:
+
+### 1. Task Monitoring (Watchdog)
+A hardware Task Watchdog (WDT) monitors the **TelemetryTask**. If the network stack or server hangs for more than 5 seconds, the ESP32 performs an automatic reboot to recover the service.
+
+### 2. Thread Safety (Concurrency)
+To prevent race conditions between the vision engine (Core 1) and the web server (Core 0), the system uses:
+- **Spinlocks**: The global configuration `door_lines` is protected by `ThermalConfig::door_lines_mux`. Any read or write to the virtual counting lines must enter a critical section.
+- **IPC Queues**: Data from Core 1 is sent via a static queue to Core 0 to ensure safety.
+
+### 3. I2C Fast-Mode Plus (1 MHz)
+The MLX90640 is driven at **1,000,000 Hz** with 1kΩ pull-up resistors. This allows the acquisition task to retrieve sub-frames at 32 Hz, reducing motion blur and tracking jitter.
+
+---
+
+## Component Distribution
+
+| Component | Responsibilities | Core |
+| :--- | :--- | :--- |
+| **UsbNetwork** | TinyUSB (ECM/RNDIS) bridge for Ethernet-over-USB. | 0 |
+| **StatusLed** | System state visual indicator (NeoPixel RMT). | Any |
+| **HttpServer** | Web UI host and API handler. | 0 |
+| **WifiSoftAp** | WiFi access point management. | 0 |
+
+
+---
+
+## Connectivity Control Flow
+1. **Startup**: WifiSoftAp starts; UsbNetwork remains **UNINITIALIZED** for hardware safety (OTG).
+2. **Monitoring**: `BootBtnListener` task (Core 0) monitors GPIO 0.
+3. **Trigger**: If button held for 2s:
+   - `StatusLed` switches to Purple.
+   - `UsbNetwork::init()` is called.
+   - `HttpServer` becomes accessible via USB (192.168.4.1 / 192.168.7.1).
+4. **Completion**: The listener task is deleted to save resources.
 
 ### Core 0: Network and Web (Best-effort)
 
