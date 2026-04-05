@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "tinyusb.h"
+#include "tinyusb_default_config.h"
 #include "tinyusb_net.h"
 
 static const char *TAG = "UsbNetwork";
@@ -35,8 +36,8 @@ bool init() {
     // We ignore error in case it's somehow already initialized
     tinyusb_net_init(&net_cfg);
 
-    // 2. Install the raw USB driver
-    const tinyusb_config_t tusb_cfg = {};
+    // 2. Install the raw USB driver with proper task memory allocation
+    const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
     esp_err_t err = tinyusb_driver_install(&tusb_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to install TinyUSB driver: %s", esp_err_to_name(err));

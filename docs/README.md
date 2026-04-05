@@ -10,6 +10,7 @@ This index organizes the technical documentation for the Thermal Door Counter.
 | [`ALGORITHM.md`](ALGORITHM.md) | TrackletTracker and TrackletFSM algorithms (Stage A2/A3) | CV developers, researchers |
 | [`CONFIGURATION.md`](CONFIGURATION.md) | Calibration guide, Web UI parameters, troubleshooting | Installers, field technicians |
 | [`HARDWARE.md`](HARDWARE.md) | Electrical connections, sensor specifications, mounting | Hardware engineers, installers |
+| [`STATUS_INDICATORS.md`](STATUS_INDICATORS.md) | RGB LED codes, USB activation guide, power safety | Users, developers |
 | [`OPERATIONS.md`](OPERATIONS.md) | Deployment, OTA, maintenance, monitoring | DevOps, maintenance technicians |
 
 ## Repository Structure

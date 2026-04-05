@@ -1,0 +1,7 @@
+Thermalpipeline-32Hz-HulgarianAlgorithim
+  Implementación-A4-B1
+* Thermalpipeline-32Hz-HulgarianAlgorithim
+  master
+  remotes/origin/HEAD -> origin/master
+  remotes/origin/Implementación-A4-B1
+  remotes/origin/master
