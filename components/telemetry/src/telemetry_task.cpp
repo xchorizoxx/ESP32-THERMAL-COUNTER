@@ -7,8 +7,10 @@
 
 #include "telemetry_task.hpp"
 #include "esp_log.h"
-#include "esp_task_wdt.h"  // P05-fix: WDT registration for zombie-task prevention
-#include "http_server.hpp" // [NEW] Added for WebSockets
+#include "esp_task_wdt.h"  
+#include "http_server.hpp" 
+#include "esp_netif.h"     // [NEW] To check interface status
+#include <errno.h>         // [FIX] Required for errno usage in logs
 
 static const char* TAG = "TELEMETRY";
 
@@ -45,19 +47,38 @@ void TelemetryTask::run()
             continue;
         }
 
-        // Send telemetry (counters + tracks)
-        esp_err_t err = udp_.sendTelemetry(packet.telemetry);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "Error sending telemetry (frame %lu)",
-                     packet.telemetry.frame_id);
+        // Check if ANY netif is up before trying to send via UDP
+        // This stops the log flood if there's no network link.
+        bool network_ready = false;
+        esp_netif_t* netif = nullptr;
+        while ((netif = esp_netif_next_unsafe(netif)) != nullptr) {
+            if (esp_netif_is_netif_up(netif)) {
+                network_ready = true;
+                break;
+            }
         }
 
-        // Send thermal image
-        err = udp_.sendImage(packet.image);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "Error sending image (frame %lu)",
-                     packet.image.frame_id);
+        // [FIX] Disable UDP broadcasts globally.
+        // Broadcasting huge thermal frames (1500+ bytes) to 255.255.255.255 saturates the 
+        // TinyUSB NCM driver queue and prevents essential network traffic (like DHCP replies)
+        // from going out. The Web UI uses WebSockets, not UDP.
+        /*
+        if (network_ready) {
+            // Send telemetry (counters + tracks)
+            esp_err_t err = udp_.sendTelemetry(packet.telemetry);
+            if (err != ESP_OK) {
+                ESP_LOGD(TAG, "Error sending telemetry (frame %lu) - errno=%d",
+                         packet.telemetry.frame_id, errno);
+            }
+
+            // Send thermal image
+            err = udp_.sendImage(packet.image);
+            if (err != ESP_OK) {
+                ESP_LOGD(TAG, "Error sending image (frame %lu) - errno=%d",
+                         packet.image.frame_id, errno);
+            }
         }
+        */
 
         // [NEW] Send via WebSocket to HTTP clients
         HttpServer::broadcastFrame(packet.image, packet.telemetry, packet.sensor_ok);

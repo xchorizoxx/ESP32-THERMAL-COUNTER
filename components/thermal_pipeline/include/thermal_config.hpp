@@ -8,8 +8,8 @@
  * only this file needs to be edited.
  */
 
+#include "freertos/FreeRTOS.h" // portMUX_TYPE (P02-fix)
 #include <stdint.h>
-#include "freertos/FreeRTOS.h"   // portMUX_TYPE (P02-fix)
 
 namespace ThermalConfig {
 
@@ -85,9 +85,10 @@ constexpr float TRACK_DISPLAY_SMOOTH =
 struct DoorLineConfig;
 
 // P02-fix: Mutex dedicado para door_lines.
-// TrackletFSM (Core 1) lee door_lines concurrentemente mientras HTTP Server (Core 0)
-// la reescribe. Este spinlock protege todas las lecturas y escrituras de door_lines.
-// Uso: portENTER_CRITICAL(&ThermalConfig::door_lines_mux) / portEXIT_CRITICAL(...)
+// TrackletFSM (Core 1) lee door_lines concurrentemente mientras HTTP Server
+// (Core 0) la reescribe. Este spinlock protege todas las lecturas y escrituras
+// de door_lines. Uso: portENTER_CRITICAL(&ThermalConfig::door_lines_mux) /
+// portEXIT_CRITICAL(...)
 extern portMUX_TYPE door_lines_mux;
 
 extern DoorLineConfig door_lines; // Config global de lineas
@@ -122,7 +123,7 @@ constexpr const char *SOFTAP_PASS = "counter1234";
 constexpr int SOFTAP_CHANNEL = 1;
 constexpr int SOFTAP_MAX_CONN = 2;
 constexpr int UDP_PORT = 4210;
-constexpr const char *UDP_BROADCAST_IP = "192.168.4.255";
+constexpr const char *UDP_BROADCAST_IP = "192.168.4.1";
 
 // =========================================================================
 //  UDP PROTOCOL — Packet Types

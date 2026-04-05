@@ -65,7 +65,7 @@ esp_err_t UdpTransmitter::sendTelemetry(const TelemetryPayload& payload)
     int sent = sendto(sock_, buf, bufSize, 0,
                       (struct sockaddr*)&destAddr, sizeof(destAddr));
     if (sent < 0) {
-        ESP_LOGW(TAG, "sendTelemetry failed: errno=%d", errno);
+        ESP_LOGD(TAG, "sendTelemetry failed: errno=%d", errno);
         return ESP_FAIL;
     }
     return ESP_OK;
@@ -92,7 +92,7 @@ esp_err_t UdpTransmitter::sendImage(const ImagePayload& payload)
     int sent = sendto(sock_, buf, bufSize, 0,
                       (struct sockaddr*)&destAddr, sizeof(destAddr));
     if (sent < 0) {
-        ESP_LOGW(TAG, "sendImage failed: errno=%d", errno);
+        ESP_LOGD(TAG, "sendImage failed: errno=%d", errno);
         return ESP_FAIL;
     }
     return ESP_OK;
