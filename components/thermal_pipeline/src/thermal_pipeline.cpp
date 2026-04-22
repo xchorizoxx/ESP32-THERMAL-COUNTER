@@ -78,62 +78,8 @@ void ThermalPipeline::run()
     TickType_t lastWakeTime = xTaskGetTickCount();
 
     while (true) {
-        // --- Phase 0.1: UI Config Updates ---
-        AppConfigCmd cmd;
-        while (configQueue_ && xQueueReceive(configQueue_, &cmd, 0) == pdTRUE) {
-            switch (cmd.type) {
-                case ConfigCmdType::SET_TEMP_BIO:
-                    ThermalConfig::BIOLOGICAL_TEMP_MIN = cmd.value;
-                    break;
-                case ConfigCmdType::SET_DELTA_T:
-                    ThermalConfig::BACKGROUND_DELTA_T = cmd.value;
-                    break;
-                case ConfigCmdType::SET_EMA_ALPHA:
-                    ThermalConfig::EMA_ALPHA = cmd.value;
-                    break;
-                case ConfigCmdType::SET_LINE_ENTRY:
-                    ThermalConfig::DEFAULT_LINE_ENTRY_Y = (int)cmd.value;
-                    break;
-                case ConfigCmdType::SET_LINE_EXIT:
-                    ThermalConfig::DEFAULT_LINE_EXIT_Y = (int)cmd.value;
-                    break;
-                case ConfigCmdType::SET_DEAD_LEFT:
-                    ThermalConfig::DEFAULT_DEAD_ZONE_LEFT = (int)cmd.value;
-                    break;
-                case ConfigCmdType::SET_DEAD_RIGHT:
-                    ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT = (int)cmd.value;
-                    break;
-                case ConfigCmdType::SET_SENSOR_HEIGHT:
-                    ThermalConfig::SENSOR_HEIGHT_M = cmd.value;
-                    FovCorrection::init(cmd.value);
-                    ESP_LOGI(TAG, "Sensor height updated: %.2f m", cmd.value);
-                    break;
-                case ConfigCmdType::SET_PERSON_DIAMETER:
-                    ThermalConfig::PERSON_DIAMETER_M = cmd.value;
-                    ESP_LOGI(TAG, "Person diameter updated: %.2f m", cmd.value);
-                    break;
-                case ConfigCmdType::SET_VIEW_MODE:
-                    ThermalConfig::VIEW_MODE = (int)cmd.value;
-                    break;
-                case ConfigCmdType::RESET_COUNTS:
-                    count_in_ = 0;
-                    count_out_ = 0;
-                    ESP_LOGI(TAG, "Counters reset");
-                    break;
-                case ConfigCmdType::RETRY_SENSOR:
-                    if (sensor_.init() == ESP_OK) {
-                        sensor_initialized_ = true;
-                        frame_accumulator_.reset();  // A1 fix: reset chess compositor
-                        noise_filter_.reset();        // A1 fix: reset Kalman filter
-                        bg_init_ = false;             // force background re-initialization
-                        ESP_LOGI(TAG, "Sensor re-initialized -- accumulator and filter reset");
-                    }
-                    break;
-                default: break;
-            }
-        }
+        processConfigQueue();
 
-        // --- Phase 0.2: Frame Acquisition ---
         bool sensor_ok = false;
         if (sensor_initialized_ && (sensor_.readFrame(current_frame_) == ESP_OK)) {
             sensor_ok = true;
@@ -148,98 +94,12 @@ void ThermalPipeline::run()
             // Fuse both sub-frames into composed_frame_ to eliminate the visual chess artifact.
             frame_accumulator_.integrate(current_frame_, currentSubPage, composed_frame_);
 
-            if (!frame_accumulator_.isReady()) {
-                // Wait for the second sub-page before running the pipeline
-                goto dispatch;
-            }
-
-            // --- A1 fix: Kalman noise filter ---
-            // Apply per-pixel 1D Kalman to the composed frame -> filtered_frame_.
-            // Detection uses filtered_frame_; image dispatch uses composed_frame_ for fidelity.
-            noise_filter_.apply(composed_frame_, filtered_frame_);
-
-            // --- Step 1: Background modeling (filtered frame) ---
-            if (!bg_init_) {
-                BackgroundModel::initialize(filtered_frame_, background_map_, ThermalConfig::TOTAL_PIXELS);
-                bg_init_ = true;
-            } else {
-                BackgroundModel::update(filtered_frame_, background_map_, blocking_mask_,
-                                         ThermalConfig::TOTAL_PIXELS, ThermalConfig::EMA_ALPHA);
-            }
-
-            // --- Step 2: Peak Detection (uses filtered frame) ---
-            num_peaks_ = 0;
-            PeakDetector::detect(filtered_frame_, background_map_,
-                                  peaks_, &num_peaks_,
-                                  ThermalConfig::BIOLOGICAL_TEMP_MIN,
-                                  ThermalConfig::BACKGROUND_DELTA_T,
-                                  ThermalConfig::MAX_PEAKS);
-
-            // --- Step 3: NMS ---
-            // Calculate dynamic physical radius logic
-            float radius_px = (ThermalConfig::PERSON_DIAMETER_M / 2.0f) * FovCorrection::getPixelsPerMeter();
-            int radius_sq = (int)(radius_px * radius_px);
-            if (radius_sq < 1) radius_sq = 1;
-
-            NmsSuppressor::suppress(peaks_, num_peaks_, radius_sq);
-
-            // --- Step 4: Tracking (A2: TrackletTracker) ---
-            uint32_t ts = xTaskGetTickCount();
-            tracker_.update(peaks_, num_peaks_, ts);
-
-            // --- Step 4b: Counting FSM (A3: TrackletFSM) ---
-            door_fsm_.update(tracker_, count_in_, count_out_);
-
-            tracker_.fillTrackArray(track_array_, &num_confirmed_tracks_);
-
-            // --- Step 5: Masking ---
-            MaskGenerator::generate(track_array_, num_confirmed_tracks_,
-                                     blocking_mask_, ThermalConfig::MASK_HALF_SIZE);
-        }
-
-        dispatch:
-
-        // --- DISPATCH: Build IpcPacket ---
-        static IpcPacket packet; // static: reduces stack usage ( ~1.6 KB )
-        memset(&packet, 0, sizeof(IpcPacket)); // Safety: zero-init
-        
-        packet.sensor_ok              = sensor_ok;
-        packet.telemetry.frame_id     = frame_id_;
-        frame_id_ = (frame_id_ == UINT32_MAX) ? 1 : frame_id_ + 1;
-        packet.telemetry.ambient_temp = sensor_.getAmbientTemp();
-        packet.telemetry.count_in     = sat16(count_in_);
-        packet.telemetry.count_out    = sat16(count_out_);
-
-        // A2: use dense track_array_ (confirmed tracks only, all active = true)
-        // P04/P10-fix: Si el sensor falló, no encolar datos de un frame congelado.
-        // Forzar tracks = 0 para que la UI muestre estado de error limpio.
-        const int tracks_to_send = sensor_ok ? num_confirmed_tracks_ : 0;
-        int tidx = 0;
-        for (int i = 0; i < tracks_to_send && tidx < ThermalConfig::MAX_TRACKS; i++) {
-            if (track_array_[i].active) {
-                packet.telemetry.tracks[tidx].id      = track_array_[i].id;
-                packet.telemetry.tracks[tidx].x_100   = (int16_t)(track_array_[i].x   * 100.0f);
-                packet.telemetry.tracks[tidx].y_100   = (int16_t)(track_array_[i].y   * 100.0f);
-                packet.telemetry.tracks[tidx].v_x_100 = (int16_t)(track_array_[i].v_x * 100.0f);
-                packet.telemetry.tracks[tidx].v_y_100 = (int16_t)(track_array_[i].v_y * 100.0f);
-                tidx++;
+            if (frame_accumulator_.isReady()) {
+                runVisionPipeline();
             }
         }
-        packet.telemetry.num_tracks = tidx;
-        
-        // Final image dispatch:
-        // - Normal mode (VIEW_MODE=0): composed_frame_ (fused, faithful to sensor)
-        // - Radar mode  (VIEW_MODE=1): (filtered_frame_ - background) for clean subtraction
-        const float* display_src = (ThermalConfig::VIEW_MODE == 1) ? filtered_frame_ : composed_frame_;
-        for (int i = 0; i < ThermalConfig::TOTAL_PIXELS; i++) {
-            float val = (ThermalConfig::VIEW_MODE == 1)
-                        ? (display_src[i] - background_map_[i])
-                        : display_src[i];
-            packet.image.pixels[i] = (int16_t)(val * 100.0f);
-        }
-        packet.image.frame_id = packet.telemetry.frame_id;
 
-        xQueueSend(ipcQueue_, &packet, 0);
+        dispatchIpcPacket(sensor_ok);
 
         // --- Self-Monitoring: Profile Stack High Water Mark (approx every 5s @ 16Hz) ---
         static uint32_t monitor_count = 0;
@@ -253,4 +113,152 @@ void ThermalPipeline::run()
         esp_task_wdt_reset();
         vTaskDelayUntil(&lastWakeTime, period);
     }
+}
+
+void ThermalPipeline::processConfigQueue()
+{
+    AppConfigCmd cmd;
+    while (configQueue_ && xQueueReceive(configQueue_, &cmd, 0) == pdTRUE) {
+        switch (cmd.type) {
+            case ConfigCmdType::SET_TEMP_BIO:
+                ThermalConfig::BIOLOGICAL_TEMP_MIN = cmd.value;
+                break;
+            case ConfigCmdType::SET_DELTA_T:
+                ThermalConfig::BACKGROUND_DELTA_T = cmd.value;
+                break;
+            case ConfigCmdType::SET_EMA_ALPHA:
+                ThermalConfig::EMA_ALPHA = cmd.value;
+                break;
+            case ConfigCmdType::SET_LINE_ENTRY:
+                ThermalConfig::DEFAULT_LINE_ENTRY_Y = (int)cmd.value;
+                break;
+            case ConfigCmdType::SET_LINE_EXIT:
+                ThermalConfig::DEFAULT_LINE_EXIT_Y = (int)cmd.value;
+                break;
+            case ConfigCmdType::SET_DEAD_LEFT:
+                ThermalConfig::DEFAULT_DEAD_ZONE_LEFT = (int)cmd.value;
+                break;
+            case ConfigCmdType::SET_DEAD_RIGHT:
+                ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT = (int)cmd.value;
+                break;
+            case ConfigCmdType::SET_SENSOR_HEIGHT:
+                ThermalConfig::SENSOR_HEIGHT_M = cmd.value;
+                FovCorrection::init(cmd.value);
+                ESP_LOGI(TAG, "Sensor height updated: %.2f m", cmd.value);
+                break;
+            case ConfigCmdType::SET_PERSON_DIAMETER:
+                ThermalConfig::PERSON_DIAMETER_M = cmd.value;
+                ESP_LOGI(TAG, "Person diameter updated: %.2f m", cmd.value);
+                break;
+            case ConfigCmdType::SET_VIEW_MODE:
+                ThermalConfig::VIEW_MODE = (int)cmd.value;
+                break;
+            case ConfigCmdType::RESET_COUNTS:
+                count_in_ = 0;
+                count_out_ = 0;
+                ESP_LOGI(TAG, "Counters reset");
+                break;
+            case ConfigCmdType::RETRY_SENSOR:
+                if (sensor_.init() == ESP_OK) {
+                    sensor_initialized_ = true;
+                    frame_accumulator_.reset();  // A1 fix: reset chess compositor
+                    noise_filter_.reset();        // A1 fix: reset Kalman filter
+                    bg_init_ = false;             // force background re-initialization
+                    ESP_LOGI(TAG, "Sensor re-initialized -- accumulator and filter reset");
+                }
+                break;
+            default: break;
+        }
+    }
+}
+
+void ThermalPipeline::runVisionPipeline()
+{
+    // --- A1 fix: Kalman noise filter ---
+    // Apply per-pixel 1D Kalman to the composed frame -> filtered_frame_.
+    // Detection uses filtered_frame_; image dispatch uses composed_frame_ for fidelity.
+    noise_filter_.apply(composed_frame_, filtered_frame_);
+
+    // --- Step 1: Background modeling (filtered frame) ---
+    if (!bg_init_) {
+        BackgroundModel::initialize(filtered_frame_, background_map_, ThermalConfig::TOTAL_PIXELS);
+        bg_init_ = true;
+    } else {
+        BackgroundModel::update(filtered_frame_, background_map_, blocking_mask_,
+                                 ThermalConfig::TOTAL_PIXELS, ThermalConfig::EMA_ALPHA);
+    }
+
+    // --- Step 2: Peak Detection (uses filtered frame) ---
+    num_peaks_ = 0;
+    PeakDetector::detect(filtered_frame_, background_map_,
+                          peaks_, &num_peaks_,
+                          ThermalConfig::BIOLOGICAL_TEMP_MIN,
+                          ThermalConfig::BACKGROUND_DELTA_T,
+                          ThermalConfig::MAX_PEAKS);
+
+    // --- Step 3: NMS ---
+    // Calculate dynamic physical radius logic
+    float radius_px = (ThermalConfig::PERSON_DIAMETER_M / 2.0f) * FovCorrection::getPixelsPerMeter();
+    int radius_sq = (int)(radius_px * radius_px);
+    if (radius_sq < 1) radius_sq = 1;
+
+    NmsSuppressor::suppress(peaks_, num_peaks_, radius_sq);
+
+    // --- Step 4: Tracking (A2: TrackletTracker) ---
+    uint32_t ts = xTaskGetTickCount();
+    tracker_.update(peaks_, num_peaks_, ts);
+
+    // --- Step 4b: Counting FSM (A3: TrackletFSM) ---
+    door_fsm_.update(tracker_, count_in_, count_out_);
+
+    tracker_.fillTrackArray(track_array_, &num_confirmed_tracks_);
+
+    // --- Step 5: Masking ---
+    MaskGenerator::generate(track_array_, num_confirmed_tracks_,
+                             blocking_mask_, ThermalConfig::MASK_HALF_SIZE);
+}
+
+void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
+{
+    // --- DISPATCH: Build IpcPacket ---
+    static IpcPacket packet; // static: reduces stack usage ( ~1.6 KB )
+    memset(&packet, 0, sizeof(IpcPacket)); // Safety: zero-init
+    
+    packet.sensor_ok              = sensor_ok;
+    packet.telemetry.frame_id     = frame_id_;
+    frame_id_ = (frame_id_ == UINT32_MAX) ? 1 : frame_id_ + 1;
+    packet.telemetry.ambient_temp = sensor_.getAmbientTemp();
+    packet.telemetry.count_in     = sat16(count_in_);
+    packet.telemetry.count_out    = sat16(count_out_);
+
+    // A2: use dense track_array_ (confirmed tracks only, all active = true)
+    // P04/P10-fix: Si el sensor falló, no encolar datos de un frame congelado.
+    // Forzar tracks = 0 para que la UI muestre estado de error limpio.
+    const int tracks_to_send = sensor_ok ? num_confirmed_tracks_ : 0;
+    int tidx = 0;
+    for (int i = 0; i < tracks_to_send && tidx < ThermalConfig::MAX_TRACKS; i++) {
+        if (track_array_[i].active) {
+            packet.telemetry.tracks[tidx].id      = track_array_[i].id;
+            packet.telemetry.tracks[tidx].x_100   = (int16_t)(track_array_[i].x   * 100.0f);
+            packet.telemetry.tracks[tidx].y_100   = (int16_t)(track_array_[i].y   * 100.0f);
+            packet.telemetry.tracks[tidx].v_x_100 = (int16_t)(track_array_[i].v_x * 100.0f);
+            packet.telemetry.tracks[tidx].v_y_100 = (int16_t)(track_array_[i].v_y * 100.0f);
+            tidx++;
+        }
+    }
+    packet.telemetry.num_tracks = tidx;
+    
+    // Final image dispatch:
+    // - Normal mode (VIEW_MODE=0): composed_frame_ (fused, faithful to sensor)
+    // - Radar mode  (VIEW_MODE=1): (filtered_frame_ - background) for clean subtraction
+    const float* display_src = (ThermalConfig::VIEW_MODE == 1) ? filtered_frame_ : composed_frame_;
+    for (int i = 0; i < ThermalConfig::TOTAL_PIXELS; i++) {
+        float val = (ThermalConfig::VIEW_MODE == 1)
+                    ? (display_src[i] - background_map_[i])
+                    : display_src[i];
+        packet.image.pixels[i] = (int16_t)(val * 100.0f);
+    }
+    packet.image.frame_id = packet.telemetry.frame_id;
+
+    xQueueSend(ipcQueue_, &packet, 0);
 }

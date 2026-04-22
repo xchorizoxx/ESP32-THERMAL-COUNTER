@@ -53,6 +53,9 @@ private:
      * @brief Main processing loop (16 Hz).
      */
     void run();
+    void processConfigQueue();
+    void runVisionPipeline();
+    void dispatchIpcPacket(bool sensor_ok);
 
     Mlx90640Sensor& sensor_;
     QueueHandle_t   ipcQueue_;
