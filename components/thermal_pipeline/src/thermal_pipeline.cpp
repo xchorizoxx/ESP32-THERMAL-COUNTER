@@ -243,6 +243,7 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
             packet.telemetry.tracks[tidx].y_100   = (int16_t)(track_array_[i].y   * 100.0f);
             packet.telemetry.tracks[tidx].v_x_100 = (int16_t)(track_array_[i].v_x * 100.0f);
             packet.telemetry.tracks[tidx].v_y_100 = (int16_t)(track_array_[i].v_y * 100.0f);
+            packet.telemetry.tracks[tidx].peak_temp_100 = (int16_t)(track_array_[i].peak_temp * 100.0f);
             tidx++;
         }
     }

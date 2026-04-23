@@ -108,6 +108,7 @@ struct Tracklet {
     float        display_x;        ///< Smoothed X for HUD rendering
     float        display_y;        ///< Smoothed Y for HUD rendering
     uint8_t      zone_state;       ///< HUD: 1=legacy IN / spawn default, 2=neutral or segment mode, 3=legacy OUT
+    float        peak_temp;        ///< Current peak temperature in °C (W4)
     TrackHistory history;
 
     /** @brief Latest confirmed X position (sub-pixel). */

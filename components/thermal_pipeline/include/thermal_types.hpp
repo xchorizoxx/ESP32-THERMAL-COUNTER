@@ -72,6 +72,7 @@ struct Track {
   bool active;     ///< false = expired track (age > TRACK_MAX_MISSED)
   uint8_t state_y; ///< HUD tint / zone from TrackletFSM (0=unborn, 1=in,
                    ///< 2=neutral, 3=out)
+  float peak_temp; ///< Peak temperature of this track in °C (W4)
 };
 
 // =========================================================================
@@ -88,6 +89,7 @@ struct __attribute__((packed)) TrackInfo {
   int16_t y_100;   ///< Y position × 100 (e.g., 1200 = 12.00)
   int16_t v_x_100; ///< X velocity × 100
   int16_t v_y_100; ///< Y velocity × 100
+  int16_t peak_temp_100; ///< Peak temperature × 100 (W4)
 };
 
 /**

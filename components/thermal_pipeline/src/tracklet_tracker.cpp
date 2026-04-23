@@ -154,7 +154,7 @@ void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
 
     // --- Phase 2: Hungarian optimal assignment — minimizes total cost globally ---
     static int  assignment[ThermalConfig::MAX_TRACKS];   // assignment[track_i] = peak_idx
-    static bool peak_assigned[ThermalConfig::MAX_TRACKS]; // peak_assigned[peak_p] = true if used
+    static bool peak_assigned[ThermalConfig::MAX_PEAKS]; // peak_assigned[peak_p] = true if used
     bool matched_tracks[ThermalConfig::MAX_TRACKS] = {false};
 
     hungarianMatch(peaks, numPeaks, assignment, peak_assigned);
@@ -173,6 +173,7 @@ void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
             t.display_x = alpha * peaks[pi].x + (1.0f - alpha) * t.display_x;
             t.display_y = alpha * peaks[pi].y + (1.0f - alpha) * t.display_y;
             t.avg_temperature = t.avg_temperature * 0.8f + peaks[pi].temperature * 0.2f;
+            t.peak_temp       = peaks[pi].temperature; // W4: actual frame peak
             t.confirmed       = (t.confirmed < 255) ? t.confirmed + 1 : 255;
             t.missed          = 0;
             matched_tracks[i] = true;
@@ -203,6 +204,7 @@ void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
             slot->confirmed       = 1;
             slot->missed          = 0;
             slot->avg_temperature = peaks[p].temperature;
+            slot->peak_temp       = peaks[p].temperature; // W4
             slot->pred_x          = peaks[p].x;
             slot->pred_y          = peaks[p].y;
             slot->display_x       = peaks[p].x;
@@ -271,6 +273,7 @@ void TrackletTracker::fillTrackArray(Track* out, int* out_count) const
         t.y        = tracks_[i].display_y;
         t.active   = true;
         t.state_y  = tracks_[i].zone_state;
+        t.peak_temp = tracks_[i].peak_temp; // W4
         t.age      = tracks_[i].missed;  // Exposes "coasting" frames
 
         // Velocity: media de las últimas min(count,4) muestras del historial.

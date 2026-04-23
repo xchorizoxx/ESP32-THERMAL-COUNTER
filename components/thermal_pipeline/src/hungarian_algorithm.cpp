@@ -86,6 +86,7 @@ void solve(const float cost[MAX_N][MAX_N], int N, int assignment[MAX_N])
             // Saturate: if all unvisited columns are unreachable, abort row
             if (j1 < 0) {
                 ESP_LOGD(TAG, "Row %d: no reachable column (fully gated)", i);
+                j0 = 0; // FIX: Prevent invalid augmenting path trace
                 break;
             }
 
