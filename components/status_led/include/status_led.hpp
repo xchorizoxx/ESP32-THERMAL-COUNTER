@@ -51,6 +51,12 @@ public:
      */
     void triggerEvent(Event event);
 
+    /**
+     * @brief Set the global master brightness multiplier.
+     * @param brightness 0.0f to 1.0f
+     */
+    void setMasterBrightness(float brightness);
+
 private:
     StatusLedManager() = default;
     ~StatusLedManager() = default;
@@ -66,6 +72,7 @@ private:
     uint8_t  m_trackCount = 0;
     Event    m_pendingEvent = (Event)-1;
     bool     m_hasEvent = false;
+    float    m_masterBrightness = 0.50f; // Default 50%
     
     SemaphoreHandle_t m_mutex = nullptr;
     TaskHandle_t      m_taskHandle = nullptr;

@@ -8,7 +8,7 @@ The LED interface is designed for **maximum information density** and **low ener
 
 *   **Human-Centric Breathing**: Uses sine-wave modulation with **Gamma Correction** for smooth, organic brightness transitions.
 *   **Priority System**: High-priority events (crossings) instantly override background status animations.
-*   **Energy Saving**: Base brightness is restricted to **2-5%** to reduce power draw and prevent glare.
+*   **Energy Saving**: Base brightness is restricted to **5-15%** to reduce power draw while ensuring high visibility.
 
 ---
 

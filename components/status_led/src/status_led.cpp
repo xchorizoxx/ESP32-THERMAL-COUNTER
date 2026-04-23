@@ -9,6 +9,9 @@ static const char *TAG = "StatusLed";
 #define LED_GPIO              48
 #define LED_STRIP_RMT_RES_HZ  (10 * 1000 * 1000)
 
+// --- MASTER BRIGHTNESS CONTROL ---
+#define INITIAL_MASTER_BRIGHTNESS  0.50f  // <--- SET TO 50% AS REQUESTED
+
 // Gamma correction for smoother breathing
 static uint8_t gamma8(uint8_t input) {
     return (uint32_t)input * input / 255;
@@ -20,16 +23,16 @@ struct RgbColor {
 
 // Resistor Color Code Palette (Optimized for low brightness WS2812)
 static const RgbColor kResistorPalette[] = {
-    {20, 20, 20},   // 0: Black/Grey (Smoke)
-    {30, 12, 5},    // 1: Brown
-    {60, 0, 0},     // 2: Red
-    {60, 20, 0},    // 3: Orange
-    {50, 50, 0},    // 4: Yellow
-    {0, 60, 0},     // 5: Green
-    {0, 0, 60},     // 6: Blue
-    {40, 0, 60},    // 7: Violet
-    {20, 20, 20},   // 8: Grey
-    {50, 50, 50}    // 9: White
+    {40, 40, 40},   // 0: Black/Grey (Smoke)
+    {80, 40, 10},   // 1: Brown
+    {180, 0, 0},    // 2: Red
+    {180, 60, 0},   // 3: Orange
+    {150, 150, 0},  // 4: Yellow
+    {0, 180, 0},    // 5: Green
+    {0, 0, 180},    // 6: Blue
+    {120, 0, 180},  // 7: Violet
+    {40, 40, 40},   // 8: Grey
+    {150, 150, 150} // 9: White
 };
 
 static led_strip_handle_t s_led_handle = nullptr;
@@ -63,6 +66,7 @@ void StatusLedManager::init() {
     led_strip_clear(s_led_handle);
 
     m_mutex = xSemaphoreCreateMutex();
+    m_masterBrightness = INITIAL_MASTER_BRIGHTNESS;
     
     xTaskCreatePinnedToCore(taskWrapper, "status_led_task", 3072, this, tskIDLE_PRIORITY + 1, &m_taskHandle, 0);
 
@@ -118,8 +122,8 @@ void StatusLedManager::taskLoop() {
 
         // 2. Handle high-priority events (Strobe)
         if (has_event) {
-            if (event == Event::CROSS_IN) updateHardware(0, 255, 0, 0.15f); // Green Strobe
-            else updateHardware(0, 0, 255, 0.15f); // Blue Strobe
+            if (event == Event::CROSS_IN) updateHardware(0, 255, 0, 0.30f); // Green Strobe
+            else updateHardware(0, 0, 255, 0.30f); // Blue Strobe
             vTaskDelay(pdMS_TO_TICKS(50));
             led_strip_clear(s_led_handle);
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -127,33 +131,34 @@ void StatusLedManager::taskLoop() {
 
         // 3. Handle persistent states
         RgbColor color = {0, 0, 0};
-        float brightness = 0.05f; // Default 5%
+        float brightness = 0.15f; // Increased from 5% to 15%
         bool blink_pattern = false;
         int  blink_count = 1;
 
         switch (current_state) {
             case State::BOOTING:
                 color = {0, 0, 255}; // Blue
-                brightness = 0.10f;
+                brightness = 0.25f;
                 break;
 
             case State::IDLE:
                 color = {0, 255, 255}; // Cyan/Teal
-                brightness = 0.02f + 0.03f * (0.5f + 0.5f * sinf(tick * 0.05f)); // 5s breathe approx
+                brightness = 0.05f + 0.10f * (0.5f + 0.5f * sinf(tick * 0.05f)); // 5% to 15% breathe
                 break;
 
             case State::FATAL_ERROR:
                 color = {255, 0, 0}; // Red
-                brightness = 0.02f + 0.08f * (0.5f + 0.5f * sinf(tick * 0.05f)); // 5s breathe
+                brightness = 0.10f + 0.20f * (0.5f + 0.5f * sinf(tick * 0.05f)); // 10% to 30% breathe
                 break;
 
             case State::TRACKING:
                 if (tracks == 0) {
                     color = {0, 255, 255};
-                    brightness = 0.02f;
+                    brightness = 0.05f;
                 } else {
                     uint8_t digit = tracks % 10;
                     color = kResistorPalette[digit];
+                    brightness = 0.15f;
                     
                     if (tracks >= 10 && tracks < 20) {
                         blink_pattern = true;
@@ -162,6 +167,7 @@ void StatusLedManager::taskLoop() {
                         color = {255, 0, 0}; // Critical
                         blink_pattern = true;
                         blink_count = 3;
+                        brightness = 0.30f;
                     }
                 }
                 break;
@@ -186,9 +192,17 @@ void StatusLedManager::taskLoop() {
 }
 
 void StatusLedManager::updateHardware(uint8_t r, uint8_t g, uint8_t b, float brightness_pct) {
-    uint8_t rs = gamma8((uint8_t)(r * brightness_pct));
-    uint8_t gs = gamma8((uint8_t)(g * brightness_pct));
-    uint8_t bs = gamma8((uint8_t)(b * brightness_pct));
+    float final_pct = brightness_pct * m_masterBrightness;
+    
+    auto apply = [&](uint8_t val) -> uint8_t {
+        float fval = (float)val * final_pct;
+        if (fval < 0.5f && val > 0 && final_pct > 0.01f) return 1; // Force minimum 1 for visibility
+        return gamma8((uint8_t)fval);
+    };
+
+    uint8_t rs = apply(r);
+    uint8_t gs = apply(g);
+    uint8_t bs = apply(b);
 
     led_strip_set_pixel(s_led_handle, 0, rs, gs, bs);
     led_strip_refresh(s_led_handle);
