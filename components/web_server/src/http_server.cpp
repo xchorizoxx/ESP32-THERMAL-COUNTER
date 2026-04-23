@@ -901,35 +901,31 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
 #undef WS_WRITE_S16_LE
 #undef WS_WRITE_BYTES
 
-    // ---- W1-1 FIX: Count WS clients AND set ref_count in ONE critical section ----
-    // This eliminates the window where a client could disconnect between the count
-    // and the ref_count assignment, which previously could leave ref_count > 0
-    // permanently (buffer leak / broadcast halt).
-    // max_open_sockets was configured to 7 in start().
+    // ---- W4-FIX: Atomic reference counting + Async broadcast ----
+    // This addresses the fatal FreeRTOS violation where httpd_ws_get_fd_info (which takes a mutex)
+    // was called inside a spinlock (interrupts disabled).
+    int    ws_fds[7]; // max_open_sockets is 7
+    int    ws_count = 0;
     int    client_fds[7];
     size_t clients = sizeof(client_fds) / sizeof(client_fds[0]);
-    int    ws_count = 0;
 
+    // 1. Identify valid WS clients OUTSIDE critical section (safe to take mutexes here)
     if (httpd_get_client_list(server_, &clients, client_fds) == ESP_OK) {
-        portENTER_CRITICAL(&s_ws_mux);
         for (size_t i = 0; i < clients; i++) {
-            if (httpd_ws_get_fd_info(server_, client_fds[i]) ==
-                HTTPD_WS_CLIENT_WEBSOCKET) {
-                ws_count++;
+            if (httpd_ws_get_fd_info(server_, client_fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
+                ws_fds[ws_count++] = client_fds[i];
             }
         }
-        ws_buffer_ref_counts_[buf_idx] = ws_count; // set atomically with the count
-        portEXIT_CRITICAL(&s_ws_mux);
     }
 
-    if (ws_count == 0) {
-        portENTER_CRITICAL(&s_ws_mux);
-        ws_buffer_ref_counts_[buf_idx] = 0;
-        portEXIT_CRITICAL(&s_ws_mux);
-        return;
-    }
+    // 2. Atomic update of reference counter (Spinlock duration: < 1 microsecond)
+    portENTER_CRITICAL(&s_ws_mux);
+    ws_buffer_ref_counts_[buf_idx] = ws_count;
+    portEXIT_CRITICAL(&s_ws_mux);
 
-    // ---- Queue async sends to all WS clients ----
+    if (ws_count == 0) return;
+
+    // 3. Queue async sends using the local validated list
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(ws_pkt));
     ws_pkt.type    = HTTPD_WS_TYPE_BINARY;
@@ -938,23 +934,12 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
     ws_pkt.final   = true;
 
     int successful = 0;
-    for (size_t i = 0; i < clients; i++) {
-        if (httpd_ws_get_fd_info(server_, client_fds[i]) !=
-            HTTPD_WS_CLIENT_WEBSOCKET) continue;
-
+    for (int i = 0; i < ws_count; i++) {
         esp_err_t err = httpd_ws_send_data_async(
-            server_, client_fds[i], &ws_pkt,
+            server_, ws_fds[i], &ws_pkt,
             wsAsyncCompletionCb, (void *)(uintptr_t)buf_idx);
-
         if (err == ESP_OK) {
             successful++;
-        } else {
-            static uint32_t last_err_frame = 0;
-            if (tel.frame_id - last_err_frame > 80) {
-                ESP_LOGW(TAG, "Async WS send failed fd=%d: %s",
-                         client_fds[i], esp_err_to_name(err));
-                last_err_frame = tel.frame_id;
-            }
         }
     }
 
@@ -962,8 +947,10 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
     // buffer is eventually released (completion callback handles the rest).
     if (successful < ws_count) {
         portENTER_CRITICAL(&s_ws_mux);
-        ws_buffer_ref_counts_[buf_idx] -= (ws_count - successful);
-        if (ws_buffer_ref_counts_[buf_idx] <= 0) {
+        int failed = ws_count - successful;
+        if ((int)ws_buffer_ref_counts_[buf_idx] >= failed) {
+            ws_buffer_ref_counts_[buf_idx] -= failed;
+        } else {
             ws_buffer_ref_counts_[buf_idx] = 0;
         }
         portEXIT_CRITICAL(&s_ws_mux);

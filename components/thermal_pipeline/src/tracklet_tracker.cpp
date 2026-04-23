@@ -116,7 +116,8 @@ void TrackletTracker::hungarianMatch(const ThermalPeak* peaks, int numPeaks,
     const int N = (num_active > num_valid) ? num_active : num_valid;
 
     // Matriz de costos (N×N)
-    float cost[HungarianAlgorithm::MAX_N][HungarianAlgorithm::MAX_N];
+    // P14-fix: Mover a static para liberar ~3.6 KB de STACK (evita desbordamientos bajo carga)
+    static float cost[HungarianAlgorithm::MAX_N][HungarianAlgorithm::MAX_N];
     
     // Construir matriz de costos
     for (int i = 0; i < N; i++) {
@@ -131,7 +132,7 @@ void TrackletTracker::hungarianMatch(const ThermalPeak* peaks, int numPeaks,
     }
 
     // Resolver asignación óptima
-    int hungarian_assignment[HungarianAlgorithm::MAX_N];
+    static int hungarian_assignment[HungarianAlgorithm::MAX_N];
     HungarianAlgorithm::solve(cost, N, hungarian_assignment);
 
     // Extraer la asignación válida (rechazar virtuales y celdas INF)
@@ -214,8 +215,13 @@ void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
             ESP_LOGD(TAG, "New track ID=%u at (%.1f, %.1f) temp=%.1f°C",
                      slot->id, slot->pred_x, slot->pred_y, slot->avg_temperature);
         } else {
-            ESP_LOGW(TAG, "Track pool full — peak at (%.1f,%.1f) dropped",
-                     peaks[p].x, peaks[p].y);
+            // P14-fix: Cambiar a LOGD y throttle para evitar saturar el UART (causa I2C Timeout)
+            static uint32_t last_warn_ms = 0;
+            uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if (now - last_warn_ms > 1000) {
+                ESP_LOGW(TAG, "Track pool full — peaks being dropped");
+                last_warn_ms = now;
+            }
         }
     }
 
