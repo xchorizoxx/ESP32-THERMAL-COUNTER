@@ -25,6 +25,10 @@ public:
         CROSS_OUT,      ///< Blue Strobe
     };
 
+    struct RgbColor {
+        uint8_t r, g, b;
+    };
+
     /**
      * @brief Singleton instance access.
      */
@@ -66,7 +70,8 @@ private:
     static void taskWrapper(void* pvParameters);
     void taskLoop();
 
-    void updateHardware(uint8_t r, uint8_t g, uint8_t b, float brightness_pct);
+    void updateHardware(RgbColor color, float state_brightness);
+    void flashColor(RgbColor color, float brightness, int blinks, uint32_t on_ms, uint32_t off_ms);
 
     State    m_state = State::BOOTING;
     uint8_t  m_trackCount = 0;

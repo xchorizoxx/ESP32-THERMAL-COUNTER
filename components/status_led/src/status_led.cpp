@@ -10,17 +10,13 @@ static const char *TAG = "StatusLed";
 #define LED_STRIP_RMT_RES_HZ (10 * 1000 * 1000)
 
 // --- MASTER BRIGHTNESS CONTROL ---
-#define INITIAL_MASTER_BRIGHTNESS 0.8f // <--- MAX BRIGHTNESS
+#define INITIAL_MASTER_BRIGHTNESS 0.8f
 
-// Gamma correction for smoother breathing
+// Gamma correction for smoother visual transitions
 static uint8_t gamma8(uint8_t input) { return (uint32_t)input * input / 255; }
 
-struct RgbColor {
-  uint8_t r, g, b;
-};
-
-// Resistor Color Code Palette (Optimized for low brightness WS2812)
-static const RgbColor kResistorPalette[] = {
+// Resistor Color Code Palette (Optimized for visibility)
+static const StatusLedManager::RgbColor kResistorPalette[] = {
     {40, 40, 40},   // 0: Black/Grey (Smoke)
     {80, 40, 10},   // 1: Brown
     {180, 0, 0},    // 2: Red
@@ -93,8 +89,26 @@ void StatusLedManager::triggerEvent(Event event) {
   }
 }
 
+void StatusLedManager::setMasterBrightness(float brightness) {
+  if (xSemaphoreTake(m_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    m_masterBrightness =
+        brightness > 1.0f ? 1.0f : (brightness < 0.0f ? 0.0f : brightness);
+    xSemaphoreGive(m_mutex);
+  }
+}
+
 void StatusLedManager::taskWrapper(void *pvParameters) {
   static_cast<StatusLedManager *>(pvParameters)->taskLoop();
+}
+
+void StatusLedManager::flashColor(RgbColor color, float brightness, int blinks,
+                                  uint32_t on_ms, uint32_t off_ms) {
+  for (int i = 0; i < blinks; i++) {
+    updateHardware(color, brightness);
+    vTaskDelay(pdMS_TO_TICKS(on_ms));
+    led_strip_clear(s_led_handle);
+    vTaskDelay(pdMS_TO_TICKS(off_ms));
+  }
 }
 
 void StatusLedManager::taskLoop() {
@@ -120,100 +134,71 @@ void StatusLedManager::taskLoop() {
 
     // 2. Handle high-priority events (Strobe)
     if (has_event) {
-      if (event == Event::CROSS_IN)
-        updateHardware(0, 255, 0, 0.30f); // Green Strobe
-      else
-        updateHardware(0, 0, 255, 0.30f); // Blue Strobe
-      vTaskDelay(pdMS_TO_TICKS(50));
-      led_strip_clear(s_led_handle);
-      vTaskDelay(pdMS_TO_TICKS(50));
+      RgbColor strobeColor = (event == Event::CROSS_IN) ? RgbColor{0, 255, 0}
+                                                        : RgbColor{0, 0, 255};
+      flashColor(strobeColor, 0.30f, 1, 50, 50);
+      continue; // Prevent interfering with state machine delays
     }
 
     // 3. Handle persistent states
-    RgbColor color = {0, 0, 0};
-    float brightness = 0.40f;
-    bool blink_pattern = false;
-    int blink_count = 1;
-
     switch (current_state) {
     case State::BOOTING:
-      color = {255, 255, 255}; // Bright White for boot
-      brightness = 1.0f;
+      updateHardware({255, 255, 255}, 1.0f);
+      vTaskDelay(pdMS_TO_TICKS(50));
       break;
 
     case State::TRACKING:
       if (tracks > 0) {
-        uint8_t digit = tracks % 10;
-        color = kResistorPalette[digit];
-        brightness = 0.80f;
+        RgbColor color = kResistorPalette[tracks % 10];
 
-        if (tracks >= 10 && tracks < 20) {
-          blink_pattern = true;
-          blink_count = 2;
-        } else if (tracks >= 20) {
-          color = {255, 0, 0};
-          blink_pattern = true;
-          blink_count = 3;
-          brightness = 1.0f;
+        if (tracks >= 20) {
+          flashColor({255, 0, 0}, 1.0f, 3, 150, 100);
+          vTaskDelay(pdMS_TO_TICKS(800));
+        } else if (tracks >= 10) {
+          flashColor(color, 0.80f, 2, 150, 100);
+          vTaskDelay(pdMS_TO_TICKS(800));
+        } else {
+          updateHardware(color, 0.80f);
+          vTaskDelay(pdMS_TO_TICKS(50));
         }
         break;
       }
-      // If tracks == 0, fall through to IDLE/Breathe logic
+      // Fallthrough to IDLE if tracks == 0
       [[fallthrough]];
 
-    case State::FATAL_ERROR:
-      color = {255, 0, 0}; // Pure Red
-      brightness = 1.0f;
-      blink_pattern = true;
-      blink_count = 3;
-      break;
-
-    case State::IDLE:
-      // Breathing logic for IDLE
-      color = {0, 130, 255}; // Azure Blue
-      brightness =
-          0.10f +
-          0.40f * (0.5f + 0.5f * sinf(tick * 0.05f)); // Standard breathe (6s)
+    case State::IDLE: {
+      // Azure breathe logic
+      float breathe_pct = 0.10f + 0.40f * (0.5f + 0.5f * sinf(tick * 0.05f));
+      updateHardware({0, 130, 255}, breathe_pct);
+      vTaskDelay(pdMS_TO_TICKS(50));
       break;
     }
 
-    // Apply Blinking or Solid
-    if (blink_pattern) {
-      for (int i = 0; i < blink_count; i++) {
-        updateHardware(color.r, color.g, color.b, brightness);
-        vTaskDelay(pdMS_TO_TICKS(150));
-        led_strip_clear(s_led_handle);
-        vTaskDelay(pdMS_TO_TICKS(100));
-      }
-      // Adjust pause to complete the requested cycle
-      // 3 blinks = 750ms. To reach 2000ms cycle, we need 1250ms pause.
-      uint32_t pause = (current_state == State::FATAL_ERROR) ? 1250 : 800;
-      vTaskDelay(pdMS_TO_TICKS(pause));
-    } else {
-      updateHardware(color.r, color.g, color.b, brightness);
-      vTaskDelay(pdMS_TO_TICKS(50));
+    case State::FATAL_ERROR:
+      flashColor({180, 0, 0}, 1.0f, 3, 150, 100);
+      vTaskDelay(pdMS_TO_TICKS(5000));
+      break;
     }
 
     tick++;
   }
 }
 
-void StatusLedManager::updateHardware(uint8_t r, uint8_t g, uint8_t b,
-                                      float brightness_pct) {
-  float final_pct = brightness_pct * m_masterBrightness;
+void StatusLedManager::updateHardware(RgbColor color, float state_brightness) {
+  float final_pct = state_brightness * m_masterBrightness;
 
   auto apply = [&](uint8_t val) -> uint8_t {
     float fval = (float)val * final_pct;
+    // Prevent LEDs from turning off due to float precision at low brightness
     if (fval < 0.5f && val > 0 && final_pct > 0.01f)
       return 1;
     return gamma8((uint8_t)fval);
   };
 
-  uint8_t rs = apply(r);
-  uint8_t gs = apply(g);
-  uint8_t bs = apply(b);
+  uint8_t rs = apply(color.r);
+  uint8_t gs = apply(color.g);
+  uint8_t bs = apply(color.b);
 
-  // Debug log to verify hardware activity during first 10 updates
   static uint32_t log_count = 0;
   if (log_count < 10) {
     log_count++;
