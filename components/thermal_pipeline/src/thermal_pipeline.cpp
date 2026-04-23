@@ -1,6 +1,7 @@
 #include "thermal_pipeline.hpp"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
 #include "fov_correction.hpp"
 #include <cstring>
 #include <cmath>
@@ -46,6 +47,15 @@ ThermalPipeline::ThermalPipeline(Mlx90640Sensor& sensor, QueueHandle_t ipcQueue,
 void ThermalPipeline::init()
 {
     FovCorrection::init(ThermalConfig::SENSOR_HEIGHT_M);
+    
+    // Initial sensor connection attempt to avoid 5s delay in run() loop
+    if (sensor_.init() == ESP_OK) {
+        sensor_initialized_ = true;
+        ESP_LOGI(TAG, "Sensor initialized at startup");
+    } else {
+        ESP_LOGE(TAG, "Sensor NOT found at startup, will retry in background...");
+    }
+
     ESP_LOGI(TAG, "Pipeline initialized (Standard stack: %.1f KB)",
              (float)(sizeof(current_frame_) + sizeof(background_map_) + sizeof(blocking_mask_)) / 1024.0f);
 }
@@ -85,6 +95,19 @@ void ThermalPipeline::run()
             sensor_ok = true;
         } else {
             sensor_initialized_ = false;
+            // Auto-reconnect logic every 5 seconds
+            uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
+            if (now - last_reconnect_ms_ > 5000) {
+                last_reconnect_ms_ = now;
+                ESP_LOGW(TAG, "Sensor disconnected. Attempting auto-reconnect...");
+                if (sensor_.init() == ESP_OK) {
+                    sensor_initialized_ = true;
+                    frame_accumulator_.reset();
+                    noise_filter_.reset();
+                    bg_init_ = false;
+                    ESP_LOGI(TAG, "Sensor auto-reconnected successfully!");
+                }
+            }
         }
 
         if (sensor_ok) {

@@ -87,6 +87,8 @@ private:
     int           num_current_events_ = 0;
 
     uint32_t frame_id_  = 0;
+    uint32_t last_reconnect_ms_ = 0;
     bool     bg_init_   = false;
+    bool     sensor_ok_ = false;
     bool     sensor_initialized_ = false;
 };
