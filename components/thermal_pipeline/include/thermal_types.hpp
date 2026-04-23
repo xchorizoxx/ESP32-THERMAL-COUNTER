@@ -9,6 +9,23 @@
 
 #include <cstring>
 #include <stdint.h>
+#include <stdio.h>
+#include "esp_log.h"
+
+// =========================================================================
+//  [NEW] Full-Line Colorized Logging Macros
+// =========================================================================
+#define LOG_COLOR_CYAN    "\033[0;36m"
+#define LOG_COLOR_MAGENTA "\033[0;35m"
+#define LOG_COLOR_WHITE   "\033[0;37m"
+#define LOG_COLOR_RESET   "\033[0m"
+
+/**
+ * @brief Logs an entire line with a specific ANSI color.
+ * Mimics ESP_LOGI format: I (timestamp) TAG: Message
+ */
+#define ESP_LOG_COLOR(color, tag, format, ...) \
+    printf(color "I (%lu) %s: " format LOG_COLOR_RESET "\n", (unsigned long)esp_log_timestamp(), tag, ##__VA_ARGS__)
 
 /**
  * @brief Segmento de linea de conteo en coordenadas del sensor (0..31 x 0..23).

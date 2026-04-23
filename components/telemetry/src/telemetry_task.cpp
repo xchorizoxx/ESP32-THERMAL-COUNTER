@@ -22,7 +22,8 @@ TelemetryTask::TelemetryTask(QueueHandle_t ipcQueue, UdpTransmitter& udp)
 
 void TelemetryTask::init()
 {
-    ESP_LOGI(TAG, "TelemetryTask initialized (queue=%p)", ipcQueue_);
+    // [MAGENTA] Network-related log (Full line)
+    ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "TelemetryTask initialized (queue=%p)", ipcQueue_);
 }
 
 void TelemetryTask::TaskWrapper(void* pvParameters)
@@ -38,7 +39,8 @@ void TelemetryTask::run()
 {
     static IpcPacket packet; // static: avoids allocating ~1.6 KB on the task stack
 
-    ESP_LOGI(TAG, "Telemetry task started on Core %d", xPortGetCoreID());
+    // [MAGENTA] Network-related log (Full line)
+    ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "Telemetry task started on Core %d", xPortGetCoreID());
 
     while (true) {
         // Block until receiving a packet from the pipeline (Core 1)
@@ -102,13 +104,16 @@ void TelemetryTask::run()
                  packet.telemetry.num_tracks);
 
         // --- Self-Monitoring: Profile Stack & Heap (every 100 packets) ---
+        /* 
         static uint32_t packet_count = 0;
         if (++packet_count >= 100) {
             packet_count = 0;
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI(TAG, "Health: Stack=%u bytes free, Heap=%u bytes free", 
-                     (unsigned int)(hwm * sizeof(StackType_t)),
-                     (unsigned int)esp_get_free_heap_size());
+            // [WHITE] Memory monitoring (Full line, commented)
+            // ESP_LOG_COLOR(LOG_COLOR_WHITE, TAG, "Health: Stack=%u bytes free, Heap=%u bytes free", 
+            //               (unsigned int)(hwm * sizeof(StackType_t)),
+            //               (unsigned int)esp_get_free_heap_size());
         }
+        */
     }
 }

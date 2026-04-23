@@ -123,13 +123,16 @@ void ThermalPipeline::run()
         dispatchIpcPacket(sensor_ok);
 
         // --- Self-Monitoring: Profile Stack High Water Mark (approx every 5s @ 16Hz) ---
+        /*
         static uint32_t monitor_count = 0;
         if (++monitor_count >= 80) {
             monitor_count = 0;
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI(TAG, "Stack High Water Mark: %u words (%u bytes) free", 
-                     (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
+            // [WHITE] Memory monitoring (Full line, commented)
+            // ESP_LOG_COLOR(LOG_COLOR_WHITE, TAG, "Stack High Water Mark: %u words (%u bytes) free", 
+            //               (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
         }
+        */
 
         esp_task_wdt_reset();
         vTaskDelayUntil(&lastWakeTime, period);

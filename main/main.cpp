@@ -99,7 +99,8 @@ extern "C" void app_main(void)
     // -------------------------------------------------------------------------
     // Step 3: WiFi SoftAP
     // -------------------------------------------------------------------------
-    ESP_LOGI(TAG, "Starting SoftAP '%s'...", ThermalConfig::SOFTAP_SSID);
+    // [MAGENTA] Network-related log (Full line)
+    ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "Starting SoftAP '%s'...", ThermalConfig::SOFTAP_SSID);
     ret = WifiSoftAp::init(ThermalConfig::SOFTAP_SSID,
                            ThermalConfig::SOFTAP_PASS,
                            ThermalConfig::SOFTAP_CHANNEL,
@@ -184,6 +185,9 @@ extern "C" void app_main(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "FAILED to initialize UDP Transmitter — aborting");
         return;
+    } else {
+        // [MAGENTA] Network-related log (Full line)
+        ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "UDP Transmitter initialized");
     }
 
     // -------------------------------------------------------------------------
@@ -260,10 +264,9 @@ extern "C" void app_main(void)
 
     StatusLed::set_color(0, 255, 0); // Green when fully booted
 
-    // --- Self-Monitoring: Profile Stack High Water Mark ---
-    UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-    ESP_LOGI(TAG, "=== System operational. app_main HWM: %u words (%u bytes) ===", 
-             (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
+    // [WHITE] Memory monitoring (Full line, commented)
+    // ESP_LOG_COLOR(LOG_COLOR_WHITE, TAG, "=== System operational. app_main HWM: %u words (%u bytes) ===", 
+    //               (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
 
     // app_main() returns here; FreeRTOS tasks run autonomously
 }
