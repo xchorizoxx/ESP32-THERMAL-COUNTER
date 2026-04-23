@@ -93,13 +93,14 @@ void TelemetryTask::run()
                  packet.telemetry.count_out,
                  packet.telemetry.num_tracks);
 
-        // --- Self-Monitoring: Profile Stack High Water Mark (every 100 packets) ---
+        // --- Self-Monitoring: Profile Stack & Heap (every 100 packets) ---
         static uint32_t packet_count = 0;
         if (++packet_count >= 100) {
             packet_count = 0;
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI(TAG, "Stack High Water Mark: %u words (%u bytes) free", 
-                     (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
+            ESP_LOGI(TAG, "Health: Stack=%u bytes free, Heap=%u bytes free", 
+                     (unsigned int)(hwm * sizeof(StackType_t)),
+                     (unsigned int)esp_get_free_heap_size());
         }
     }
 }

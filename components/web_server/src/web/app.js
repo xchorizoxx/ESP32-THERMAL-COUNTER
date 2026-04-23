@@ -311,6 +311,13 @@ function processBinaryFrame(buffer) {
         const sessId    = dv.getUint16(ofs, true);  ofs += 2;  // W3
         const tqual     = dv.getUint8(ofs++);                  // W3
 
+        // W4-FIX: Bounds check before parsing tracks and pixels to avoid RangeError
+        const expectedMin = 14 + (nTracks * 11) + (32 * 24 * 2);
+        if (buffer.byteLength < expectedMin) {
+            logMsg(`Frame truncado: ${buffer.byteLength} < ${expectedMin}`, true);
+            return;
+        }
+
         // W3: Update session/clock if changed
         if (sessId !== sessionId || tqual !== timeQuality) {
             sessionId   = sessId;

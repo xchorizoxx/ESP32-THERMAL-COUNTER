@@ -40,7 +40,7 @@ httpd_handle_t HttpServer::server_ = NULL;
 
 uint8_t HttpServer::ws_buffers_[WS_BUFFER_COUNT][WS_BUFFER_SIZE]
     __attribute__((aligned(4)));
-int HttpServer::ws_buffer_ref_counts_[WS_BUFFER_COUNT] = {0, 0};
+int HttpServer::ws_buffer_ref_counts_[WS_BUFFER_COUNT] = {0};
 
 // =============================================================================
 //  FILE-SCOPE STATE
@@ -60,6 +60,10 @@ static uint8_t   s_time_quality      = HttpServer::TIME_QUALITY_NONE;
 static uint16_t  s_session_id            = 0;
 static int32_t   s_session_baseline_in   = 0; ///< NVS total at last boot (never changes during session)
 static int32_t   s_session_baseline_out  = 0;
+
+// --- W4-FIX: Buffer Watchdog ---
+static uint32_t s_ws_buffer_acquired_ticks[HttpServer::WS_BUFFER_COUNT] = {0};
+static constexpr uint32_t WS_BUFFER_MAX_AGE_TICKS = pdMS_TO_TICKS(5000); // 5 seconds recovery timeout
 
 // --- W6: Counter mirror updated from broadcastFrame, read by timer ---
 // int32_t reads/writes on Xtensa LX7 are atomic for naturally-aligned addresses.
@@ -831,19 +835,40 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
     s_latest_count_in  = (int32_t)tel.count_in;
     s_latest_count_out = (int32_t)tel.count_out;
 
+    // ---- A3: Recover buffers stuck > 5s (watchdog) ----
+    uint32_t now = xTaskGetTickCount();
+    portENTER_CRITICAL(&s_ws_mux);
+    for (int i = 0; i < (int)WS_BUFFER_COUNT; i++) {
+        if (ws_buffer_ref_counts_[i] > 0 &&
+            (now - s_ws_buffer_acquired_ticks[i]) > WS_BUFFER_MAX_AGE_TICKS) {
+            ESP_LOGW(TAG, "Buffer %d stuck for %lu ms, forcing release",
+                     i, pdTICKS_TO_MS(now - s_ws_buffer_acquired_ticks[i]));
+            ws_buffer_ref_counts_[i] = 0;
+        }
+    }
+    portEXIT_CRITICAL(&s_ws_mux);
+
     // ---- Find a free buffer ----
     int buf_idx = -1;
     portENTER_CRITICAL(&s_ws_mux);
     for (int i = 0; i < (int)WS_BUFFER_COUNT; i++) {
         if (ws_buffer_ref_counts_[i] == 0) {
             ws_buffer_ref_counts_[i] = -1; // Mark as "filling"
+            s_ws_buffer_acquired_ticks[i] = now;
             buf_idx = i;
             break;
         }
     }
     portEXIT_CRITICAL(&s_ws_mux);
 
-    if (buf_idx == -1) return; // All buffers busy — skip frame
+    if (buf_idx == -1) {
+        static uint32_t last_skip_log = 0;
+        if (tel.frame_id - last_skip_log > 80) { // Log every ~5s @ 16Hz
+            ESP_LOGW(TAG, "All WS buffers busy — frame skipped");
+            last_skip_log = tel.frame_id;
+        }
+        return;
+    }
 
     // ---- Serialize binary frame ----
     uint8_t *p   = ws_buffers_[buf_idx];

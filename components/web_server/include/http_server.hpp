@@ -30,7 +30,7 @@ public:
      *        W1-2: Increased from 2048 to 4096. A compile-time assert in
      *        http_server.cpp verifies the worst-case frame fits.
      */
-    static constexpr size_t WS_BUFFER_COUNT = 2;
+    static constexpr size_t WS_BUFFER_COUNT = 4;
     static constexpr size_t WS_BUFFER_SIZE  = 4096;
 
     static uint8_t ws_buffers_[WS_BUFFER_COUNT][WS_BUFFER_SIZE];
