@@ -11,5 +11,5 @@ idf_component_register(
          # NOTE: alpha_beta_tracker.cpp is intentionally excluded from SRCS.
          # The file is kept on disk for reference. Remove after A3 is stable.
     INCLUDE_DIRS "include"
-    REQUIRES mlx90640_driver freertos esp_timer
+    REQUIRES mlx90640_driver freertos esp_timer status_led
 )

@@ -54,8 +54,8 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     // Initialize Status LED immediately so we can show boot state
-    StatusLed::init();
-    StatusLed::set_color(0, 0, 255); // Blue during boot
+    StatusLedManager::getInstance().init();
+    StatusLedManager::getInstance().setState(StatusLedManager::State::BOOTING);
 
     // -------------------------------------------------------------------------
     // Step 2: Configure system Watchdog
@@ -262,7 +262,7 @@ extern "C" void app_main(void)
 
 
 
-    StatusLed::set_color(0, 255, 0); // Green when fully booted
+    StatusLedManager::getInstance().setState(StatusLedManager::State::IDLE);
 
     // [WHITE] Memory monitoring (Full line, commented)
     // ESP_LOG_COLOR(LOG_COLOR_WHITE, TAG, "=== System operational. app_main HWM: %u words (%u bytes) ===", 

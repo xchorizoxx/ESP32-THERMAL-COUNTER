@@ -3,6 +3,7 @@
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "fov_correction.hpp"
+#include "status_led.hpp"
 #include <cstring>
 #include <cmath>
 
@@ -93,8 +94,11 @@ void ThermalPipeline::run()
         bool sensor_ok = false;
         if (sensor_initialized_ && (sensor_.readFrame(current_frame_) == ESP_OK)) {
             sensor_ok = true;
+            StatusLedManager::getInstance().setState(StatusLedManager::State::TRACKING);
         } else {
             sensor_initialized_ = false;
+            StatusLedManager::getInstance().setState(StatusLedManager::State::FATAL_ERROR);
+            
             // Auto-reconnect logic every 5 seconds
             uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
             if (now - last_reconnect_ms_ > 5000) {
@@ -104,6 +108,7 @@ void ThermalPipeline::run()
                     sensor_initialized_ = true;
                     resetVisionState();
                     ESP_LOGI(TAG, "Sensor auto-reconnected successfully!");
+                    StatusLedManager::getInstance().setState(StatusLedManager::State::TRACKING);
                 }
             }
         }
@@ -276,7 +281,17 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
     packet.telemetry.num_events = (uint8_t)num_current_events_;
     for (int i = 0; i < num_current_events_; i++) {
         packet.telemetry.events[i] = current_events_[i];
+        
+        // Trigger LED Event for visual feedback
+        if (current_events_[i].is_in) {
+            StatusLedManager::getInstance().triggerEvent(StatusLedManager::Event::CROSS_IN);
+        } else {
+            StatusLedManager::getInstance().triggerEvent(StatusLedManager::Event::CROSS_OUT);
+        }
     }
+
+    // Update LED Track Count display
+    StatusLedManager::getInstance().setTrackCount(packet.telemetry.num_tracks);
     
     // Final image dispatch:
     // - Normal mode (VIEW_MODE=0): composed_frame_ (fused, faithful to sensor)

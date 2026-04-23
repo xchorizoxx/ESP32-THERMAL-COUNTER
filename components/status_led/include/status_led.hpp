@@ -1,18 +1,73 @@
 #pragma once
+
 #include <stdint.h>
-
-namespace StatusLed {
-/**
- * @brief Initialize the WS2812 RGB LED on GPIO 48
- */
-void init();
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 
 /**
- * @brief Set LED color with global brightness limit
- * @param r Red (0-255)
- * @param g Green (0-255)
- * @param b Blue (0-255)
- * @param brightness Percentage 0-100 (Default: 30 to protect eyes/OTG)
+ * @brief Manager for the system status LED (WS2812).
+ * 
+ * Handles background animations (breathing, blinking) and 
+ * high-priority event strobes (IN/OUT crossings).
  */
-void set_color(uint8_t r, uint8_t g, uint8_t b, uint8_t brightness = 10);
-} // namespace StatusLed
+class StatusLedManager {
+public:
+    enum class State {
+        BOOTING,
+        IDLE,           ///< 0 tracks: Breathing Cyan/White
+        TRACKING,       ///< 1-20 tracks: Resistor code + blink pattern
+        FATAL_ERROR,    ///< Sensor/I2C Fail: Breathing Red
+    };
+
+    enum class Event {
+        CROSS_IN,       ///< Green Strobe
+        CROSS_OUT,      ///< Blue Strobe
+    };
+
+    /**
+     * @brief Singleton instance access.
+     */
+    static StatusLedManager& getInstance();
+
+    /**
+     * @brief Initialize hardware and start background task.
+     */
+    void init();
+
+    /**
+     * @brief Set the global system state.
+     */
+    void setState(State state);
+
+    /**
+     * @brief Update the number of active tracks to display.
+     * @param count 0 to 20
+     */
+    void setTrackCount(uint8_t count);
+
+    /**
+     * @brief Trigger a high-priority visual event (strobe).
+     */
+    void triggerEvent(Event event);
+
+private:
+    StatusLedManager() = default;
+    ~StatusLedManager() = default;
+    StatusLedManager(const StatusLedManager&) = delete;
+    StatusLedManager& operator=(const StatusLedManager&) = delete;
+
+    static void taskWrapper(void* pvParameters);
+    void taskLoop();
+
+    void updateHardware(uint8_t r, uint8_t g, uint8_t b, float brightness_pct);
+
+    State    m_state = State::BOOTING;
+    uint8_t  m_trackCount = 0;
+    Event    m_pendingEvent = (Event)-1;
+    bool     m_hasEvent = false;
+    
+    SemaphoreHandle_t m_mutex = nullptr;
+    TaskHandle_t      m_taskHandle = nullptr;
+    bool              m_initialized = false;
+};
