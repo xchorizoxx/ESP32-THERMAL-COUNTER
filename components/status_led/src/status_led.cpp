@@ -10,7 +10,7 @@ static const char *TAG = "StatusLed";
 #define LED_STRIP_RMT_RES_HZ  (10 * 1000 * 1000)
 
 // --- MASTER BRIGHTNESS CONTROL ---
-#define INITIAL_MASTER_BRIGHTNESS  0.50f  // <--- SET TO 50% AS REQUESTED
+#define INITIAL_MASTER_BRIGHTNESS  1.0f  // <--- MAX BRIGHTNESS
 
 // Gamma correction for smoother breathing
 static uint8_t gamma8(uint8_t input) {
@@ -68,7 +68,7 @@ void StatusLedManager::init() {
     m_mutex = xSemaphoreCreateMutex();
     m_masterBrightness = INITIAL_MASTER_BRIGHTNESS;
     
-    xTaskCreatePinnedToCore(taskWrapper, "status_led_task", 3072, this, tskIDLE_PRIORITY + 1, &m_taskHandle, 0);
+    xTaskCreatePinnedToCore(taskWrapper, "status_led_task", 3072, this, configMAX_PRIORITIES - 3, &m_taskHandle, 0);
 
     m_initialized = true;
 }
@@ -131,44 +131,41 @@ void StatusLedManager::taskLoop() {
 
         // 3. Handle persistent states
         RgbColor color = {0, 0, 0};
-        float brightness = 0.15f; // Increased from 5% to 15%
+        float brightness = 0.40f; 
         bool blink_pattern = false;
         int  blink_count = 1;
 
         switch (current_state) {
             case State::BOOTING:
-                color = {0, 0, 255}; // Blue
-                brightness = 0.25f;
+                color = {255, 255, 255}; // Bright White for boot
+                brightness = 1.0f;
                 break;
 
             case State::IDLE:
-                color = {0, 255, 255}; // Cyan/Teal
-                brightness = 0.05f + 0.10f * (0.5f + 0.5f * sinf(tick * 0.05f)); // 5% to 15% breathe
-                break;
-
             case State::FATAL_ERROR:
-                color = {255, 0, 0}; // Red
-                brightness = 0.10f + 0.20f * (0.5f + 0.5f * sinf(tick * 0.05f)); // 10% to 30% breathe
-                break;
-
             case State::TRACKING:
-                if (tracks == 0) {
-                    color = {0, 255, 255};
-                    brightness = 0.05f;
-                } else {
+                if (current_state == State::TRACKING && tracks > 0) {
                     uint8_t digit = tracks % 10;
                     color = kResistorPalette[digit];
-                    brightness = 0.15f;
+                    brightness = 0.80f;
                     
                     if (tracks >= 10 && tracks < 20) {
                         blink_pattern = true;
                         blink_count = 2;
                     } else if (tracks >= 20) {
-                        color = {255, 0, 0}; // Critical
+                        color = {255, 0, 0}; 
                         blink_pattern = true;
                         blink_count = 3;
-                        brightness = 0.30f;
+                        brightness = 1.0f;
                     }
+                } else {
+                    // IDLE, ERROR or TRACKING with 0: Breathing
+                    if (current_state == State::FATAL_ERROR) {
+                        color = {255, 0, 0}; // Red breathe
+                    } else {
+                        color = {0, 255, 255}; // Cyan breathe
+                    }
+                    brightness = 0.20f + 0.60f * (0.5f + 0.5f * sinf(tick * 0.05f)); // 20% to 80%
                 }
                 break;
         }
@@ -196,7 +193,7 @@ void StatusLedManager::updateHardware(uint8_t r, uint8_t g, uint8_t b, float bri
     
     auto apply = [&](uint8_t val) -> uint8_t {
         float fval = (float)val * final_pct;
-        if (fval < 0.5f && val > 0 && final_pct > 0.01f) return 1; // Force minimum 1 for visibility
+        if (fval < 0.5f && val > 0 && final_pct > 0.01f) return 1; 
         return gamma8((uint8_t)fval);
     };
 
@@ -204,6 +201,16 @@ void StatusLedManager::updateHardware(uint8_t r, uint8_t g, uint8_t b, float bri
     uint8_t gs = apply(g);
     uint8_t bs = apply(b);
 
+    // Debug log to verify hardware activity during first 10 updates
+    static uint32_t log_count = 0;
+    if (log_count < 10) {
+        log_count++;
+        ESP_LOGI(TAG, "LED Update #%lu: R=%d G=%d B=%d (Master: %.2f)", (unsigned long)log_count, rs, gs, bs, m_masterBrightness);
+    }
+
     led_strip_set_pixel(s_led_handle, 0, rs, gs, bs);
-    led_strip_refresh(s_led_handle);
+    esp_err_t err = led_strip_refresh(s_led_handle);
+    if (err != ESP_OK && log_count < 20) {
+        ESP_LOGE(TAG, "Failed to refresh LED: %s", esp_err_to_name(err));
+    }
 }
