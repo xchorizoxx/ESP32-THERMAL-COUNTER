@@ -695,6 +695,14 @@ function applyConfig(obj) {
     setEl('lbl-nvs-counts', `In:${nvsBaseIn} Out:${nvsBaseOut}`);
     updateClockBadge();
 
+    // W-C1: Hardware health indicators
+    const rtcOk = obj.rtc_ok ?? false;
+    const sdOk  = obj.sd_ok  ?? false;
+    setDot('dot-rtc', rtcOk ? 'green' : 'gray');
+    setDot('dot-rtc-top', rtcOk ? 'green' : 'gray');
+    setDot('dot-sd-top',  sdOk  ? 'green' : 'gray');
+    setEl('lbl-rtc-status', rtcOk ? (obj.rtc_time ? `DS3231: ${obj.rtc_time}` : 'DS3231 conectado') : 'DS3231 no detectado');
+
     if (obj.lines && Array.isArray(obj.lines)) { userLines = obj.lines; updateLineList(); }
 
     // Vision mode button
@@ -710,13 +718,16 @@ function applyStatus(obj) {
     timeQuality = obj.time_quality  ?? timeQuality;
     nvsBaseIn   = obj.nvs_base_in  ?? nvsBaseIn;
     nvsBaseOut  = obj.nvs_base_out ?? nvsBaseOut;
-    updateClockBadge();
     setEl('lbl-session-id',        sessionId);
     setEl('lbl-nvs-counts', `In:${nvsBaseIn} Out:${nvsBaseOut}`);
-    // W8 stub: RTC presence
-    const rtcPresent = obj.rtc_present ?? false;
-    setDot('dot-rtc', rtcPresent ? 'green' : 'gray');
-    setEl('lbl-rtc-status', rtcPresent ? 'DS3231 conectado' : 'DS3231 no detectado');
+    
+    // W-C1: Hardware health indicators
+    const rtcOk = obj.rtc_ok ?? false;
+    const sdOk  = obj.sd_ok  ?? false;
+    setDot('dot-rtc', rtcOk ? 'green' : 'gray');
+    setDot('dot-rtc-top', rtcOk ? 'green' : 'gray');
+    setDot('dot-sd-top',  sdOk  ? 'green' : 'gray');
+    setEl('lbl-rtc-status', rtcOk ? (obj.rtc_time ? `DS3231: ${obj.rtc_time}` : 'DS3231 conectado') : 'DS3231 no detectado');
 }
 
 // Input range → send to ESP on 'change' (not oninput)

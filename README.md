@@ -14,6 +14,9 @@ Embedded person counting system using thermal vision (32×24 pixels). Zero optic
 | Tracking | TrackletTracker with 20-frame circular history (Stage A2) |
 | Counting | TrackletFSM with configurable line segments (Stage A3) |
 | Interface | Web UI via SoftAP (192.168.4.1) |
+| Storage | MicroSD (FATFS on SPI2) |
+| Real Time Clock | RTC DS3231 (I2C1) with battery backup |
+| Flash | 16MB (4MB App Partitions) |
 | Updates | OTA via `/update` endpoint |
 
 ## Software Architecture
@@ -30,8 +33,10 @@ Embedded person counting system using thermal vision (32×24 pixels). Zero optic
 
 [Core 0] TelemetryTask + HTTP Server (priority 2-5)
   ├── WiFi SoftAP "ThermalCounter"
-  ├── USB Network (RNDIS/ECM)
-  └── Browser WebSocket (16 FPS)
+  ├── Binary WebSocket (16 FPS)
+  ├── RTC Driver (DS3231 vs Soft-clock Sync)
+  ├── SD Manager (CSV Event Logging on MicroSD)
+  └── Health Monitor (Real-time HW status)
 
 IPC: FreeRTOS Queue (depth 4, static allocation)
 ```
@@ -93,8 +98,14 @@ Algorithm details: [`docs/ALGORITHM.md`](docs/ALGORITHM.md)
 |----------|----------|------|
 | VCC | 3.3V | Stable LDO required (150mA peak with WiFi) |
 | GND | GND | Short ground path |
-| SDA | GPIO 8 | 1kΩ-2.2kΩ pull-up for 400kHz |
-| SCL | GPIO 9 | 1kΩ-2.2kΩ pull-up for 400kHz |
+| SDA (I2C0) | GPIO 8 | Thermal Sensor |
+| SCL (I2C0) | GPIO 9 | Thermal Sensor |
+| SDA (I2C1) | GPIO 1 | RTC DS3231 |
+| SCL (I2C1) | GPIO 2 | RTC DS3231 |
+| SD MOSI | GPIO 11 | MicroSD (SPI2) |
+| SD MISO | GPIO 13 | MicroSD (SPI2) |
+| SD SCK | GPIO 12 | MicroSD (SPI2) |
+| SD CS | GPIO 14 | MicroSD (SPI2) |
 
 Full pinout: [`docs/HARDWARE.md`](docs/HARDWARE.md)
 
@@ -142,7 +153,8 @@ Operations guide: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
 ## Changelog
 
-- **Stage A3** (Current): TrackletFSM with configurable line segments, debounce logic
+- **Stage C1/D1** (Current): RTC (DS3231) and MicroSD (FATFS) support. 16MB Flash. Web Diagnostics.
+- **Stage A3**: TrackletFSM with configurable line segments, debounce logic
 - **Stage A2**: TrackletTracker (20-frame history, composite matching, proportional memory)
 - **Stage A1**: Kalman filter per pixel, Chess accumulator, staged pipeline
 - **Stage A0**: Initial MVP

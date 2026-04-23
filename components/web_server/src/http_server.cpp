@@ -25,12 +25,19 @@
 #include "esp_system.h"
 #include "esp_app_format.h"
 #include "fov_correction.hpp"
+#include "rtc_driver.hpp"
+#include "sd_manager.hpp"
+#include "thermal_config.hpp"
 #include <string.h>
 #include <inttypes.h>
 #include <sys/param.h>
 
 static const char *TAG    = "HTTP_SERVER";
 static const char *NVS_NS = "thcfg";  ///< NVS namespace for thermal config
+
+// Access to global hardware instances
+extern RTCDriver g_rtc;
+extern SDManager g_sd;
 
 // =============================================================================
 //  STATIC MEMBER DEFINITIONS
@@ -521,13 +528,23 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
         uint64_t uptime_ms = (uint64_t)(esp_timer_get_time() / 1000LL);
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddStringToObject(resp, "type",         "status");
-        cJSON_AddBoolToObject  (resp, "rtc_present",  false);   // W8: DS3231 driver replaces this
+        cJSON_AddBoolToObject  (resp, "rtc_ok",       g_rtc.isAvailable());
+        cJSON_AddBoolToObject  (resp, "sd_ok",        g_sd.isMounted());
         cJSON_AddNumberToObject(resp, "session_id",   (double)s_session_id);
         cJSON_AddNumberToObject(resp, "time_quality", (double)s_time_quality);
         cJSON_AddNumberToObject(resp, "nvs_base_in",  (double)s_session_baseline_in);
         cJSON_AddNumberToObject(resp, "nvs_base_out", (double)s_session_baseline_out);
-        // uptime_ms as two numbers (JS safe integer is 2^53)
         cJSON_AddNumberToObject(resp, "uptime_ms",    (double)uptime_ms);
+        
+        if (g_rtc.isAvailable()) {
+            RTCDriver::DateTime dt;
+            if (g_rtc.getTime(dt) == ESP_OK) {
+                char iso[32];
+                dt.toISO(iso, sizeof(iso));
+                cJSON_AddStringToObject(resp, "rtc_time", iso);
+            }
+        }
+        
         wsSendJson(req, resp);
         cJSON_Delete(resp);
     }
@@ -686,6 +703,15 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_p
             xQueueSend(s_configQueue, &cfgCmd, 0);
         }
         ESP_LOGI(TAG, "RETRY_SENSOR requested");
+    }
+    else if (strcmp(cmdStr, "RETRY_RTC") == 0) {
+        g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN, (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
+        ESP_LOGI(TAG, "RETRY_RTC requested");
+    }
+    else if (strcmp(cmdStr, "RETRY_SD") == 0) {
+        g_sd.init((gpio_num_t)ThermalConfig::SD_MOSI_PIN, (gpio_num_t)ThermalConfig::SD_MISO_PIN,
+                  (gpio_num_t)ThermalConfig::SD_SCK_PIN, (gpio_num_t)ThermalConfig::SD_CS_PIN);
+        ESP_LOGI(TAG, "RETRY_SD requested");
     }
 
     cJSON_Delete(root);

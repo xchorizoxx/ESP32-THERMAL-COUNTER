@@ -23,7 +23,9 @@ For cables >15cm between ESP32 and sensor:
 |-----------|-----------------|--------------|
 | MLX90640 | 23mA | 25mA |
 | ESP32-S3 (WiFi active) | 80mA | 150mA |
-| **Total system** | **~120mA** | **~180mA** |
+| MicroSD Card (Writing) | 15mA | 50mA |
+| DS3231 RTC | <1mA | 1mA |
+| **Total system** | **~135mA** | **~225mA** |
 
 ## Sensor Characteristics
 
@@ -62,10 +64,16 @@ Project configured at **400kHz (Fast Mode)**:
 
 | GPIO | Function | ESP32-S3 Pin | Peripheral | Function |
 | :--- | :--- | :--- |
-| GPIO 8 | MLX90640 | I2C SDA (Fast-Mode Plus 1MHz) |
-| GPIO 9 | MLX90640 | I2C SCL (Fast-Mode Plus 1MHz) |
+| GPIO 8 | MLX90640 | I2C0 SDA | Thermal Sensor |
+| GPIO 9 | MLX90640 | I2C0 SCL | Thermal Sensor |
+| GPIO 1 | DS3231 | I2C1 SDA | Real Time Clock |
+| GPIO 2 | DS3231 | I2C1 SCL | Real Time Clock |
+| GPIO 11 | MicroSD | SPI2 MOSI | Storage |
+| GPIO 13 | MicroSD | SPI2 MISO | Storage |
+| GPIO 12 | MicroSD | SPI2 SCK | Storage |
+| GPIO 14 | MicroSD | SPI2 CS | Storage |
 | GPIO 0 | BOOT Button | Hold 2s for USB Network Activation |
-| GPIO 48 | RGB LED | WS2812 System Status Indicator |
+| GPIO 48 | RGB LED | WS2812 Status |
 | 5V / GND | ALL | Shared Power Supply |
 
 ---
@@ -82,16 +90,18 @@ The ESP32-S3 built-in NeoPixel (GPIO 48) provides real-time feedback of the syst
   - This mode allows you to view the web dashboard via a USB cable connected to your PC, without disconnecting from your local WiFi.
 
 ### RTC (DS3231)
-- Same I2C bus (GPIO 8/9)
-- Address: 0x68 (MLX90640 uses 0x33, no conflict)
-- Use `MLX90640_GetBusHandle()` to share bus
+- Dedicated I2C1 bus (GPIO 1/2) to avoid clock-stretching issues from the sensor
+- Address: 0x68
+- Battery backup (CR1220) for time persistence during power loss
 
 ### MicroSD (SPI)
+- Bus: SPI2 (Shared with future peripherals if needed)
 - MOSI: GPIO 11
 - MISO: GPIO 13  
 - SCK: GPIO 12
-- CS: GPIO 4 (configurable)
-- Requires `esp_vfs_fat` for filesystem
+- CS: GPIO 14
+- Formatted as FAT32 (up to 32GB supported natively)
+- Mount point: `/sdcard`
 
 ### OV2640 Camera (Optional)
 - Not implemented in current version

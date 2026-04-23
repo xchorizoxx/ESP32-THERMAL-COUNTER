@@ -28,6 +28,12 @@
             <div class="badge" id="badge-sensor" title="Sensor MLX90640">
                 <div class="dot gray" id="dot-sensor"></div>
             </div>
+            <div class="badge" id="badge-rtc-top" title="Reloj RTC DS3231">
+                <div class="dot gray" id="dot-rtc-top"></div>
+            </div>
+            <div class="badge" id="badge-sd-top" title="Tarjeta MicroSD">
+                <div class="dot gray" id="dot-sd-top"></div>
+            </div>
             <div class="badge" title="FPS">
                 <span id="lbl-fps">0 Hz</span>
             </div>
@@ -343,7 +349,15 @@
                     <h3>Acciones del Sistema</h3>
                     <button class="btn-warn" style="margin-bottom:10px;"
                             onclick="appCmd('RETRY_SENSOR')">
-                        ↺ Reiniciar Sensor I2C
+                        ↺ Reconectar Sensor Térmico
+                    </button>
+                    <button class="btn-warn" style="margin-bottom:10px;"
+                            onclick="appCmd('RETRY_RTC')">
+                        ↺ Reconectar Reloj RTC
+                    </button>
+                    <button class="btn-warn" style="margin-bottom:10px;"
+                            onclick="appCmd('RETRY_SD')">
+                        ↺ Reconectar Tarjeta SD
                     </button>
                     <button class="btn-danger" onclick="rebootEsp()">
                         ⚡ Reboot ESP32

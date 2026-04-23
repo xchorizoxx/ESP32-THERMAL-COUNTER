@@ -29,10 +29,14 @@
 
 #include "status_led.hpp"
 #include "driver/gpio.h"
+#include "rtc_driver.hpp"
+#include "sd_manager.hpp"
 
 static const char* TAG = "MAIN";
 
-
+// Global instances for Web Server access
+RTCDriver g_rtc;
+SDManager g_sd;
 
 extern "C" void app_main(void)
 {
@@ -62,6 +66,35 @@ extern "C" void app_main(void)
         .trigger_panic  = true    // Restart in case of WDT trigger
     };
     ESP_ERROR_CHECK(esp_task_wdt_reconfigure(&wdtCfg));
+
+    // -------------------------------------------------------------------------
+    // Step 2.1: MicroSD Storage
+    // -------------------------------------------------------------------------
+    ret = g_sd.init((gpio_num_t)ThermalConfig::SD_MOSI_PIN,
+                    (gpio_num_t)ThermalConfig::SD_MISO_PIN,
+                    (gpio_num_t)ThermalConfig::SD_SCK_PIN,
+                    (gpio_num_t)ThermalConfig::SD_CS_PIN);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Storage system ready (SD card mounted)");
+    } else {
+        ESP_LOGW(TAG, "Storage system UNAVAILABLE (No SD card found)");
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 2.2: Real Time Clock (DS3231 on I2C1)
+    // -------------------------------------------------------------------------
+    ret = g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
+                     (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
+    if (ret == ESP_OK) {
+        RTCDriver::DateTime dt;
+        if (g_rtc.getTime(dt) == ESP_OK) {
+            char iso[32];
+            dt.toISO(iso, sizeof(iso));
+            ESP_LOGI(TAG, "RTC Time synchronized: %s", iso);
+        }
+    } else {
+        ESP_LOGW(TAG, "RTC system UNAVAILABLE (Using relative system ticks)");
+    }
 
     // -------------------------------------------------------------------------
     // Step 3: WiFi SoftAP

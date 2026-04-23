@@ -15,14 +15,14 @@ Dual-core embedded system for person counting using Melexis MLX90640 thermal sen
 ├──────────────────────────┼──────────────────────────────────┤
 │  ThermalPipeline         │  TelemetryTask                   │
 │  ├── MLX90640 Driver     │  ├── SoftAP "ThermalCounter"     │
-│  │   └── I2C 400kHz     │  ├── HTTP Server                 │
-│  ├── FrameAccumulator    │  │   ├── WebSocket (binary)      │
-│  ├── NoiseFilter         │  │   └── REST API                │
-│  ├── BackgroundModel     │  └── UDP Broadcast (optional)    │
-│  ├── PeakDetector        │                                  │
-│  ├── NmsSuppressor       │  FreeRTOS Queue (IPC)            │
-│  ├── TrackletTracker     │  └───────────────────────────────┘
-│  └── TrackletFSM         │
+│  │   └── I2C 400kHz      │  ├── RTCDriver (I2C1)            │
+│  ├── FrameAccumulator    │  ├── SDManager (SPI2)            │
+│  ├── NoiseFilter         │  ├── HTTP Server                 │
+│  ├── BackgroundModel     │  │   ├── WebSocket (binary)      │
+│  ├── PeakDetector        │  │   └── REST API                │
+│  ├── NmsSuppressor       │  └── Health Monitor              │
+│  ├── TrackletTracker     │                                  │
+│  └── TrackletFSM         │  FreeRTOS Queue (IPC)            │
 └──────────────────────────┴──────────────────────────────────┘
 ```
 
@@ -57,8 +57,10 @@ The MLX90640 is driven at **1,000,000 Hz** with 1kΩ pull-up resistors. This all
 | :--- | :--- | :--- |
 | **UsbNetwork** | TinyUSB (ECM/RNDIS) bridge for Ethernet-over-USB. | 0 |
 | **StatusLed** | System state visual indicator (NeoPixel RMT). | Any |
-| **HttpServer** | Web UI host and API handler. | 0 |
+| **HttpServer** | Web UI host and API handler. Health reporting. | 0 |
 | **WifiSoftAp** | WiFi access point management. | 0 |
+| **RTCDriver** | DS3231 management. Fallback to system ticks. | 0 |
+| **SDManager** | FATFS mounting on SPI2. CSV logging. | 0 |
 
 
 ---
@@ -80,9 +82,26 @@ Manages communications without interfering with vision pipeline.
 - **WebSocket**: Binary frames ~1.5 KB @ 16 FPS
 - **UDP**: Optional telemetry broadcast (port 4210)
 - **OTA**: POST `/update` endpoint for firmware updates
+- **Health**: Real-time status reporting of I2C/SPI peripherals
 
-## Memory Management
+## Persistence & Timekeeping (Stage C1/D1)
 
+### 1. Real-Time Clock (RTC)
+The `RTCDriver` manages a DS3231 on a dedicated I2C1 bus (GPIO 1/2). 
+- **Time Sync**: At boot, the system attempts to sync the internal ESP32 clock with the RTC.
+- **Fallback**: If RTC is missing, the system uses "Relative Ticks" and flags `time_quality` as 0. 
+- **Web Sync**: The browser can push its local time to the RTC via the WebSocket `SET_TIME` command.
+
+### 2. Storage & Logging (SD Card)
+The `SDManager` handles a MicroSD card on SPI2 (GPIO 11-14).
+- **FileSystem**: Formatted as FAT32.
+- **Events**: Every counting event detected by `TrackletFSM` is serialized to a CSV file in `/logs/YYYY-MM-DD.csv`.
+- **Integrity**: Files are opened, appended, and closed immediately to prevent data loss on power failure.
+
+### 3. Flash Memory (16MB)
+The project is configured for **16MB Octal/Quad Flash**.
+- **Partitions**: Each application partition (`factory`, `ota_0`, `ota_1`) is allocated **4MB** to allow for large vision assets and future VGA integration.
+- **NVS**: Non-Volatile Storage is used for algorithm parameters and cumulative counter mirrors.
 **Total static allocation policy:**
 
 - Task stacks pre-allocated at compile time (`xTaskCreateStatic`)
