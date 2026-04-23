@@ -35,6 +35,9 @@ public:
     int update(TrackletTracker& tracker, int& countIn, int& countOut, 
                CrossingEvent* outEvents, int maxEvents);
 
+    /** @brief Clears FSM memory for all tracks. */
+    void reset();
+
 private:
     struct FsmMemory {
         uint8_t  id;             // Tracklet ID

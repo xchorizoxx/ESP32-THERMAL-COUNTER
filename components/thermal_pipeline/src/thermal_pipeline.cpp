@@ -102,9 +102,7 @@ void ThermalPipeline::run()
                 ESP_LOGW(TAG, "Sensor disconnected. Attempting auto-reconnect...");
                 if (sensor_.init() == ESP_OK) {
                     sensor_initialized_ = true;
-                    frame_accumulator_.reset();
-                    noise_filter_.reset();
-                    bg_init_ = false;
+                    resetVisionState();
                     ESP_LOGI(TAG, "Sensor auto-reconnected successfully!");
                 }
             }
@@ -184,10 +182,8 @@ void ThermalPipeline::processConfigQueue()
             case ConfigCmdType::RETRY_SENSOR:
                 if (sensor_.init() == ESP_OK) {
                     sensor_initialized_ = true;
-                    frame_accumulator_.reset();  // A1 fix: reset chess compositor
-                    noise_filter_.reset();        // A1 fix: reset Kalman filter
-                    bg_init_ = false;             // force background re-initialization
-                    ESP_LOGI(TAG, "Sensor re-initialized -- accumulator and filter reset");
+                    resetVisionState();
+                    ESP_LOGI(TAG, "Sensor re-initialized manually");
                 }
                 break;
             default: break;
@@ -292,4 +288,15 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
     packet.image.frame_id = packet.telemetry.frame_id;
 
     xQueueSend(ipcQueue_, &packet, 0);
+}
+
+void ThermalPipeline::resetVisionState()
+{
+    frame_accumulator_.reset();
+    noise_filter_.reset();
+    tracker_.reset();
+    door_fsm_.reset();
+    bg_init_ = false;
+    memset(blocking_mask_, 0, sizeof(blocking_mask_));
+    ESP_LOGW(TAG, "Full vision pipeline state reset");
 }

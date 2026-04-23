@@ -164,6 +164,9 @@ public:
     const Tracklet* getTracks()         const { return tracks_; }
     int             getMaxTracks()      const { return ThermalConfig::MAX_TRACKS; }
 
+    /** @brief Clears all tracks and resets ID counter. */
+    void reset();
+
     /**
      * @brief P03-fix: Establece el zone_state de un track por ID.
      *

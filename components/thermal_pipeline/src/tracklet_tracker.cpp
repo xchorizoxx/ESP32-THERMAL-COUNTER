@@ -16,12 +16,19 @@ static const char* TAG = "TRACKLET";
 //  Constructor
 // =========================================================================
 
-TrackletTracker::TrackletTracker() : next_id_(1)
+TrackletTracker::TrackletTracker() 
 {
+    reset();
+}
+
+void TrackletTracker::reset()
+{
+    next_id_ = 1;
     memset(tracks_, 0, sizeof(tracks_));
     for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
         tracks_[i].active = false;
     }
+    ESP_LOGI(TAG, "Tracker reset complete");
 }
 
 // =========================================================================

@@ -6,7 +6,13 @@
 
 static const char* TAG = "TRACK_FSM";
 
-TrackletFSM::TrackletFSM() {
+TrackletFSM::TrackletFSM()
+{
+    reset();
+}
+
+void TrackletFSM::reset()
+{
     memset(states_, 0, sizeof(states_));
 }
 

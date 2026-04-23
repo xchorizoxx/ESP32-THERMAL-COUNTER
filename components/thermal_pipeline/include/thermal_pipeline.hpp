@@ -56,6 +56,7 @@ private:
     void processConfigQueue();
     void runVisionPipeline();
     void dispatchIpcPacket(bool sensor_ok);
+    void resetVisionState();
 
     Mlx90640Sensor& sensor_;
     QueueHandle_t   ipcQueue_;
