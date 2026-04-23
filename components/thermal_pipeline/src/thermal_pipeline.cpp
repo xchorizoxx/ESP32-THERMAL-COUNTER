@@ -222,7 +222,7 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
 {
     // --- DISPATCH: Build IpcPacket ---
     static IpcPacket packet; // static: reduces stack usage ( ~1.6 KB )
-    memset(&packet, 0, sizeof(IpcPacket)); // Safety: zero-init
+    memset(&packet, 0, sizeof(packet)); // W4-FIX: Ensure clean slate for each frame
     
     packet.sensor_ok              = sensor_ok;
     packet.telemetry.frame_id     = frame_id_;

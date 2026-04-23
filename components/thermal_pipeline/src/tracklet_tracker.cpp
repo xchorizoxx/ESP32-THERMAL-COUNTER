@@ -279,7 +279,7 @@ void TrackletTracker::fillTrackArray(Track* out, int* out_count) const
         t.y        = tracks_[i].display_y;
         t.active   = true;
         t.state_y  = tracks_[i].zone_state;
-        t.peak_temp = tracks_[i].peak_temp; // W4
+        t.peak_temp = tracks_[i].avg_temperature; // W4: Using EMA-smoothed temperature as approved in plan
         t.age      = tracks_[i].missed;  // Exposes "coasting" frames
 
         // Velocity: media de las últimas min(count,4) muestras del historial.
