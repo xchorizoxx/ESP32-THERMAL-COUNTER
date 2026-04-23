@@ -52,7 +52,7 @@ void StatusLedManager::init() {
   led_strip_rmt_config_t rmt_config = {.clk_src = RMT_CLK_SRC_DEFAULT,
                                        .resolution_hz = LED_STRIP_RMT_RES_HZ,
                                        .mem_block_symbols = 64,
-                                       .flags = {.with_dma = false}};
+                                       .flags = {.with_dma = true}};
 
   ESP_ERROR_CHECK(
       led_strip_new_rmt_device(&strip_config, &rmt_config, &s_led_handle));
