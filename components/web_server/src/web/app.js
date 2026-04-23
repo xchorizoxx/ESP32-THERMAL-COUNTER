@@ -49,8 +49,10 @@ let nvsBaseOut  = 0;
 
 // W5: Event log
 let crossingEvents = [];
-let prevCountIn    = -1;
-let prevCountOut   = -1;
+let lastCountIn     = 0;
+let lastCountOut    = 0;
+let lastActiveTracks = 0;
+let lastAmbientTemp  = 25.0;
 
 // Line editor
 let userLines      = [];
@@ -269,6 +271,12 @@ function connectWebSocket() {
                 else if (obj.type === 'status')  applyStatus(obj);
                 else if (obj.type === 'config_saved')
                     logMsg(`Flash: ${obj.ok ? 'guardado OK' : 'ERROR'}`);
+                else if (obj.type === 'crossing') {
+                    // W4-CSV: Recorded precisely from ESP32 FSM trigger with snapshot counts
+                    recordEvent(obj.dir, obj.cnt_in, obj.cnt_out, obj.temp, lastActiveTracks);
+                    updateEventsTable();
+                    drawMiniChart();
+                }
             } catch (_) { /* malformed JSON — ignore */ }
         } else if (e.data instanceof ArrayBuffer) {
             latestFrameBuffer = e.data;
@@ -358,8 +366,11 @@ function processBinaryFrame(buffer) {
         }
         unseenIds.forEach(id => delete clientTracks[id]);
 
-        // ---- W5: Detect crossings ----
-        checkCrossings(cntIn, cntOut, ambT, nTracks);
+        // ---- W5: Record current state for async events ----
+        lastCountIn      = cntIn;
+        lastCountOut     = cntOut;
+        lastAmbientTemp  = ambT;
+        lastActiveTracks = nTracks;
 
         // ---- Update HUD ----
         setDot('dot-sensor', sensorOk ? 'green' : 'red');
@@ -473,22 +484,10 @@ function updateFPS() {
 }
 
 // =============================================================================
-//  W5: CROSSING DETECTION
+//  W5: EVENT LOGGING
 // =============================================================================
-function checkCrossings(cntIn, cntOut, ambT, nTracks) {
-    if (prevCountIn === -1) {
-        prevCountIn = cntIn; prevCountOut = cntOut; return;
-    }
-    const dIn  = cntIn  - prevCountIn;
-    const dOut = cntOut - prevCountOut;
-    for (let i = 0; i < dIn;  i++) recordEvent('IN',  cntIn,  cntOut, ambT, nTracks);
-    for (let i = 0; i < dOut; i++) recordEvent('OUT', cntIn,  cntOut, ambT, nTracks);
-    if (dIn || dOut) { drawMiniChart(); updateEventsTable(); }
-    prevCountIn  = cntIn;
-    prevCountOut = cntOut;
-}
 
-function recordEvent(dir, cntIn, cntOut, ambT, nTracks) {
+function recordEvent(dir, cntIn, cntOut, trackTemp, nTracks) {
     crossingEvents.push({
         session_id:    sessionId,
         timestamp_ms:  Date.now(),
@@ -496,7 +495,8 @@ function recordEvent(dir, cntIn, cntOut, ambT, nTracks) {
         direction:     dir,
         count_in:      cntIn,
         count_out:     cntOut,
-        ambient_temp_c: ambT,
+        ambient_temp_c: lastAmbientTemp,
+        track_temp_c:   trackTemp,
         active_tracks: nTracks
     });
     if (crossingEvents.length > MAX_EVENTS) crossingEvents.shift();
@@ -591,6 +591,7 @@ function updateEventsTable() {
             <td class="${cls}">${e.direction}</td>
             <td>${nvsBaseIn  + e.count_in}</td>
             <td>${nvsBaseOut + e.count_out}</td>
+            <td class="track-temp-cell">${e.track_temp_c.toFixed(1)}°</td>
             <td>${e.ambient_temp_c.toFixed(1)}°</td>
             <td>${e.active_tracks}</td>
         </tr>`;
@@ -608,7 +609,7 @@ function generateCSV() {
     }
     const TQ = ['none','browser','rtc'];
     const rows = ['session_id,timestamp_iso,time_quality,direction,' +
-                  'count_in_total,count_out_total,ambient_temp_c,active_tracks'];
+                  'count_in_total,count_out_total,track_temp_c,ambient_temp_c,active_tracks'];
     crossingEvents.forEach(e => {
         const tsISO = (e.time_quality > 0 && e.timestamp_ms > 0)
             ? new Date(e.timestamp_ms).toISOString() : '';
@@ -619,7 +620,8 @@ function generateCSV() {
             e.direction,
             nvsBaseIn  + e.count_in,
             nvsBaseOut + e.count_out,
-            e.ambient_temp_c.toFixed(3),
+            e.track_temp_c.toFixed(2),
+            e.ambient_temp_c.toFixed(2),
             e.active_tracks
         ].join(','));
     });

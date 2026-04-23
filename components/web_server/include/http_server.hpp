@@ -56,6 +56,12 @@ public:
                                const TelemetryPayload& tel,
                                bool sensor_ok = true);
 
+    /**
+     * @brief Broadcast a JSON event (e.g., person crossing) to all clients.
+     *        W4-CSV: Sends { "type": "crossing", "dir": "IN", "temp": 36.5 }
+     */
+    static void broadcastEvent(const CrossingEvent& ev);
+
 private:
     static httpd_handle_t server_;
 

@@ -23,13 +23,17 @@ public:
 
     /**
      * @brief Evaluates tracklet positions against configured mathematical lines.
-     * Updates IN/OUT accumulators instantly O(1).
+     * Updates IN/OUT accumulators and fills the event buffer.
      *
-     * @param tracker   TrackletTracker instance with valid positions
-     * @param countIn   Reference to the IN accumulator
-     * @param countOut  Reference to the OUT accumulator
+     * @param tracker    TrackletTracker instance with valid positions
+     * @param countIn    Reference to the IN accumulator
+     * @param countOut   Reference to the OUT accumulator
+     * @param outEvents  Buffer to store new crossing events
+     * @param maxEvents  Capacity of the event buffer
+     * @return Number of events written to outEvents
      */
-    void update(TrackletTracker& tracker, int& countIn, int& countOut);
+    int update(TrackletTracker& tracker, int& countIn, int& countOut, 
+               CrossingEvent* outEvents, int maxEvents);
 
 private:
     struct FsmMemory {

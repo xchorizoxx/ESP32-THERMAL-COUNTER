@@ -209,7 +209,8 @@ void ThermalPipeline::runVisionPipeline()
     tracker_.update(peaks_, num_peaks_, ts);
 
     // --- Step 4b: Counting FSM (A3: TrackletFSM) ---
-    door_fsm_.update(tracker_, count_in_, count_out_);
+    num_current_events_ = door_fsm_.update(tracker_, count_in_, count_out_, 
+                                            current_events_, TelemetryPayload::MAX_EVENTS_PER_FRAME);
 
     tracker_.fillTrackArray(track_array_, &num_confirmed_tracks_);
 
@@ -248,6 +249,12 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
         }
     }
     packet.telemetry.num_tracks = tidx;
+
+    // W4-CSV: Propagate crossing events to the telemetry packet
+    packet.telemetry.num_events = (uint8_t)num_current_events_;
+    for (int i = 0; i < num_current_events_; i++) {
+        packet.telemetry.events[i] = current_events_[i];
+    }
     
     // Final image dispatch:
     // - Normal mode (VIEW_MODE=0): composed_frame_ (fused, faithful to sensor)
