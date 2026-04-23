@@ -29,8 +29,9 @@
 #include "sd_manager.hpp"
 #include "thermal_config.hpp"
 #include <string.h>
-#include <inttypes.h>
 #include <sys/param.h>
+#include <inttypes.h>  // [NEW] Required for PRIu64 format macro
+#include "esp_http_server.h"
 
 static const char *TAG    = "HTTP_SERVER";
 static const char *NVS_NS = "thcfg";  ///< NVS namespace for thermal config
@@ -1031,7 +1032,7 @@ void HttpServer::wsAsyncCompletionCb(esp_err_t err, int socket, void *arg) {
 
 esp_err_t HttpServer::downloadLogHandler(httpd_req_t *req) {
     if (!g_sd.isMounted()) {
-        httpd_resp_send_err(req, HTTPD_503_SERVICE_UNAVAILABLE, "SD Card not mounted");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD Card not mounted");
         return ESP_FAIL;
     }
 
@@ -1081,8 +1082,8 @@ void HttpServer::broadcastEvent(const CrossingEvent& ev) {
     if (g_sd.isMounted()) {
         char line[128];
         // Format: session,timestamp_ms,dir,count_in,count_out,temp,id
-        snprintf(line, sizeof(line), "%u,%llu,%s,%d,%d,%.2f,%u",
-                 s_session_id, ev.timestamp_ms, ev.is_in ? "IN" : "OUT",
+        snprintf(line, sizeof(line), "%u,%" PRIu64 ",%s,%d,%d,%.2f,%u",
+                 s_session_id, (uint64_t)ev.timestamp_ms, ev.is_in ? "IN" : "OUT",
                  ev.count_in, ev.count_out, ev.temperature, ev.id);
         
         const char* log_file = "logs/counts.csv";
