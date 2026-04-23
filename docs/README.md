@@ -44,7 +44,12 @@ This index organizes the technical documentation for the Thermal Door Counter.
 
 **New user →** [`README.md`](../README.md) → [`CONFIGURATION.md`](CONFIGURATION.md) → [`OPERATIONS.md`](OPERATIONS.md)
 
-**Developer →** [`README.md`](../README.md) → [`ARCHITECTURE.md`](ARCHITECTURE.md) → [`ALGORITHM.md`](ALGORITHM.md) → source code
+**Developer →** [`README.md`](../README.md) →
+- [ARCHITECTURE.md](ARCHITECTURE.md): High-level system design.
+- [WEBSERVER_SPECS.md](WEBSERVER_SPECS.md): Detailed Web Server, API, and WebSocket protocol.
+- [DATA_PERSISTENCE.md](DATA_PERSISTENCE.md): Storage logic, NVS, and SD CSV format.
+- [PERIPHERALS_DETAIL.md](PERIPHERALS_DETAIL.md): Hardware drivers, pinout, and status LED.
+- [ALGORITHM.md](ALGORITHM.md): Vision pipeline and tracking logic.
 
 **Field installer →** [`README.md`](../README.md) → [`HARDWARE.md`](HARDWARE.md) → [`CONFIGURATION.md`](CONFIGURATION.md)
 

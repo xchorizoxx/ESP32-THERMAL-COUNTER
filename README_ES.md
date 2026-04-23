@@ -168,6 +168,21 @@ Guía de operaciones: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - **Proyecto**: MIT License
 - **Driver MLX90640**: Apache 2.0 (Melexis N.V.)
 
+### 📂 Gestión de Datos y Persistencia
+- **Registro Histórico en SD**: Guarda cada cruce en `/sdcard/logs/counts.csv` de forma persistente.
+- **Respaldo en NVS**: Los contadores totales se guardan cada 10 minutos en la Flash interna.
+- **Descarga vía Web**: Botón dedicado para bajar el historial completo en formato CSV.
+- **Sesión Trazable**: ID de sesión incremental para separar datos tras reinicios.
+
+Para más detalles, consulta la [Documentación de Persistencia](docs/DATA_PERSISTENCE.md).
+
+### 🌐 Interfaz Web Avanzada
+- **Streaming en Tiempo Real**: Visualización térmica a 16 FPS mediante WebSockets.
+- **Protocolo Binario**: Optimizado para baja latencia en redes WiFi congestionadas.
+- **Panel de Control**: Configuración dinámica de líneas, sensibilidad y altura.
+
+Consulta la [Especificación del Servidor Web](docs/WEBSERVER_SPECS.md).
+
 ---
 
 *English version: [README_EN.md](README_EN.md)*
