@@ -1,42 +1,43 @@
-# ESP-IDF specific
-build/
-sdkconfig.old
-sdkconfig
-managed_components/
-dependencies.lock
-
-# VS Code / IDE specific
-.vscode/
-.vscode/*.log
-.vscode/ipch/
-.vscode/launch.json
-.vscode/settings.json
-.vscode/tasks.json
-.clangd/
-.clangd
-
-# Local / OS specific
-.DS_Store
-Thumbs.db
-*.tmp
-*.bak
-*.swp
-
-# Compiler generated
+```
+# Compiled and build artifacts
+*.pyc
+__pycache__/
 *.o
-*.d
-*.a
-*.so
 *.obj
-*.exe
-*.dll
-
-# Binary outputs
+dist/
+build/
 *.bin
 *.elf
+*.hex
 *.map
-AGENTES/
+*.lst
 
-# Entornos y otros IDEs
-.idea/
+# Dependencies
+.pioenvs/
+.piolibdeps/
+.sconsign.dblite
+.sconf_temp/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.bak
+*.~
+*.orig
+
+# Environment
 .env
+.env.local
+.env.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS specific
+.DS_Store
+Thumbs.db
+```
