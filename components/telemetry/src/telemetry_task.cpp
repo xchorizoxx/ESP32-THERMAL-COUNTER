@@ -49,6 +49,8 @@ void TelemetryTask::run()
 
         // Check if ANY netif is up before trying to send via UDP
         // This stops the log flood if there's no network link.
+        /* 
+        // [W4-CLEANUP] network_ready unused while UDP is disabled
         bool network_ready = false;
         esp_netif_t* netif = nullptr;
         while ((netif = esp_netif_next_unsafe(netif)) != nullptr) {
@@ -57,6 +59,7 @@ void TelemetryTask::run()
                 break;
             }
         }
+        */
 
         // [FIX] Disable UDP broadcasts globally.
         // Broadcasting huge thermal frames (1500+ bytes) to 255.255.255.255 saturates the 
@@ -83,6 +86,11 @@ void TelemetryTask::run()
         // [NEW] Send via WebSocket to HTTP clients
         HttpServer::broadcastFrame(packet.image, packet.telemetry, packet.sensor_ok);
 
+        // W4-CSV: Broadcast individual crossing events as JSON for precise logging
+        for (int i = 0; i < packet.telemetry.num_events; i++) {
+            HttpServer::broadcastEvent(packet.telemetry.events[i]);
+        }
+
         // P05-fix: Reset WDT after each successful iteration.
         // If the network freezes and blocks here, the system restarts in 5s.
         esp_task_wdt_reset();
@@ -93,13 +101,14 @@ void TelemetryTask::run()
                  packet.telemetry.count_out,
                  packet.telemetry.num_tracks);
 
-        // --- Self-Monitoring: Profile Stack High Water Mark (every 100 packets) ---
+        // --- Self-Monitoring: Profile Stack & Heap (every 100 packets) ---
         static uint32_t packet_count = 0;
         if (++packet_count >= 100) {
             packet_count = 0;
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI(TAG, "Stack High Water Mark: %u words (%u bytes) free", 
-                     (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
+            ESP_LOGI(TAG, "Health: Stack=%u bytes free, Heap=%u bytes free", 
+                     (unsigned int)(hwm * sizeof(StackType_t)),
+                     (unsigned int)esp_get_free_heap_size());
         }
     }
 }

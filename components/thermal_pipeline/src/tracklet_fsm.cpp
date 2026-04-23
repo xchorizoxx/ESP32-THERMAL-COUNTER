@@ -1,11 +1,18 @@
 #include "tracklet_fsm.hpp"
 #include "esp_log.h"
 #include <cmath>
+#include "esp_timer.h"
 #include "freertos/portmacro.h"  // portENTER_CRITICAL / portEXIT_CRITICAL (P02-fix)
 
 static const char* TAG = "TRACK_FSM";
 
-TrackletFSM::TrackletFSM() {
+TrackletFSM::TrackletFSM()
+{
+    reset();
+}
+
+void TrackletFSM::reset()
+{
     memset(states_, 0, sizeof(states_));
 }
 
@@ -57,7 +64,21 @@ int TrackletFSM::checkSegmentCrossing(
     return (denom > 0.0f) ? 1 : -1;
 }
 
-void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) {
+int TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut,
+                        CrossingEvent* outEvents, int maxEvents)
+{
+    int eventIdx = 0;
+    auto addEvent = [&](const Tracklet& t, bool isIn) {
+        if (eventIdx < maxEvents) {
+            outEvents[eventIdx].id = t.id;
+            outEvents[eventIdx].is_in = isIn;
+            outEvents[eventIdx].count_in = (int16_t)countIn;
+            outEvents[eventIdx].count_out = (int16_t)countOut;
+            outEvents[eventIdx].temperature = t.avg_temperature;
+            outEvents[eventIdx].timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+            eventIdx++;
+        }
+    };
 
     // P02-fix: Snapshot atómico de door_lines para evitar torn-reads durante
     // escrituras concurrentes del HTTP Server (Core 0) en esta configuración.
@@ -100,14 +121,6 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
         
         if (dl_snap.use_segments && dl_snap.num_lines > 0) {
             // Detección de cruce con lookback dinámico:
-            //
-            // PROBLEMA RAZ: a 8 Hz efectivos y 3.6m de altura con FOV 110°,
-            //   una persona a 1 m/s solo mueve ~0.12 px/frame → con lookback=1 el
-            //   vector es demasiado corto para cruzar ninguna línea.
-            //
-            // SOLUCIÓN: usar las últimas LOOKBACK muestras del historial CRUDO
-            //   (no el display_x suavizado con EMA) para construir un vector más largo
-            //   y robusto. Cooldown post-cruce evita doble conteo.
             FsmMemory* mem = findState(t.id);
             if (mem == nullptr) {
                 mem = allocateState(t.id);
@@ -149,12 +162,14 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
                         countOut++;
                         already_counted_out = true;
                         mem->cross_streak = (int8_t)COOLDOWN;
-                        ESP_LOGI(TAG, "Track ID=%d crossed '%s' -> +1 OUT (lb=%d)", t.id, seg.name, LOOKBACK);
+                        addEvent(t, false); // OUT event
+                        ESP_LOGI(TAG, "Track ID=%d crossed '%s' -> +1 OUT (temp=%.1f)", t.id, seg.name, t.avg_temperature);
                     } else if (cross == -1 && !already_counted_in) {
                         countIn++;
                         already_counted_in = true;
                         mem->cross_streak = (int8_t)COOLDOWN;
-                        ESP_LOGI(TAG, "Track ID=%d crossed '%s' -> +1 IN (lb=%d)", t.id, seg.name, LOOKBACK);
+                        addEvent(t, true); // IN event
+                        ESP_LOGI(TAG, "Track ID=%d crossed '%s' -> +1 IN (temp=%.1f)", t.id, seg.name, t.avg_temperature);
                     }
                 }
             }
@@ -177,25 +192,25 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
                 } else if (py >= ThermalConfig::DEFAULT_LINE_EXIT_Y) {
                     mem->state = FsmState::TRACKING_OUT;
                 }
-                // Stay UNBORN if in the middle neutral zone
                 
             } else if (mem->state == FsmState::TRACKING_IN) {
                 if (py >= ThermalConfig::DEFAULT_LINE_EXIT_Y) { // Crossed OUT line
                     countOut++;
                     mem->state = FsmState::TRACKING_OUT;
-                    ESP_LOGI(TAG, "Track %d crossed IN->OUT. CntOUT: %d", t.id, countOut);
+                    addEvent(t, false); // OUT event
+                    ESP_LOGI(TAG, "Track %d crossed IN->OUT. Temp: %.1f", t.id, t.avg_temperature);
                 }
                 
             } else if (mem->state == FsmState::TRACKING_OUT) {
                 if (py <= ThermalConfig::DEFAULT_LINE_ENTRY_Y) { // Crossed IN line
                     countIn++;
                     mem->state = FsmState::TRACKING_IN;
-                    ESP_LOGI(TAG, "Track %d crossed OUT->IN. CntIN: %d", t.id, countIn);
+                    addEvent(t, true); // IN event
+                    ESP_LOGI(TAG, "Track %d crossed OUT->IN. Temp: %.1f", t.id, t.avg_temperature);
                 }
             }
             
             // 3) Push logical states back into Tracklet for Web UI Highlighting
-            // JS Palette: 1=Green(Norte/IN), 2=Amber(Neutral/Unborn), 3=Cyan(Sur/OUT)
             if (mem->state == FsmState::TRACKING_IN) {
                 tracker.setZoneState(t.id, 1);  // P03-fix
             } else if (mem->state == FsmState::TRACKING_OUT) {
@@ -205,4 +220,5 @@ void TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut) 
             }
         }
     }
+    return eventIdx;
 }

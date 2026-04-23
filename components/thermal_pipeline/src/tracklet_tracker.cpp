@@ -16,12 +16,19 @@ static const char* TAG = "TRACKLET";
 //  Constructor
 // =========================================================================
 
-TrackletTracker::TrackletTracker() : next_id_(1)
+TrackletTracker::TrackletTracker() 
 {
+    reset();
+}
+
+void TrackletTracker::reset()
+{
+    next_id_ = 1;
     memset(tracks_, 0, sizeof(tracks_));
     for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
         tracks_[i].active = false;
     }
+    ESP_LOGI(TAG, "Tracker reset complete");
 }
 
 // =========================================================================
@@ -116,7 +123,8 @@ void TrackletTracker::hungarianMatch(const ThermalPeak* peaks, int numPeaks,
     const int N = (num_active > num_valid) ? num_active : num_valid;
 
     // Matriz de costos (N×N)
-    float cost[HungarianAlgorithm::MAX_N][HungarianAlgorithm::MAX_N];
+    // P14-fix: Mover a static para liberar ~3.6 KB de STACK (evita desbordamientos bajo carga)
+    static float cost[HungarianAlgorithm::MAX_N][HungarianAlgorithm::MAX_N];
     
     // Construir matriz de costos
     for (int i = 0; i < N; i++) {
@@ -131,7 +139,7 @@ void TrackletTracker::hungarianMatch(const ThermalPeak* peaks, int numPeaks,
     }
 
     // Resolver asignación óptima
-    int hungarian_assignment[HungarianAlgorithm::MAX_N];
+    static int hungarian_assignment[HungarianAlgorithm::MAX_N];
     HungarianAlgorithm::solve(cost, N, hungarian_assignment);
 
     // Extraer la asignación válida (rechazar virtuales y celdas INF)
@@ -154,7 +162,7 @@ void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
 
     // --- Phase 2: Hungarian optimal assignment — minimizes total cost globally ---
     static int  assignment[ThermalConfig::MAX_TRACKS];   // assignment[track_i] = peak_idx
-    static bool peak_assigned[ThermalConfig::MAX_TRACKS]; // peak_assigned[peak_p] = true if used
+    static bool peak_assigned[ThermalConfig::MAX_PEAKS]; // peak_assigned[peak_p] = true if used
     bool matched_tracks[ThermalConfig::MAX_TRACKS] = {false};
 
     hungarianMatch(peaks, numPeaks, assignment, peak_assigned);
@@ -173,6 +181,7 @@ void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
             t.display_x = alpha * peaks[pi].x + (1.0f - alpha) * t.display_x;
             t.display_y = alpha * peaks[pi].y + (1.0f - alpha) * t.display_y;
             t.avg_temperature = t.avg_temperature * 0.8f + peaks[pi].temperature * 0.2f;
+            t.peak_temp       = peaks[pi].temperature; // W4: actual frame peak
             t.confirmed       = (t.confirmed < 255) ? t.confirmed + 1 : 255;
             t.missed          = 0;
             matched_tracks[i] = true;
@@ -203,6 +212,7 @@ void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
             slot->confirmed       = 1;
             slot->missed          = 0;
             slot->avg_temperature = peaks[p].temperature;
+            slot->peak_temp       = peaks[p].temperature; // W4
             slot->pred_x          = peaks[p].x;
             slot->pred_y          = peaks[p].y;
             slot->display_x       = peaks[p].x;
@@ -212,8 +222,13 @@ void TrackletTracker::update(const ThermalPeak* peaks, int numPeaks,
             ESP_LOGD(TAG, "New track ID=%u at (%.1f, %.1f) temp=%.1f°C",
                      slot->id, slot->pred_x, slot->pred_y, slot->avg_temperature);
         } else {
-            ESP_LOGW(TAG, "Track pool full — peak at (%.1f,%.1f) dropped",
-                     peaks[p].x, peaks[p].y);
+            // P14-fix: Cambiar a LOGD y throttle para evitar saturar el UART (causa I2C Timeout)
+            static uint32_t last_warn_ms = 0;
+            uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if (now - last_warn_ms > 1000) {
+                ESP_LOGW(TAG, "Track pool full — peaks being dropped");
+                last_warn_ms = now;
+            }
         }
     }
 
@@ -271,6 +286,7 @@ void TrackletTracker::fillTrackArray(Track* out, int* out_count) const
         t.y        = tracks_[i].display_y;
         t.active   = true;
         t.state_y  = tracks_[i].zone_state;
+        t.peak_temp = tracks_[i].avg_temperature; // W4: Using EMA-smoothed temperature as approved in plan
         t.age      = tracks_[i].missed;  // Exposes "coasting" frames
 
         // Velocity: media de las últimas min(count,4) muestras del historial.

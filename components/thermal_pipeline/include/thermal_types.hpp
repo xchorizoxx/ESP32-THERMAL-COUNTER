@@ -72,6 +72,7 @@ struct Track {
   bool active;     ///< false = expired track (age > TRACK_MAX_MISSED)
   uint8_t state_y; ///< HUD tint / zone from TrackletFSM (0=unborn, 1=in,
                    ///< 2=neutral, 3=out)
+  float peak_temp; ///< Peak temperature of this track in °C (W4)
 };
 
 // =========================================================================
@@ -84,16 +85,29 @@ struct Track {
  */
 struct __attribute__((packed)) TrackInfo {
   uint8_t id;
-  int16_t x_100;   ///< X position × 100 (e.g., 1520 = 15.20)
-  int16_t y_100;   ///< Y position × 100 (e.g., 1200 = 12.00)
-  int16_t v_x_100; ///< X velocity × 100
-  int16_t v_y_100; ///< Y velocity × 100
+  int16_t x_100;         ///< X position × 100 (e.g., 1520 = 15.20)
+  int16_t y_100;         ///< Y position × 100 (e.g., 1200 = 12.00)
+  int16_t v_x_100;       ///< X velocity × 100
+  int16_t v_y_100;       ///< Y velocity × 100
+  int16_t peak_temp_100; ///< Peak temperature × 100 (W4)
 };
 
 /**
- * @brief Telemetry packet: counters + active tracks.
- * Sent via UDP with header 0x01.
- * Size: ~85 bytes (varies with num_tracks).
+ * @brief Represents a single person crossing the line.
+ * Captured by Core 1 (Vision) and processed by Core 0 (Web/Telemetry).
+ */
+struct CrossingEvent {
+  uint8_t id;             ///< Track ID
+  bool is_in;             ///< true=IN, false=OUT
+  int16_t count_in;       ///< Snapshot of total IN count (session)
+  int16_t count_out;      ///< Snapshot of total OUT count (session)
+  float temperature;      ///< EMA temperature at moment of crossing
+  uint32_t timestamp_ms;  ///< Local system time
+};
+
+/**
+ * @brief Telemetry packet: counters + active tracks + new events.
+ * Sent via IPC queue between cores.
  */
 struct __attribute__((packed)) TelemetryPayload {
   uint32_t frame_id;
@@ -102,6 +116,11 @@ struct __attribute__((packed)) TelemetryPayload {
   int16_t count_out;
   uint8_t num_tracks;
   TrackInfo tracks[ThermalConfig::MAX_TRACKS];
+
+  // W4-CSV: Async events detected in this frame
+  static constexpr int MAX_EVENTS_PER_FRAME = 5;
+  uint8_t num_events;
+  CrossingEvent events[MAX_EVENTS_PER_FRAME];
 };
 
 /**

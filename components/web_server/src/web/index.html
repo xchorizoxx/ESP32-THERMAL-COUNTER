@@ -4,65 +4,77 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>ESP32 Thermal Vigilant</title>
-    <link rel="stylesheet" href="/style.css?v=1.1">
+    <link rel="stylesheet" href="/style.css?v=2.0">
 </head>
 <body>
-    <!-- Top App Bar -->
+    <!-- ===================== TOP APP BAR ===================== -->
     <header class="app-bar">
         <div class="brand">
             <svg class="icon-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 5 8.268 7.943 9.542 12-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
             </svg>
             <h1>VIGILANT <span>THERMAL</span></h1>
         </div>
         <div class="status-indicators">
-            <div class="badge" id="badge-ws" title="WebSocket Status">
-                <div class="dot red" id="dot-ws"></div> <span id="lbl-ws">Desconectado</span>
+            <div class="badge" id="badge-ws" title="WebSocket">
+                <div class="dot red" id="dot-ws"></div>
+                <span id="lbl-ws">Desconectado</span>
             </div>
-            <div class="badge" id="badge-sensor" title="Sensor Status">
+            <div class="badge" id="badge-clock" title="Calidad de reloj">
+                <div class="dot gray" id="dot-clock"></div>
+                <span id="lbl-clock-quality">Sin hora</span>
+            </div>
+            <div class="badge" id="badge-sensor" title="Sensor MLX90640">
                 <div class="dot gray" id="dot-sensor"></div>
             </div>
-            <div class="badge" id="badge-fps" title="Frame Rate">
+            <div class="badge" id="badge-rtc-top" title="Reloj RTC DS3231">
+                <div class="dot gray" id="dot-rtc-top"></div>
+            </div>
+            <div class="badge" id="badge-sd-top" title="Tarjeta MicroSD">
+                <div class="dot gray" id="dot-sd-top"></div>
+            </div>
+            <div class="badge" title="FPS">
                 <span id="lbl-fps">0 Hz</span>
             </div>
-            <div class="badge" id="badge-temp" title="Ambient Temp">
+            <div class="badge" title="Temperatura ambiente">
                 <span id="lbl-amb">--°C</span>
             </div>
         </div>
     </header>
 
-    <!-- Main Content Area -->
+    <!-- ===================== MAIN CONTENT ===================== -->
     <main id="main-content">
-        
-        <!-- ================= VIEW: VISION ================= -->
+
+        <!-- ============== VISION VIEW ============== -->
         <section id="view-vision" class="view-section active">
             <div class="card canvas-card">
                 <div class="canvas-header">
                     <h2>Live Feed</h2>
                     <div class="vision-controls">
-                        <button class="btn-pill active" data-mode="normal" onclick="setVisionMode('normal')">Normal</button>
-                        <button class="btn-pill" data-mode="raw" onclick="setVisionMode('raw')">Raw</button>
-                        <button class="btn-pill" data-mode="diff" onclick="setVisionMode('diff')">Diferencial</button>
-                        <button class="btn-pill" id="btn-trail" onclick="toggleTrail()">Trail</button>
+                        <button class="btn-pill active" data-mode="normal" onclick="setVisionMode('normal', event)">Normal</button>
+                        <button class="btn-pill" data-mode="raw"    onclick="setVisionMode('raw', event)">Raw</button>
+                        <button class="btn-pill" data-mode="diff"   onclick="setVisionMode('diff', event)">Diferencial</button>
+                        <button class="btn-pill" id="btn-trail"     onclick="toggleTrail()">Trail</button>
                     </div>
                 </div>
-                <div class="canvas-container" style="position:relative;">
-                    <div style="position:absolute; top:8px; left:8px; display:flex; gap:8px; z-index:10;">
-                        <span id="overlay-in" style="background:rgba(0,0,0,0.6); color:#10b981; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:12px;">In: 0</span>
-                        <span id="overlay-out" style="background:rgba(0,0,0,0.6); color:#3b82f6; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:12px;">Out: 0</span>
+                <div class="canvas-container">
+                    <!-- Live counters overlay -->
+                    <div class="canvas-overlay-counts">
+                        <span id="overlay-in"  class="overlay-badge green">In: 0</span>
+                        <span id="overlay-out" class="overlay-badge blue">Out: 0</span>
                     </div>
-                    <canvas id="thermalCanvas" width="320" height="240" style="width:100%; height:100%; object-fit:fill;"></canvas>
-                    <canvas id="uiCanvas" width="320" height="240" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></canvas>
+                    <canvas id="thermalCanvas" width="320" height="240"></canvas>
+                    <canvas id="uiCanvas"      width="320" height="240" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
                 </div>
                 <div class="scale-bar">
-                    <span id="scale-min">15°C</span>
+                    <span id="scale-min">--°C</span>
                     <canvas id="scaleCanvas" width="200" height="10"></canvas>
-                    <span id="scale-max">45°C</span>
+                    <span id="scale-max">--°C</span>
                 </div>
             </div>
 
-            <!-- Future VGA placeholder -->
+            <!-- VGA placeholder (Fase E) -->
             <div class="card vga-placeholder">
                 <div class="vga-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -70,12 +82,14 @@
                         <circle cx="12" cy="13" r="4"/>
                     </svg>
                 </div>
-                <p>Módulo VGA Óptico (Próximamente)</p>
+                <p>Módulo VGA Óptico (Fase E)</p>
             </div>
         </section>
 
-        <!-- ================= VIEW: STATS ================= -->
+        <!-- ============== STATS VIEW (W7) ============== -->
         <section id="view-stats" class="view-section">
+
+            <!-- Totals row -->
             <div class="stats-grid">
                 <div class="stat-card green">
                     <div class="stat-icon">
@@ -84,8 +98,9 @@
                         </svg>
                     </div>
                     <div class="stat-info">
-                        <h3>Entradas Totales</h3>
+                        <h3>Entradas (total)</h3>
                         <p id="stat-in">0</p>
+                        <small id="stat-session-in" class="stat-session-label">Sesión: 0</small>
                     </div>
                 </div>
                 <div class="stat-card blue">
@@ -95,163 +110,307 @@
                         </svg>
                     </div>
                     <div class="stat-info">
-                        <h3>Salidas Totales</h3>
+                        <h3>Salidas (total)</h3>
                         <p id="stat-out">0</p>
+                        <small id="stat-session-out" class="stat-session-label">Sesión: 0</small>
                     </div>
                 </div>
-                <!-- Próximamente SD -->
-                <div class="stat-card placeholder-card" style="grid-column: span 2;">
-                    <h4>Almacenamiento e Historial</h4>
-                    <p>Requiere módulo MicroSD (Fase D)</p>
+                <div class="stat-card amber">
+                    <div class="stat-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <h3>Ocupación neta</h3>
+                        <p id="stat-net">0</p>
+                        <small class="stat-session-label">In − Out</small>
+                    </div>
+                </div>
+                <div class="stat-card gray">
+                    <div class="stat-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <h3>Sesión</h3>
+                        <p id="stat-session-id-display">--</p>
+                        <small id="stat-time-quality-label" class="stat-session-label">Sin referencia</small>
+                    </div>
                 </div>
             </div>
-            
-            <button class="btn-primary" style="margin-top:20px; width:100%;" onclick="appCmd('RESET_COUNTS')">Resetear Contadores</button>
-        </section>
 
-        <!-- ================= VIEW: SETTINGS ================= -->
-        <section id="view-settings" class="view-section">
-            <div class="settings-tabs">
-                <button class="tab-btn active" onclick="switchSettings('basic')">Básica</button>
-                <button class="tab-btn" onclick="switchSettings('adv')">Color & Avanzado</button>
-                <button class="tab-btn" onclick="switchSettings('net')">Red</button>
+            <!-- Activity chart (last 24 hours or 24 blocks if no clock) -->
+            <div class="card">
+                <div class="chart-header">
+                    <h3>Actividad de cruces</h3>
+                    <span id="chart-subtitle" class="text-muted-sm">-- eventos en sesión</span>
+                </div>
+                <canvas id="mini-chart" width="320" height="80" style="width:100%;"></canvas>
+                <div class="chart-legend">
+                    <span class="legend-dot" style="background:#3b82f6;"></span><span>Entradas</span>
+                    <span class="legend-dot" style="background:#10b981; margin-left:12px;"></span><span>Salidas</span>
+                </div>
             </div>
 
+            <!-- Events log table -->
+            <div class="card">
+                <div class="chart-header">
+                    <h3>Últimos eventos</h3>
+                    <button class="btn-pill" onclick="generateCSV()" title="Descargar todos los eventos como CSV">⬇ CSV</button>
+                </div>
+                <div class="events-table-wrap">
+                    <table class="events-table">
+                        <thead>
+                            <tr>
+                                <th>Hora</th>
+                                <th>Dir.</th>
+                                <th>In</th>
+                                <th>Out</th>
+                                <th>Temp.</th>
+                                <th>Amb.</th>
+                                <th>Tracks</th>
+                            </tr>
+                        </thead>
+                        <tbody id="events-tbody">
+                            <tr><td colspan="6" class="no-events">Sin eventos en esta sesión</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
+                <div style="display:flex; gap:10px;">
+                    <button class="btn-primary" style="flex:1;" onclick="generateCSV()">📊 Descargar Sesión (RAM)</button>
+                    <button class="btn-warn"    style="flex:1;" onclick="window.location.href='/download_log'">📂 Historial Completo (SD)</button>
+                </div>
+                <button class="btn-danger" style="width:100%;" onclick="appCmd('RESET_COUNTS')">🔄 Resetear contadores totales</button>
+            </div>
+
+            <div style="height:20px;"></div>
+        </section>
+
+        <!-- ============== SETTINGS VIEW ============== -->
+        <section id="view-settings" class="view-section">
+            <div class="settings-tabs">
+                <button class="tab-btn active" onclick="switchSettings('basic', event)">Básica</button>
+                <button class="tab-btn"        onclick="switchSettings('adv', event)">Avanzado</button>
+                <button class="tab-btn"        onclick="switchSettings('net', event)">Sistema</button>
+            </div>
+
+            <!-- ---- BASIC TAB ---- -->
             <div id="set-basic" class="settings-panel active">
                 <div class="card form-card">
                     <h3>Detección y Ruido</h3>
                     <div class="form-group">
                         <label>Temperatura Mín. Biológica: <span id="val-temp_bio" class="val-badge">25.0</span> °C</label>
-                        <input type="range" id="cfg-temp_bio" min="15.0" max="38.0" step="0.5" oninput="document.getElementById('val-temp_bio').innerText=this.value">
+                        <input type="range" id="cfg-temp_bio" min="15.0" max="38.0" step="0.5"
+                               oninput="updateBadge('temp_bio', this.value)">
                     </div>
                     <div class="form-group">
                         <label>Delta T (Contraste vs Fondo): <span id="val-delta_t" class="val-badge">1.5</span> °C</label>
-                        <input type="range" id="cfg-delta_t" min="0.5" max="5.0" step="0.1" oninput="document.getElementById('val-delta_t').innerText=this.value">
+                        <input type="range" id="cfg-delta_t" min="0.5" max="5.0" step="0.1"
+                               oninput="updateBadge('delta_t', this.value)">
                     </div>
                     <div class="form-group">
                         <label>Factor EMA (Adaptación Fondo): <span id="val-alpha_ema" class="val-badge">0.05</span></label>
-                        <input type="range" id="cfg-alpha_ema" min="0.01" max="0.50" step="0.01" oninput="document.getElementById('val-alpha_ema').innerText=this.value">
-                        <small>Memoria costera. Menor = fondo más estable.</small>
+                        <input type="range" id="cfg-alpha_ema" min="0.01" max="0.50" step="0.01"
+                               oninput="updateBadge('alpha_ema', this.value)">
+                        <small>Menor = fondo más estable.</small>
                     </div>
                     <details style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;">
                         <summary style="cursor:pointer; font-size:0.85rem; color:var(--text-muted); margin-bottom:10px;">
                             ⚙ Modo Legacy — Líneas Horizontales Norte/Sur
                         </summary>
                         <div class="form-group">
-                            <label>Línea de Entrada (Norte): Fila <span id="val-line_entry" class="val-badge">8</span></label>
-                            <input type="range" id="cfg-line_entry" min="0" max="23" step="1" oninput="document.getElementById('val-line_entry').innerText=this.value">
-                            <small>Solo aplica cuando NO hay líneas de segmento dibujadas.</small>
+                            <label>Línea Entrada (Norte): Fila <span id="val-line_entry" class="val-badge">8</span></label>
+                            <input type="range" id="cfg-line_entry" min="0" max="23" step="1"
+                                   oninput="updateBadge('line_entry', this.value)">
+                            <small>Solo aplica sin líneas de segmento.</small>
                         </div>
                         <div class="form-group">
-                            <label>Línea de Salida (Sur): Fila <span id="val-line_exit" class="val-badge">16</span></label>
-                            <input type="range" id="cfg-line_exit" min="0" max="23" step="1" oninput="document.getElementById('val-line_exit').innerText=this.value">
-                            <small>Solo aplica cuando NO hay líneas de segmento dibujadas.</small>
+                            <label>Línea Salida (Sur): Fila <span id="val-line_exit" class="val-badge">16</span></label>
+                            <input type="range" id="cfg-line_exit" min="0" max="23" step="1"
+                                   oninput="updateBadge('line_exit', this.value)">
+                            <small>Solo aplica sin líneas de segmento.</small>
                         </div>
                     </details>
+                </div>
 
-                    <!-- Custom lines panel -->
-                    <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin:15px 0;">
-                    <div class="form-group">
-                        <label style="color:var(--neo-green); font-weight:bold;">Líneas de Conteo Personalizadas (Segmentos)</label>
-                        <button type="button" class="btn-primary" id="btn-edit-lines" onclick="toggleLineEditor()" style="width:100%; margin-top:8px;">
-                            ✏ EDITAR LÍNEAS
-                        </button>
-                        <div id="lines-list" style="margin-top: 12px; font-size: 0.75rem;">
-                            <!-- Populated by updateLineList() -->
-                        </div>
-                        <button type="button" class="btn-warn" onclick="clearAllLines()" style="width:100%; margin-top: 12px; background:rgba(255,60,90,0.15); color:var(--neo-red);">
-                            🗑 BORRAR TODAS
-                        </button>
-                        <small>Dibuja líneas directamente en el Live Feed interactivo.</small>
+                <!-- Custom counting lines -->
+                <div class="card form-card">
+                    <h3>Líneas de Conteo (Segmentos)</h3>
+                    <button type="button" class="btn-primary" id="btn-edit-lines"
+                            onclick="toggleLineEditor()" style="width:100%; margin-bottom:10px;">
+                        ✏ EDITAR LÍNEAS EN EL CANVAS
+                    </button>
+                    <div id="lines-list" style="font-size:0.75rem; color:var(--text-muted); min-height:20px;">
+                        <!-- Populated by updateLineList() -->
                     </div>
-                    <div class="form-group" style="padding-top:10px; border-top:1px solid rgba(255,255,255,0.1);">
+                    <button type="button" class="btn-danger"
+                            onclick="clearAllLines()" style="width:100%; margin-top:10px;">
+                        🗑 BORRAR TODAS LAS LÍNEAS
+                    </button>
+                    <small style="display:block; margin-top:8px;">
+                        Activa "Editar" y dibuja directamente sobre el Live Feed.
+                    </small>
+                </div>
+
+                <!-- Dead zones -->
+                <div class="card form-card">
+                    <h3>Zonas Muertas Laterales</h3>
+                    <div class="form-group">
                         <label>Zona Muerta Izquierda: Col <span id="val-dead_left" class="val-badge">5</span></label>
-                        <input type="range" id="cfg-dead_left" min="0" max="31" step="1" oninput="document.getElementById('val-dead_left').innerText=this.value">
-                        <small>Todo lo que esté a la izquierda de esta columna será ignorado.</small>
+                        <input type="range" id="cfg-dead_left" min="0" max="31" step="1"
+                               oninput="updateBadge('dead_left', this.value)">
                     </div>
                     <div class="form-group">
                         <label>Zona Muerta Derecha: Col <span id="val-dead_right" class="val-badge">26</span></label>
-                        <input type="range" id="cfg-dead_right" min="0" max="31" step="1" oninput="document.getElementById('val-dead_right').innerText=this.value">
-                        <small>Todo lo que esté a la derecha de esta columna será ignorado.</small>
+                        <input type="range" id="cfg-dead_right" min="0" max="31" step="1"
+                               oninput="updateBadge('dead_right', this.value)">
                     </div>
                 </div>
             </div>
 
+            <!-- ---- ADVANCED TAB ---- -->
             <div id="set-adv" class="settings-panel">
                 <div class="card form-card">
-                    <h3>Mapeo de UI y Color (Ironbow)</h3>
+                    <h3>Mapeo de Color (Ironbow)</h3>
                     <div class="form-group">
-                        <label>Umbral Frío a Biológico: <span id="val-color_low" class="val-badge">25.0</span> °C</label>
-                        <input type="range" id="cfg-color_low" min="15.0" max="38.0" step="0.5" value="25.0" oninput="document.getElementById('val-color_low').innerText=this.value" onchange="regenerateLUT()">
-                        <small>Acelera gradiente hacia colores brillantes.</small>
+                        <label>Umbral Frío → Biológico: <span id="val-color_low" class="val-badge">25.0</span> °C</label>
+                        <input type="range" id="cfg-color_low" min="15.0" max="38.0" step="0.5" value="25.0"
+                               oninput="updateBadge('color_low', this.value)" onchange="regenerateLUT()">
+                        <small>Acelera el gradiente hacia colores brillantes.</small>
                     </div>
                     <div class="form-group">
-                        <label>Umbral Biológico a Crítico: <span id="val-color_high" class="val-badge">38.0</span> °C</label>
-                        <input type="range" id="cfg-color_high" min="30.0" max="45.0" step="0.5" value="38.0" oninput="document.getElementById('val-color_high').innerText=this.value" onchange="regenerateLUT()">
-                        <small>Saturación hacia Amarillo/Blanco.</small>
+                        <label>Umbral Biológico → Crítico: <span id="val-color_high" class="val-badge">38.0</span> °C</label>
+                        <input type="range" id="cfg-color_high" min="30.0" max="45.0" step="0.5" value="38.0"
+                               oninput="updateBadge('color_high', this.value)" onchange="regenerateLUT()">
+                        <small>Saturación Amarillo/Blanco.</small>
                     </div>
                 </div>
                 <div class="card form-card">
-                    <h3>Topología Biométrica Espacial</h3>
+                    <h3>Topología Biométrica</h3>
                     <div class="form-group">
                         <label>Altura del Sensor: <span id="val-sensor_height" class="val-badge">3.5</span> m</label>
-                        <input type="range" id="cfg-sensor_height" min="1.5" max="5.0" step="0.1" oninput="document.getElementById('val-sensor_height').innerText=this.value">
-                        <small>Ajusta cómo la cámara compensa el FOV y distancias planas.</small>
+                        <input type="range" id="cfg-sensor_height" min="1.5" max="5.0" step="0.1"
+                               oninput="updateBadge('sensor_height', this.value)">
+                        <small>Compensa FOV y distancias planas.</small>
                     </div>
                     <div class="form-group">
-                        <label>Diámetro de la Persona: <span id="val-person_diameter" class="val-badge">0.7</span> m</label>
-                        <input type="range" id="cfg-person_diameter" min="0.4" max="1.5" step="0.1" oninput="document.getElementById('val-person_diameter').innerText=this.value">
-                        <small>Tamaño del bloque biológico para el NMS lineal.</small>
+                        <label>Diámetro de Persona: <span id="val-person_diameter" class="val-badge">0.7</span> m</label>
+                        <input type="range" id="cfg-person_diameter" min="0.4" max="1.5" step="0.1"
+                               oninput="updateBadge('person_diameter', this.value)">
+                        <small>Tamaño de bloque para NMS lineal.</small>
                     </div>
                 </div>
             </div>
 
+            <!-- ---- SYSTEM TAB (W8: RTC stub + clock + session) ---- -->
             <div id="set-net" class="settings-panel">
-                <div class="card placeholder-card">
-                    <h4>Configuración WiFi y Servidor</h4>
-                    <p>Panel reservado para Fase posterior.</p>
+
+                <!-- Clock & RTC (W8 stub) -->
+                <div class="card form-card">
+                    <h3>🕐 Reloj del Sistema</h3>
+                    <div class="clock-status-row">
+                        <div class="dot gray" id="dot-rtc"></div>
+                        <span id="lbl-rtc-status">DS3231 no detectado</span>
+                    </div>
+                    <div class="clock-display-block">
+                        <div id="lbl-clock-time" class="clock-time-display">--:--:--</div>
+                        <div id="lbl-clock-date" class="clock-date-display">-- / -- / ----</div>
+                    </div>
+                    <div class="session-info-grid">
+                        <div class="session-row">
+                            <span class="text-muted-sm">Sesión ID</span>
+                            <span id="lbl-session-id" class="val-badge">--</span>
+                        </div>
+                        <div class="session-row">
+                            <span class="text-muted-sm">Fuente de hora</span>
+                            <span id="lbl-time-quality-full" class="val-badge">Sin referencia</span>
+                        </div>
+                        <div class="session-row">
+                            <span class="text-muted-sm">Conteo guardado en flash</span>
+                            <span id="lbl-nvs-counts" class="val-badge">In:-- Out:--</span>
+                        </div>
+                    </div>
+                    <!-- Future DS3231 controls will appear here when W-C1 driver is added -->
+                    <div id="rtc-controls-placeholder" style="display:none;">
+                        <!-- Fase C1: DS3231 sync controls -->
+                    </div>
+                    <button class="btn-primary" style="margin-top:14px;" onclick="requestStatus()">
+                        ↺ Refrescar estado
+                    </button>
                 </div>
-                <div class="card placeholder-card">
-                    <h4>Reloj RTC</h4>
-                    <p>Sincronización NTP y RTC físico (Fase posterior).</p>
-                </div>
+
+                <!-- System actions -->
                 <div class="card form-card">
                     <h3>Acciones del Sistema</h3>
-                    <button class="btn-warn" onclick="appCmd('RETRY_SENSOR')">Reiniciar Sensor I2C</button>
-                    <button class="btn-danger" style="margin-top:10px;" onclick="rebootEsp()">Reboot ESP32</button>
+                    <button class="btn-warn" style="margin-bottom:10px;"
+                            onclick="appCmd('RETRY_SENSOR')">
+                        ↺ Reconectar Sensor Térmico
+                    </button>
+                    <button class="btn-warn" style="margin-bottom:10px;"
+                            onclick="appCmd('RETRY_RTC')">
+                        ↺ Reconectar Reloj RTC
+                    </button>
+                    <button class="btn-warn" style="margin-bottom:10px;"
+                            onclick="appCmd('RETRY_SD')">
+                        ↺ Reconectar Tarjeta SD
+                    </button>
+                    <button class="btn-danger" onclick="rebootEsp()">
+                        ⚡ Reboot ESP32
+                    </button>
+                </div>
+
+                <!-- OTA -->
+                <div class="card form-card">
+                    <h3>Actualización OTA</h3>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
+                        Sube un nuevo firmware .bin compilado con ESP-IDF.
+                    </p>
+                    <input type="file" id="ota-file" accept=".bin"
+                           style="font-size:0.8rem; color:var(--text-muted); width:100%; margin-bottom:10px;">
+                    <button class="btn-primary" onclick="startOTA()">⬆ Flashear Firmware</button>
+                    <div id="ota-progress" style="display:none; margin-top:10px;">
+                        <div class="ota-progress-bar">
+                            <div id="ota-progress-fill" style="width:0%; height:100%; background:var(--accent-green); border-radius:4px; transition:width 0.3s;"></div>
+                        </div>
+                        <small id="ota-progress-label" style="color:var(--text-muted);">Subiendo...</small>
+                    </div>
                 </div>
             </div>
 
+            <!-- Save button (always visible at the bottom of settings) -->
             <div class="settings-actions">
-                <button class="btn-primary" onclick="saveConfig()">Guardar en Flash</button>
+                <button class="btn-primary" onclick="saveConfig()">💾 Guardar configuración en Flash</button>
             </div>
-
-            <!-- ESPACIO ABSOLUTO DEBAJO DEL BOTON DE GUARDADO PARA EVITAR SOLAPE CON LA BARRA INFERIOR -->
-            <div style="height: 150px; width: 100%;"></div>
-
+            <div style="height:150px;"></div>
         </section>
-        
-        <!-- ================= DEBUG LOGS (Hidden Drawer) ================= -->
+
+        <!-- ============== DEBUG DRAWER ============== -->
         <div id="debug-drawer" class="drawer hidden">
             <div class="drawer-header" onclick="toggleDebug()">
                 <span>Debugger Logs</span>
                 <span id="debug-toggle-icon">▲</span>
             </div>
-            <div class="drawer-content" id="debug-console">
-                <!-- Logs will be appended here -->
-            </div>
+            <div class="drawer-content" id="debug-console"></div>
         </div>
 
     </main>
 
-    <!-- Bottom Navigation Bar -->
+    <!-- ===================== BOTTOM NAV ===================== -->
     <nav class="bottom-nav">
         <ul>
             <li>
                 <button class="nav-item active" onclick="switchMainView('vision', this)">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                        <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 5 8.268 7.943 9.542 12-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                        <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                     </svg>
                     <span>Visión</span>
                 </button>
@@ -275,6 +434,7 @@
             </li>
         </ul>
     </nav>
-    <script src="/app.js?v=1.3"></script>
+
+    <script src="/app.js?v=2.0"></script>
 </body>
 </html>

@@ -56,6 +56,7 @@ private:
     void processConfigQueue();
     void runVisionPipeline();
     void dispatchIpcPacket(bool sensor_ok);
+    void resetVisionState();
 
     Mlx90640Sensor& sensor_;
     QueueHandle_t   ipcQueue_;
@@ -81,7 +82,14 @@ private:
 
     int      count_in_  = 0;
     int      count_out_ = 0;
+
+    // W4-CSV: Buffering of crossing events for current frame dispatch
+    CrossingEvent current_events_[TelemetryPayload::MAX_EVENTS_PER_FRAME];
+    int           num_current_events_ = 0;
+
     uint32_t frame_id_  = 0;
+    uint32_t last_reconnect_ms_ = 0;
     bool     bg_init_   = false;
+    bool     sensor_ok_ = false;
     bool     sensor_initialized_ = false;
 };

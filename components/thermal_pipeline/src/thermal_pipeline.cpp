@@ -1,6 +1,7 @@
 #include "thermal_pipeline.hpp"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
 #include "fov_correction.hpp"
 #include <cstring>
 #include <cmath>
@@ -46,6 +47,15 @@ ThermalPipeline::ThermalPipeline(Mlx90640Sensor& sensor, QueueHandle_t ipcQueue,
 void ThermalPipeline::init()
 {
     FovCorrection::init(ThermalConfig::SENSOR_HEIGHT_M);
+    
+    // Initial sensor connection attempt to avoid 5s delay in run() loop
+    if (sensor_.init() == ESP_OK) {
+        sensor_initialized_ = true;
+        ESP_LOGI(TAG, "Sensor initialized at startup");
+    } else {
+        ESP_LOGE(TAG, "Sensor NOT found at startup, will retry in background...");
+    }
+
     ESP_LOGI(TAG, "Pipeline initialized (Standard stack: %.1f KB)",
              (float)(sizeof(current_frame_) + sizeof(background_map_) + sizeof(blocking_mask_)) / 1024.0f);
 }
@@ -85,6 +95,17 @@ void ThermalPipeline::run()
             sensor_ok = true;
         } else {
             sensor_initialized_ = false;
+            // Auto-reconnect logic every 5 seconds
+            uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
+            if (now - last_reconnect_ms_ > 5000) {
+                last_reconnect_ms_ = now;
+                ESP_LOGW(TAG, "Sensor disconnected. Attempting auto-reconnect...");
+                if (sensor_.init() == ESP_OK) {
+                    sensor_initialized_ = true;
+                    resetVisionState();
+                    ESP_LOGI(TAG, "Sensor auto-reconnected successfully!");
+                }
+            }
         }
 
         if (sensor_ok) {
@@ -161,10 +182,8 @@ void ThermalPipeline::processConfigQueue()
             case ConfigCmdType::RETRY_SENSOR:
                 if (sensor_.init() == ESP_OK) {
                     sensor_initialized_ = true;
-                    frame_accumulator_.reset();  // A1 fix: reset chess compositor
-                    noise_filter_.reset();        // A1 fix: reset Kalman filter
-                    bg_init_ = false;             // force background re-initialization
-                    ESP_LOGI(TAG, "Sensor re-initialized -- accumulator and filter reset");
+                    resetVisionState();
+                    ESP_LOGI(TAG, "Sensor re-initialized manually");
                 }
                 break;
             default: break;
@@ -209,7 +228,8 @@ void ThermalPipeline::runVisionPipeline()
     tracker_.update(peaks_, num_peaks_, ts);
 
     // --- Step 4b: Counting FSM (A3: TrackletFSM) ---
-    door_fsm_.update(tracker_, count_in_, count_out_);
+    num_current_events_ = door_fsm_.update(tracker_, count_in_, count_out_, 
+                                            current_events_, TelemetryPayload::MAX_EVENTS_PER_FRAME);
 
     tracker_.fillTrackArray(track_array_, &num_confirmed_tracks_);
 
@@ -222,7 +242,7 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
 {
     // --- DISPATCH: Build IpcPacket ---
     static IpcPacket packet; // static: reduces stack usage ( ~1.6 KB )
-    memset(&packet, 0, sizeof(IpcPacket)); // Safety: zero-init
+    memset(&packet, 0, sizeof(packet)); // W4-FIX: Ensure clean slate for each frame
     
     packet.sensor_ok              = sensor_ok;
     packet.telemetry.frame_id     = frame_id_;
@@ -243,10 +263,17 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
             packet.telemetry.tracks[tidx].y_100   = (int16_t)(track_array_[i].y   * 100.0f);
             packet.telemetry.tracks[tidx].v_x_100 = (int16_t)(track_array_[i].v_x * 100.0f);
             packet.telemetry.tracks[tidx].v_y_100 = (int16_t)(track_array_[i].v_y * 100.0f);
+            packet.telemetry.tracks[tidx].peak_temp_100 = (int16_t)(track_array_[i].peak_temp * 100.0f);
             tidx++;
         }
     }
     packet.telemetry.num_tracks = tidx;
+
+    // W4-CSV: Propagate crossing events to the telemetry packet
+    packet.telemetry.num_events = (uint8_t)num_current_events_;
+    for (int i = 0; i < num_current_events_; i++) {
+        packet.telemetry.events[i] = current_events_[i];
+    }
     
     // Final image dispatch:
     // - Normal mode (VIEW_MODE=0): composed_frame_ (fused, faithful to sensor)
@@ -261,4 +288,15 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
     packet.image.frame_id = packet.telemetry.frame_id;
 
     xQueueSend(ipcQueue_, &packet, 0);
+}
+
+void ThermalPipeline::resetVisionState()
+{
+    frame_accumulator_.reset();
+    noise_filter_.reset();
+    tracker_.reset();
+    door_fsm_.reset();
+    bg_init_ = false;
+    memset(blocking_mask_, 0, sizeof(blocking_mask_));
+    ESP_LOGW(TAG, "Full vision pipeline state reset");
 }

@@ -126,6 +126,19 @@ constexpr int UDP_PORT = 4210;
 constexpr const char *UDP_BROADCAST_IP = "192.168.4.1";
 
 // =========================================================================
+//  PHASE C1/D1 — PERIPHERALS (RTC & SD)
+// =========================================================================
+// RTC DS3231 (I2C1)
+constexpr int I2C1_SDA_PIN = 1;
+constexpr int I2C1_SCL_PIN = 2;
+
+// MicroSD (SPI2)
+constexpr int SD_MOSI_PIN = 11;
+constexpr int SD_MISO_PIN = 13;
+constexpr int SD_SCK_PIN  = 12;
+constexpr int SD_CS_PIN   = 14;
+
+// =========================================================================
 //  UDP PROTOCOL — Packet Types
 // =========================================================================
 constexpr uint8_t UDP_PACKET_TELEMETRY = 0x01;

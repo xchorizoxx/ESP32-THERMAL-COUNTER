@@ -108,6 +108,7 @@ struct Tracklet {
     float        display_x;        ///< Smoothed X for HUD rendering
     float        display_y;        ///< Smoothed Y for HUD rendering
     uint8_t      zone_state;       ///< HUD: 1=legacy IN / spawn default, 2=neutral or segment mode, 3=legacy OUT
+    float        peak_temp;        ///< Current peak temperature in °C (W4)
     TrackHistory history;
 
     /** @brief Latest confirmed X position (sub-pixel). */
@@ -162,6 +163,9 @@ public:
     void fillTrackArray(Track* out, int* out_count) const;
     const Tracklet* getTracks()         const { return tracks_; }
     int             getMaxTracks()      const { return ThermalConfig::MAX_TRACKS; }
+
+    /** @brief Clears all tracks and resets ID counter. */
+    void reset();
 
     /**
      * @brief P03-fix: Establece el zone_state de un track por ID.

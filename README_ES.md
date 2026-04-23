@@ -14,6 +14,9 @@ Sistema embebido para conteo de personas mediante visión térmica (32×24 píxe
 | Tracking | TrackletTracker con historial 20 frames (Stage A2) |
 | Conteo | TrackletFSM con líneas configurables (Stage A3) |
 | Interfaz | Web UI vía SoftAP (192.168.4.1) |
+| Almacenamiento | MicroSD (FATFS sobre SPI2) |
+| Reloj Real | RTC DS3231 (I2C1) con backup |
+| Flash | 16MB (Particiones de App de 4MB) |
 | Actualizaciones | OTA vía endpoint `/update` |
 
 ## Arquitectura de Software
@@ -32,7 +35,9 @@ Sistema embebido para conteo de personas mediante visión térmica (32×24 píxe
 [Core 0] TelemetryTask + HTTP Server (prioridad 2-5)
   ├── WiFi SoftAP "ThermalCounter"
   ├── WebSocket binario (1.5 KB/frame, 16 FPS)
-  ├── Broadcast UDP (opcional, puerto 4210)
+  ├── RTC Driver (Sincronización DS3231 vs Soft-clock)
+  ├── SD Manager (Logging de eventos CSV en MicroSD)
+  ├── Health Monitor (Estado hardware en tiempo real)
   └── Handler OTA (/update)
 
 IPC: FreeRTOS Queue (profundidad 4, asignación estática)
@@ -97,8 +102,14 @@ Detalles algoritmicos: [`docs/ALGORITHM.md`](docs/ALGORITHM.md)
 |----------|----------|------|
 | VCC | 3.3V | LDO estable requerido (150mA pico con WiFi) |
 | GND | GND | Camino de tierra corto |
-| SDA | GPIO 8 | Pull-up 1kΩ-2.2kΩ para 400kHz |
-| SCL | GPIO 9 | Pull-up 1kΩ-2.2kΩ para 400kHz |
+| SDA (I2C0) | GPIO 8 | Sensor Térmico |
+| SCL (I2C0) | GPIO 9 | Sensor Térmico |
+| SDA (I2C1) | GPIO 1 | RTC DS3231 |
+| SCL (I2C1) | GPIO 2 | RTC DS3231 |
+| SD MOSI | GPIO 11 | MicroSD (SPI2) |
+| SD MISO | GPIO 13 | MicroSD (SPI2) |
+| SD SCK | GPIO 12 | MicroSD (SPI2) |
+| SD CS | GPIO 14 | MicroSD (SPI2) |
 
 Pinout completo: [`docs/HARDWARE.md`](docs/HARDWARE.md)
 
@@ -146,7 +157,8 @@ Guía de operaciones: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
 ## Changelog
 
-- **Stage A3** (Actual): TrackletFSM con líneas configurables por segmentos, lógica debounce
+- **Stage C1/D1** (Actual): Soporte RTC (DS3231) y MicroSD (FATFS). Flash 16MB. Diagnóstico Web.
+- **Stage A3**: TrackletFSM con líneas configurables por segmentos, lógica debounce
 - **Stage A2**: TrackletTracker (historial 20 frames, matching compuesto, memoria proporcional)
 - **Stage A1**: Filtro Kalman por píxel, acumulador Chess, pipeline por etapas
 - **Stage A0**: MVP inicial
@@ -155,6 +167,21 @@ Guía de operaciones: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
 - **Proyecto**: MIT License
 - **Driver MLX90640**: Apache 2.0 (Melexis N.V.)
+
+### 📂 Gestión de Datos y Persistencia
+- **Registro Histórico en SD**: Guarda cada cruce en `/sdcard/logs/counts.csv` de forma persistente.
+- **Respaldo en NVS**: Los contadores totales se guardan cada 10 minutos en la Flash interna.
+- **Descarga vía Web**: Botón dedicado para bajar el historial completo en formato CSV.
+- **Sesión Trazable**: ID de sesión incremental para separar datos tras reinicios.
+
+Para más detalles, consulta la [Documentación de Persistencia](docs/DATA_PERSISTENCE.md).
+
+### 🌐 Interfaz Web Avanzada
+- **Streaming en Tiempo Real**: Visualización térmica a 16 FPS mediante WebSockets.
+- **Protocolo Binario**: Optimizado para baja latencia en redes WiFi congestionadas.
+- **Panel de Control**: Configuración dinámica de líneas, sensibilidad y altura.
+
+Consulta la [Especificación del Servidor Web](docs/WEBSERVER_SPECS.md).
 
 ---
 
