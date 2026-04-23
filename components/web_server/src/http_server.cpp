@@ -814,6 +814,12 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
     };
     httpd_register_uri_handler(server_, &ws_uri);
 
+    const httpd_uri_t log_uri = {
+        "/download_log", HTTP_GET, downloadLogHandler, NULL,
+        false, false, NULL
+    };
+    httpd_register_uri_handler(server_, &log_uri);
+
     // W6: Start periodic counter save timer (10 minutes)
     s_counter_save_timer = xTimerCreate(
         "ctr_save",
@@ -1023,6 +1029,40 @@ void HttpServer::wsAsyncCompletionCb(esp_err_t err, int socket, void *arg) {
     }
 }
 
+esp_err_t HttpServer::downloadLogHandler(httpd_req_t *req) {
+    if (!g_sd.isMounted()) {
+        httpd_resp_send_err(req, HTTPD_503_SERVICE_UNAVAILABLE, "SD Card not mounted");
+        return ESP_FAIL;
+    }
+
+    const char* path = "logs/counts.csv";
+    if (!g_sd.fileExists(path)) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Log file not found");
+        return ESP_FAIL;
+    }
+
+    FILE* f = fopen("/sdcard/logs/counts.csv", "r");
+    if (!f) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open log file");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "text/csv");
+    httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=thermal_counts_full.csv");
+
+    char chunk[1024];
+    size_t n;
+    while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0) {
+        if (httpd_resp_send_chunk(req, chunk, n) != ESP_OK) {
+            fclose(f);
+            return ESP_FAIL;
+        }
+    }
+    fclose(f);
+    httpd_resp_send_chunk(req, NULL, 0); // End of stream
+    return ESP_OK;
+}
+
 void HttpServer::broadcastEvent(const CrossingEvent& ev) {
     if (server_ == NULL) return;
 
@@ -1036,6 +1076,21 @@ void HttpServer::broadcastEvent(const CrossingEvent& ev) {
     cJSON_AddNumberToObject(root, "temp", (double)ev.temperature);
     cJSON_AddNumberToObject(root, "id",   (double)ev.id);
     cJSON_AddNumberToObject(root, "ts",   (double)ev.timestamp_ms);
+
+    // W4-CSV: Persist to SD if available
+    if (g_sd.isMounted()) {
+        char line[128];
+        // Format: session,timestamp_ms,dir,count_in,count_out,temp,id
+        snprintf(line, sizeof(line), "%u,%llu,%s,%d,%d,%.2f,%u",
+                 s_session_id, ev.timestamp_ms, ev.is_in ? "IN" : "OUT",
+                 ev.count_in, ev.count_out, ev.temperature, ev.id);
+        
+        const char* log_file = "logs/counts.csv";
+        if (!g_sd.fileExists(log_file)) {
+            g_sd.appendLine(log_file, "session,timestamp_ms,direction,count_in,count_out,temp_c,track_id");
+        }
+        g_sd.appendLine(log_file, line);
+    }
 
     char *str = cJSON_PrintUnformatted(root);
     if (str) {

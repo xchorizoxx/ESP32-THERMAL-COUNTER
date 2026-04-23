@@ -183,9 +183,12 @@
             </div>
 
             <!-- Actions -->
-            <div style="display:flex; gap:12px; margin-top:4px;">
-                <button class="btn-primary" style="flex:1;" onclick="generateCSV()">⬇ Descargar CSV</button>
-                <button class="btn-warn"    style="flex:1;" onclick="appCmd('RESET_COUNTS')">🔄 Resetear contadores</button>
+            <div style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
+                <div style="display:flex; gap:10px;">
+                    <button class="btn-primary" style="flex:1;" onclick="generateCSV()">📊 Descargar Sesión (RAM)</button>
+                    <button class="btn-warn"    style="flex:1;" onclick="window.location.href='/download_log'">📂 Historial Completo (SD)</button>
+                </div>
+                <button class="btn-danger" style="width:100%;" onclick="appCmd('RESET_COUNTS')">🔄 Resetear contadores totales</button>
             </div>
 
             <div style="height:20px;"></div>
