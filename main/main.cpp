@@ -298,10 +298,30 @@ extern "C" void app_main(void)
     } else if (ota_valid == ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGI(TAG, "[OTA] Factory partition detected — OTA marking not required");
     } else {
-        ESP_LOGW(TAG, "[OTA] esp_ota_mark_app_valid failed: %s", esp_err_to_name(ota_valid));
+        ESP_LOGE(TAG, "[OTA] esp_ota_mark_app_valid failed: %s", esp_err_to_name(ota_valid));
     }
 
-
+    // -------------------------------------------------------------------------
+    // Step 9: Peripheral Auto-Reconnect Watchdog
+    // -------------------------------------------------------------------------
+    xTaskCreate([](void* arg) {
+        while (true) {
+            vTaskDelay(pdMS_TO_TICKS(60000 * 2)); // Check every 2 minutes
+            
+            if (!g_sd.isMounted()) {
+                ESP_LOGW(TAG, "SD Card disconnected. Auto-reconnecting...");
+                g_sd.init((gpio_num_t)ThermalConfig::SD_MOSI_PIN,
+                          (gpio_num_t)ThermalConfig::SD_MISO_PIN,
+                          (gpio_num_t)ThermalConfig::SD_SCK_PIN,
+                          (gpio_num_t)ThermalConfig::SD_CS_PIN);
+            }
+            if (!g_rtc.isAvailable()) {
+                ESP_LOGW(TAG, "RTC disconnected. Auto-reconnecting...");
+                g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
+                           (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
+            }
+        }
+    }, "PeriphWatchdog", 2560, NULL, tskIDLE_PRIORITY + 1, NULL);
 
     StatusLedManager::getInstance().setState(StatusLedManager::State::IDLE);
 

@@ -947,19 +947,27 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
   // int32_t write to aligned address is atomic on Xtensa LX7
   s_latest_count_in = (int32_t)tel.count_in;
   s_latest_count_out = (int32_t)tel.count_out;
+  
+  // Release buffers that have been stuck for > 2 seconds
+  uint32_t now = pdTICKS_TO_MS(xTaskGetTickCount());
+  int stuck_idx = -1;
+  uint32_t stuck_time = 0;
 
-  // ---- A3: Recover buffers stuck > 5s (watchdog) ----
-  uint32_t now = xTaskGetTickCount();
   portENTER_CRITICAL(&s_ws_mux);
   for (int i = 0; i < (int)WS_BUFFER_COUNT; i++) {
-    if (ws_buffer_ref_counts_[i] > 0 &&
-        (now - s_ws_buffer_acquired_ticks[i]) > WS_BUFFER_MAX_AGE_TICKS) {
-      ESP_LOGW(TAG, "Buffer %d stuck for %lu ms, forcing release", i,
-               pdTICKS_TO_MS(now - s_ws_buffer_acquired_ticks[i]));
-      ws_buffer_ref_counts_[i] = 0;
+    if (ws_buffer_ref_counts_[i] > 0 || ws_buffer_ref_counts_[i] == -1) {
+      if (now - s_ws_buffer_acquired_ticks[i] > 2000) {
+        ws_buffer_ref_counts_[i] = 0; // Force free
+        stuck_idx = i;
+        stuck_time = now - s_ws_buffer_acquired_ticks[i];
+      }
     }
   }
   portEXIT_CRITICAL(&s_ws_mux);
+
+  if (stuck_idx != -1) {
+    ESP_LOGW(TAG, "Buffer %d stuck for %lu ms, forcing release", stuck_idx, stuck_time);
+  }
 
   // ---- Find a free buffer ----
   int buf_idx = -1;
