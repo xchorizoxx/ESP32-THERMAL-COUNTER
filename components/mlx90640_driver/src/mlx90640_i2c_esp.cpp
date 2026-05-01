@@ -20,6 +20,7 @@ static gpio_num_t s_scl_pin    = GPIO_NUM_9;
 static int        s_freq_hz    = 400000; // 400 kHz exactos (Melexis standard)
 static uint8_t    s_slave_addr = 0x33;
 static bool       s_initialized = false;
+static SemaphoreHandle_t s_i2c_mutex = nullptr;
 
 // --- Static buffer aligned for DMA (1664 bytes for frame + overhead) ---
 static uint8_t s_i2c_buffer[1700] __attribute__((aligned(4)));
@@ -35,6 +36,14 @@ extern "C" void MLX90640_I2CSetConfig(int port, int sda, int scl, int freq)
 extern "C" int MLX90640_I2CInit(void)
 {
     if (s_initialized) return 0;
+
+    if (s_i2c_mutex == nullptr) {
+        s_i2c_mutex = xSemaphoreCreateMutex();
+        if (s_i2c_mutex == nullptr) {
+            ESP_LOGE(TAG, "Failed to create I2C mutex — system unstable");
+            return -1;
+        }
+    }
 
     // 1. Configure the Master Bus
     i2c_master_bus_config_t bus_cfg = {};
@@ -75,6 +84,11 @@ extern "C" int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16
 {
     if (!s_initialized || !s_dev_handle) return -1;
 
+    if (xSemaphoreTake(s_i2c_mutex, pdMS_TO_TICKS(62)) != pdTRUE) {
+        ESP_LOGW(TAG, "I2C mutex timeout on Read — bus contended");
+        return -1;
+    }
+
     // Address is Big-Endian
     uint8_t addr_buf[2];
     addr_buf[0] = (uint8_t)(startAddress >> 8);
@@ -84,16 +98,16 @@ extern "C" int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16
     if (bytes_to_read > sizeof(s_i2c_buffer)) return -1;
 
     // Combined transmit/receive for atomicity
-    // P13-fix: Timeout reducido de 500ms a 100ms.
-    // A 16Hz, un frame dura ~62.5ms. Esperar 500ms colapsaría 8 frames.
-    // 100ms da margen suficiente sin degradar el pipeline.
-    esp_err_t err = i2c_master_transmit_receive(s_dev_handle, addr_buf, 2, s_i2c_buffer, bytes_to_read, 100);
+    // Timeout of 200ms gives enough margin for bus recovery or noise
+    esp_err_t err = i2c_master_transmit_receive(s_dev_handle, addr_buf, 2, s_i2c_buffer, bytes_to_read, 200);
 
     if (err == ESP_ERR_INVALID_RESPONSE) {
         ESP_LOGW(TAG, "I2C NACK at [0x%04X] (Bus Busy or No Response)", startAddress);
+        xSemaphoreGive(s_i2c_mutex);
         return -1;
     } else if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2C Read Failed [0x%04X]: %s", startAddress, esp_err_to_name(err));
+        xSemaphoreGive(s_i2c_mutex);
         return -1;
     }
 
@@ -102,12 +116,18 @@ extern "C" int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16
         data[i] = ((uint16_t)s_i2c_buffer[2 * i] << 8) | s_i2c_buffer[2 * i + 1];
     }
 
+    xSemaphoreGive(s_i2c_mutex);
     return 0;
 }
 
 extern "C" int MLX90640_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress, uint16_t data)
 {
     if (!s_initialized || !s_dev_handle) return -1;
+
+    if (xSemaphoreTake(s_i2c_mutex, pdMS_TO_TICKS(62)) != pdTRUE) {
+        ESP_LOGW(TAG, "I2C mutex timeout on Write");
+        return -1;
+    }
 
     uint8_t buf[4];
     buf[0] = (uint8_t)(writeAddress >> 8);
@@ -119,8 +139,10 @@ extern "C" int MLX90640_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress, uint1
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2C Write Failed [0x%04X]: %s", writeAddress, esp_err_to_name(err));
+        xSemaphoreGive(s_i2c_mutex);
         return -1;
     }
+    xSemaphoreGive(s_i2c_mutex);
     return 0;
 }
 
@@ -136,14 +158,17 @@ extern "C" void MLX90640_I2CFreqSet(int freq)
 
 extern "C" void MLX90640_I2CDeinit(void)
 {
-    if (s_dev_handle) {
-        i2c_master_bus_rm_device(s_dev_handle);
-        s_dev_handle = nullptr;
+    if (s_i2c_mutex && xSemaphoreTake(s_i2c_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+        if (s_dev_handle) {
+            i2c_master_bus_rm_device(s_dev_handle);
+            s_dev_handle = nullptr;
+        }
+        if (s_bus_handle) {
+            i2c_del_master_bus(s_bus_handle);
+            s_bus_handle = nullptr;
+        }
+        s_initialized = false;
+        xSemaphoreGive(s_i2c_mutex);
     }
-    if (s_bus_handle) {
-        i2c_del_master_bus(s_bus_handle);
-        s_bus_handle = nullptr;
-    }
-    s_initialized = false;
     ESP_LOGI(TAG, "I2C Driver deinitialized");
 }

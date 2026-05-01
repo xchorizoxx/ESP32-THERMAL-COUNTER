@@ -473,9 +473,32 @@ esp_err_t HttpServer::otaPostHandler(httpd_req_t *req) {
 // =============================================================================
 
 esp_err_t HttpServer::rebootPostHandler(httpd_req_t *req) {
+  // Save latest counters to NVS before restarting so no counts are lost
+  saveCountersToNvs(s_latest_count_in, s_latest_count_out);
   httpd_resp_sendstr(req, "Rebooting...");
   vTaskDelay(pdMS_TO_TICKS(500));
   esp_restart();
+  return ESP_OK;
+}
+
+// =============================================================================
+//  HTTP HANDLER — SAVE NVS NOW (/save_nvs)
+// =============================================================================
+
+esp_err_t HttpServer::saveNvsHandler(httpd_req_t *req) {
+  int32_t ci = s_latest_count_in;
+  int32_t co = s_latest_count_out;
+  saveCountersToNvs(ci, co);
+
+  // Build JSON response
+  char resp[128];
+  int32_t total_in  = s_session_baseline_in  + ci;
+  int32_t total_out = s_session_baseline_out + co;
+  snprintf(resp, sizeof(resp),
+           "{\"ok\":true,\"saved_in\":%ld,\"saved_out\":%ld}",
+           (long)total_in, (long)total_out);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_sendstr(req, resp);
   return ESP_OK;
 }
 
@@ -861,6 +884,7 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
       {"/app.js", HTTP_GET, appJsGetHandler, NULL, false, false, NULL},
       {"/update", HTTP_POST, otaPostHandler, NULL, false, false, NULL},
       {"/reboot", HTTP_POST, rebootPostHandler, NULL, false, false, NULL},
+      {"/save_nvs", HTTP_POST, saveNvsHandler, NULL, false, false, NULL},
   };
   for (const auto &u : uris)
     httpd_register_uri_handler(server_, &u);
@@ -923,19 +947,27 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
   // int32_t write to aligned address is atomic on Xtensa LX7
   s_latest_count_in = (int32_t)tel.count_in;
   s_latest_count_out = (int32_t)tel.count_out;
+  
+  // Release buffers that have been stuck for > 2 seconds
+  uint32_t now = pdTICKS_TO_MS(xTaskGetTickCount());
+  int stuck_idx = -1;
+  uint32_t stuck_time = 0;
 
-  // ---- A3: Recover buffers stuck > 5s (watchdog) ----
-  uint32_t now = xTaskGetTickCount();
   portENTER_CRITICAL(&s_ws_mux);
   for (int i = 0; i < (int)WS_BUFFER_COUNT; i++) {
-    if (ws_buffer_ref_counts_[i] > 0 &&
-        (now - s_ws_buffer_acquired_ticks[i]) > WS_BUFFER_MAX_AGE_TICKS) {
-      ESP_LOGW(TAG, "Buffer %d stuck for %lu ms, forcing release", i,
-               pdTICKS_TO_MS(now - s_ws_buffer_acquired_ticks[i]));
-      ws_buffer_ref_counts_[i] = 0;
+    if (ws_buffer_ref_counts_[i] > 0 || ws_buffer_ref_counts_[i] == -1) {
+      if (now - s_ws_buffer_acquired_ticks[i] > 2000) {
+        ws_buffer_ref_counts_[i] = 0; // Force free
+        stuck_idx = i;
+        stuck_time = now - s_ws_buffer_acquired_ticks[i];
+      }
     }
   }
   portEXIT_CRITICAL(&s_ws_mux);
+
+  if (stuck_idx != -1) {
+    ESP_LOGW(TAG, "Buffer %d stuck for %lu ms, forcing release", stuck_idx, stuck_time);
+  }
 
   // ---- Find a free buffer ----
   int buf_idx = -1;
@@ -1139,18 +1171,6 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev) {
   if (server_ == NULL)
     return;
 
-  cJSON *root = cJSON_CreateObject();
-  if (!root)
-    return;
-
-  cJSON_AddStringToObject(root, "type", "crossing");
-  cJSON_AddStringToObject(root, "dir", ev.is_in ? "IN" : "OUT");
-  cJSON_AddNumberToObject(root, "cnt_in", (double)ev.count_in);
-  cJSON_AddNumberToObject(root, "cnt_out", (double)ev.count_out);
-  cJSON_AddNumberToObject(root, "temp", (double)ev.temperature);
-  cJSON_AddNumberToObject(root, "id", (double)ev.id);
-  cJSON_AddNumberToObject(root, "ts", (double)ev.timestamp_ms);
-
   // W4-CSV: Persist to SD if available
   if (g_sd.isMounted()) {
     char line[128];
@@ -1168,28 +1188,41 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev) {
     g_sd.appendLine(log_file, line);
   }
 
-  char *str = cJSON_PrintUnformatted(root);
-  if (str) {
-    // Enviar a todos los clientes (sincrónico para JSON pequeños es seguro en
-    // Core 0)
-    size_t clients = 7;
-    int fds[7];
-    if (httpd_get_client_list(server_, &clients, fds) == ESP_OK) {
-      httpd_ws_frame_t pkt;
-      memset(&pkt, 0, sizeof(pkt));
-      pkt.type = HTTPD_WS_TYPE_TEXT;
-      pkt.payload = (uint8_t *)str;
-      pkt.len = strlen(str);
-      pkt.final = true;
+  // ══ FIX B5 ══ Buffer estático circular: persiste durante el envío async
+  static char s_event_bufs[4][256];
+  static int  s_event_buf_idx = 0;
 
-      for (size_t i = 0; i < clients; i++) {
-        if (httpd_ws_get_fd_info(server_, fds[i]) ==
-            HTTPD_WS_CLIENT_WEBSOCKET) {
-          httpd_ws_send_frame_async(server_, fds[i], &pkt);
-        }
+  int idx = s_event_buf_idx;
+  s_event_buf_idx = (s_event_buf_idx + 1) % 4; // avanzar
+
+  int written = snprintf(s_event_bufs[idx], sizeof(s_event_bufs[idx]),
+      "{\"type\":\"crossing\",\"dir\":\"%s\",\"cnt_in\":%d,\"cnt_out\":%d,\"temp\":%.2f,\"id\":%u,\"ts\":%" PRIu64 "}",
+      ev.is_in ? "IN" : "OUT",
+      ev.count_in,
+      ev.count_out,
+      ev.temperature,
+      ev.id,
+      (uint64_t)ev.timestamp_ms);
+
+  if (written <= 0 || written >= (int)sizeof(s_event_bufs[idx])) {
+      ESP_LOGW(TAG, "broadcastEvent: JSON truncated or error");
+      return;
+  }
+
+  size_t clients = 7;
+  int fds[7];
+  if (httpd_get_client_list(server_, &clients, fds) == ESP_OK) {
+    httpd_ws_frame_t pkt;
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.type = HTTPD_WS_TYPE_TEXT;
+    pkt.payload = (uint8_t *)s_event_bufs[idx];
+    pkt.len = (size_t)written;
+    pkt.final = true;
+
+    for (size_t i = 0; i < clients; i++) {
+      if (httpd_ws_get_fd_info(server_, fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
+        httpd_ws_send_frame_async(server_, fds[i], &pkt);
       }
     }
-    free(str);
   }
-  cJSON_Delete(root);
 }

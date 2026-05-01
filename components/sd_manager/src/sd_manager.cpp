@@ -26,6 +26,11 @@ const char* SDManager::toFull(const char* rel_path) {
 }
 
 esp_err_t SDManager::init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sck, gpio_num_t cs) {
+    if (mounted_) {
+        ESP_LOGI(TAG, "SD Card is already mounted. Ignoring init.");
+        return ESP_OK;
+    }
+
     ESP_LOGI(TAG, "Initializing SD card (SPI: MOSI=%d MISO=%d SCK=%d CS=%d)",
              mosi, miso, sck, cs);
 

@@ -113,7 +113,7 @@ constexpr int PIPELINE_FREQ_HZ = 32; // Pipeline frequency [Hz]
 constexpr int MAX_PEAKS = 20;        // Max. raw peaks per frame
 // MAX_TRACKS is now in thermal_types.hpp
 constexpr int IPC_QUEUE_DEPTH =
-    4; // Bug3-fix: 15→4 saves ~20 KB SRAM (pipeline drops on full, timeout=0)
+    8; // Bug3-fix: increased to 8 to handle jitter without dropping frames too easily
 
 // =========================================================================
 //  NETWORK (SoftAP + UDP)
@@ -129,14 +129,16 @@ constexpr const char *UDP_BROADCAST_IP = "192.168.4.1";
 //  PHASE C1/D1 — PERIPHERALS (RTC & SD)
 // =========================================================================
 // RTC DS3231 (I2C1)
-constexpr int I2C1_SDA_PIN = 1;
-constexpr int I2C1_SCL_PIN = 2;
+constexpr int I2C1_SDA_PIN = 7;
+constexpr int I2C1_SCL_PIN = 6;
+constexpr int I2C1_VCC_PIN = 15;  // GPIO-powered VCC
+constexpr int I2C1_GND_PIN = 16;  // GPIO-powered GND
 
 // MicroSD (SPI2)
-constexpr int SD_MOSI_PIN = 11;
-constexpr int SD_MISO_PIN = 13;
+constexpr int SD_MOSI_PIN = 13;
+constexpr int SD_MISO_PIN = 14;
 constexpr int SD_SCK_PIN  = 12;
-constexpr int SD_CS_PIN   = 14;
+constexpr int SD_CS_PIN   = 11;
 
 // =========================================================================
 //  UDP PROTOCOL — Packet Types

@@ -188,6 +188,7 @@
                     <button class="btn-primary" style="flex:1;" onclick="generateCSV()">📊 Descargar Sesión (RAM)</button>
                     <button class="btn-warn"    style="flex:1;" onclick="window.location.href='/download_log'">📂 Historial Completo (SD)</button>
                 </div>
+                <button class="btn-primary" style="width:100%;" onclick="saveNvsNow()">💾 Guardar contadores en Flash ahora</button>
                 <button class="btn-danger" style="width:100%;" onclick="appCmd('RESET_COUNTS')">🔄 Resetear contadores totales</button>
             </div>
 
@@ -361,6 +362,9 @@
                     <button class="btn-warn" style="margin-bottom:10px;"
                             onclick="appCmd('RETRY_SD')">
                         ↺ Reconectar Tarjeta SD
+                    </button>
+                    <button class="btn-primary" style="margin-bottom:10px;" onclick="saveNvsNow()">
+                        💾 Guardar NVS ahora
                     </button>
                     <button class="btn-danger" onclick="rebootEsp()">
                         ⚡ Reboot ESP32

@@ -40,6 +40,18 @@ SDManager g_sd;
 
 extern "C" void app_main(void)
 {
+    esp_reset_reason_t reason = esp_reset_reason();
+    switch (reason) {
+        case ESP_RST_POWERON:   ESP_LOGI(TAG, "Boot: Power on"); break;
+        case ESP_RST_SW:        ESP_LOGW(TAG, "Boot: Software reset (esp_restart)"); break;
+        case ESP_RST_PANIC:     ESP_LOGE(TAG, "Boot: PANIC (exception/assertion)"); break;
+        case ESP_RST_INT_WDT:   ESP_LOGE(TAG, "Boot: INT Watchdog timeout"); break;
+        case ESP_RST_TASK_WDT:  ESP_LOGE(TAG, "Boot: TASK Watchdog timeout"); break;
+        case ESP_RST_WDT:       ESP_LOGE(TAG, "Boot: Watchdog (generic)"); break;
+        case ESP_RST_BROWNOUT:  ESP_LOGE(TAG, "Boot: Brownout (power supply issue)"); break;
+        default:                ESP_LOGW(TAG, "Boot: Unknown reason (%d)", reason); break;
+    }
+
     ESP_LOGI(TAG, "=== Thermal Counting System initializing ===");
 
     // -------------------------------------------------------------------------
@@ -54,8 +66,8 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     // Initialize Status LED immediately so we can show boot state
-    StatusLed::init();
-    StatusLed::set_color(0, 0, 255); // Blue during boot
+    StatusLedManager::getInstance().init();
+    StatusLedManager::getInstance().setState(StatusLedManager::State::BOOTING);
 
     // -------------------------------------------------------------------------
     // Step 2: Configure system Watchdog
@@ -83,6 +95,22 @@ extern "C" void app_main(void)
     // -------------------------------------------------------------------------
     // Step 2.2: Real Time Clock (DS3231 on I2C1)
     // -------------------------------------------------------------------------
+    // Set up GPIO Powering for RTC (VCC=6, GND=7)
+    gpio_config_t rtc_pwr_conf = {};
+    rtc_pwr_conf.intr_type = GPIO_INTR_DISABLE;
+    rtc_pwr_conf.mode = GPIO_MODE_OUTPUT;
+    rtc_pwr_conf.pin_bit_mask = (1ULL << ThermalConfig::I2C1_VCC_PIN) | (1ULL << ThermalConfig::I2C1_GND_PIN);
+    rtc_pwr_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    rtc_pwr_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    gpio_config(&rtc_pwr_conf);
+    
+    // Turn on power to the RTC
+    gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 1); // VCC = HIGH
+    gpio_set_level((gpio_num_t)ThermalConfig::I2C1_GND_PIN, 0); // GND = LOW
+    
+    // Give the RTC chip 150ms to fully boot up and stabilize after power
+    vTaskDelay(pdMS_TO_TICKS(150));
+
     ret = g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
                      (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
     if (ret == ESP_OK) {
@@ -99,7 +127,8 @@ extern "C" void app_main(void)
     // -------------------------------------------------------------------------
     // Step 3: WiFi SoftAP
     // -------------------------------------------------------------------------
-    ESP_LOGI(TAG, "Starting SoftAP '%s'...", ThermalConfig::SOFTAP_SSID);
+    // [MAGENTA] Network-related log (Full line)
+    ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "Starting SoftAP '%s'...", ThermalConfig::SOFTAP_SSID);
     ret = WifiSoftAp::init(ThermalConfig::SOFTAP_SSID,
                            ThermalConfig::SOFTAP_PASS,
                            ThermalConfig::SOFTAP_CHANNEL,
@@ -125,12 +154,25 @@ extern "C" void app_main(void)
 
     ret = sensor.init();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "FAILED to initialize MLX90640 sensor (is it connected?)");
+        ESP_LOGE(TAG, "FAILED to initialize MLX90640 sensor — pipeline will retry in background");
         // Continuing to allow Web panel to start and show the error
     } else {
-        ret = sensor.setRefreshRate(0x05); // 16 Hz
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "FAILED to configure refresh rate");
+        bool rate_ok = false;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            ret = sensor.setRefreshRate(0x05); // 16 Hz
+            if (ret == ESP_OK) {
+                ESP_LOGI(TAG, "MLX90640 configured at 16Hz (attempt %d)", attempt);
+                rate_ok = true;
+                break;
+            }
+            ESP_LOGW(TAG, "setRefreshRate attempt %d/3 failed: %s", attempt, esp_err_to_name(ret));
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+
+        if (!rate_ok) {
+            ESP_LOGE(TAG, "CRITICAL: Cannot set MLX90640 to 16Hz after 3 attempts — rebooting in 2s");
+            vTaskDelay(pdMS_TO_TICKS(2000)); // Let log print
+            esp_restart();
         }
     }
 
@@ -184,6 +226,9 @@ extern "C" void app_main(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "FAILED to initialize UDP Transmitter — aborting");
         return;
+    } else {
+        // [MAGENTA] Network-related log (Full line)
+        ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "UDP Transmitter initialized");
     }
 
     // -------------------------------------------------------------------------
@@ -253,17 +298,36 @@ extern "C" void app_main(void)
     } else if (ota_valid == ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGI(TAG, "[OTA] Factory partition detected — OTA marking not required");
     } else {
-        ESP_LOGW(TAG, "[OTA] esp_ota_mark_app_valid failed: %s", esp_err_to_name(ota_valid));
+        ESP_LOGE(TAG, "[OTA] esp_ota_mark_app_valid failed: %s", esp_err_to_name(ota_valid));
     }
 
+    // -------------------------------------------------------------------------
+    // Step 9: Peripheral Auto-Reconnect Watchdog
+    // -------------------------------------------------------------------------
+    xTaskCreate([](void* arg) {
+        while (true) {
+            vTaskDelay(pdMS_TO_TICKS(60000 * 2)); // Check every 2 minutes
+            
+            if (!g_sd.isMounted()) {
+                ESP_LOGW(TAG, "SD Card disconnected. Auto-reconnecting...");
+                g_sd.init((gpio_num_t)ThermalConfig::SD_MOSI_PIN,
+                          (gpio_num_t)ThermalConfig::SD_MISO_PIN,
+                          (gpio_num_t)ThermalConfig::SD_SCK_PIN,
+                          (gpio_num_t)ThermalConfig::SD_CS_PIN);
+            }
+            if (!g_rtc.isAvailable()) {
+                ESP_LOGW(TAG, "RTC disconnected. Auto-reconnecting...");
+                g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
+                           (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
+            }
+        }
+    }, "PeriphWatchdog", 2560, NULL, tskIDLE_PRIORITY + 1, NULL);
 
+    StatusLedManager::getInstance().setState(StatusLedManager::State::IDLE);
 
-    StatusLed::set_color(0, 255, 0); // Green when fully booted
-
-    // --- Self-Monitoring: Profile Stack High Water Mark ---
-    UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-    ESP_LOGI(TAG, "=== System operational. app_main HWM: %u words (%u bytes) ===", 
-             (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
+    // [WHITE] Memory monitoring (Full line, commented)
+    // ESP_LOG_COLOR(LOG_COLOR_WHITE, TAG, "=== System operational. app_main HWM: %u words (%u bytes) ===", 
+    //               (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
 
     // app_main() returns here; FreeRTOS tasks run autonomously
 }

@@ -756,6 +756,24 @@ function rebootEsp() {
         .catch(e => logMsg('Reboot error: ' + e, true));
 }
 
+function saveNvsNow() {
+    logMsg('Guardando NVS...');
+    fetch('/save_nvs', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if (d.ok) {
+                logMsg(`NVS guardado — In:${d.saved_in} Out:${d.saved_out}`);
+                // Update displayed NVS baseline in case it changed
+                nvsBaseIn  = d.saved_in  - lastCountIn;
+                nvsBaseOut = d.saved_out - lastCountOut;
+                setEl('lbl-nvs-counts', `In:${d.saved_in} Out:${d.saved_out}`);
+            } else {
+                logMsg('NVS save error', true);
+            }
+        })
+        .catch(e => logMsg('NVS error: ' + e, true));
+}
+
 function startOTA() {
     const fileInput = document.getElementById('ota-file');
     if (!fileInput || !fileInput.files[0]) { alert('Selecciona un archivo .bin'); return; }

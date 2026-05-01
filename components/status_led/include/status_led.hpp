@@ -1,18 +1,72 @@
 #pragma once
+
 #include <stdint.h>
-
-namespace StatusLed {
-/**
- * @brief Initialize the WS2812 RGB LED on GPIO 48
- */
-void init();
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include <atomic>
 
 /**
- * @brief Set LED color with global brightness limit
- * @param r Red (0-255)
- * @param g Green (0-255)
- * @param b Blue (0-255)
- * @param brightness Percentage 0-100 (Default: 30 to protect eyes/OTG)
+ * @brief Simplified non-blocking WS2812 status LED manager.
+ *
+ * Four states, all tick-based (no blocking delays in FSM):
+ *   BOOTING     — White blink every 3s
+ *   IDLE        — Breathing cyan
+ *   TRACKING    — N green blinks = active track count (max 5), every 2s
+ *   FATAL_ERROR — 3 fast red blinks, 5s dark
+ *
+ * Events (strobes):
+ *   CROSS_IN  — Green 80ms flash
+ *   CROSS_OUT — Blue 80ms flash
  */
-void set_color(uint8_t r, uint8_t g, uint8_t b, uint8_t brightness = 10);
-} // namespace StatusLed
+class StatusLedManager {
+public:
+    enum class State {
+        BOOTING,
+        IDLE,         ///< No active tracks
+        TRACKING,     ///< Active tracks detected
+        FATAL_ERROR,  ///< Sensor or critical system failure
+    };
+
+    enum class Event {
+        CROSS_IN,     ///< Person entered
+        CROSS_OUT,    ///< Person exited
+    };
+
+    struct RgbColor {
+        uint8_t r, g, b;
+    };
+
+    static StatusLedManager& getInstance();
+
+    void init();
+    void setState(State state);
+    void setTrackCount(uint8_t count);
+    void triggerEvent(Event event);
+    void setMasterBrightness(float brightness);  ///< 0.0 to 1.0, thread-safe
+
+private:
+    StatusLedManager()  = default;
+    ~StatusLedManager() = default;
+    StatusLedManager(const StatusLedManager&)            = delete;
+    StatusLedManager& operator=(const StatusLedManager&) = delete;
+
+    static void taskWrapper(void* pvParameters);
+    void taskLoop();
+
+    // Low-level hardware helpers — only called from taskLoop
+    void setPixel(RgbColor color, float state_brightness);
+    void clearPixel();
+
+    // Shared state (protected by m_mutex, except m_masterBrightness)
+    State    m_state        = State::BOOTING;
+    uint8_t  m_trackCount   = 0;
+    Event    m_pendingEvent = (Event)-1;
+    bool     m_hasEvent     = false;
+
+    std::atomic<float> m_masterBrightness{0.80f};  ///< Lock-free brightness
+
+    SemaphoreHandle_t m_mutex      = nullptr;
+    TaskHandle_t      m_taskHandle = nullptr;
+    bool              m_initialized = false;
+};

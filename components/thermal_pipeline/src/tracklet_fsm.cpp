@@ -163,13 +163,15 @@ int TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut,
                         already_counted_out = true;
                         mem->cross_streak = (int8_t)COOLDOWN;
                         addEvent(t, false); // OUT event
-                        ESP_LOGI(TAG, "Track ID=%d crossed '%s' -> +1 OUT (temp=%.1f)", t.id, seg.name, t.avg_temperature);
+                        // [MAGENTA] OUT crossing event (Full line)
+                        ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "Track ID=%d crossed '%s' -> +1 OUT (temp=%.1f)", t.id, seg.name, t.avg_temperature);
                     } else if (cross == -1 && !already_counted_in) {
                         countIn++;
                         already_counted_in = true;
                         mem->cross_streak = (int8_t)COOLDOWN;
                         addEvent(t, true); // IN event
-                        ESP_LOGI(TAG, "Track ID=%d crossed '%s' -> +1 IN (temp=%.1f)", t.id, seg.name, t.avg_temperature);
+                        // [CYAN] IN crossing event (Full line)
+                        ESP_LOG_COLOR(LOG_COLOR_CYAN, TAG, "Track ID=%d crossed '%s' -> +1 IN (temp=%.1f)", t.id, seg.name, t.avg_temperature);
                     }
                 }
             }
@@ -198,7 +200,8 @@ int TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut,
                     countOut++;
                     mem->state = FsmState::TRACKING_OUT;
                     addEvent(t, false); // OUT event
-                    ESP_LOGI(TAG, "Track %d crossed IN->OUT. Temp: %.1f", t.id, t.avg_temperature);
+                    // [MAGENTA] OUT crossing event (Full line)
+                    ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "Track %d crossed IN->OUT. Temp: %.1f", t.id, t.avg_temperature);
                 }
                 
             } else if (mem->state == FsmState::TRACKING_OUT) {
@@ -206,7 +209,8 @@ int TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut,
                     countIn++;
                     mem->state = FsmState::TRACKING_IN;
                     addEvent(t, true); // IN event
-                    ESP_LOGI(TAG, "Track %d crossed OUT->IN. Temp: %.1f", t.id, t.avg_temperature);
+                    // [CYAN] IN crossing event (Full line)
+                    ESP_LOG_COLOR(LOG_COLOR_CYAN, TAG, "Track %d crossed OUT->IN. Temp: %.1f", t.id, t.avg_temperature);
                 }
             }
             

@@ -3,6 +3,7 @@
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "fov_correction.hpp"
+#include "status_led.hpp"
 #include <cstring>
 #include <cmath>
 
@@ -49,12 +50,8 @@ void ThermalPipeline::init()
     FovCorrection::init(ThermalConfig::SENSOR_HEIGHT_M);
     
     // Initial sensor connection attempt to avoid 5s delay in run() loop
-    if (sensor_.init() == ESP_OK) {
-        sensor_initialized_ = true;
-        ESP_LOGI(TAG, "Sensor initialized at startup");
-    } else {
-        ESP_LOGE(TAG, "Sensor NOT found at startup, will retry in background...");
-    }
+    // [FIX] Removed sensor_.init() here to prevent double DumpEE on boot.
+    // main.cpp already initialized the sensor. run() will verify its state.
 
     ESP_LOGI(TAG, "Pipeline initialized (Standard stack: %.1f KB)",
              (float)(sizeof(current_frame_) + sizeof(background_map_) + sizeof(blocking_mask_)) / 1024.0f);
@@ -93,8 +90,11 @@ void ThermalPipeline::run()
         bool sensor_ok = false;
         if (sensor_initialized_ && (sensor_.readFrame(current_frame_) == ESP_OK)) {
             sensor_ok = true;
+            StatusLedManager::getInstance().setState(StatusLedManager::State::TRACKING);
         } else {
             sensor_initialized_ = false;
+            StatusLedManager::getInstance().setState(StatusLedManager::State::FATAL_ERROR);
+            
             // Auto-reconnect logic every 5 seconds
             uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
             if (now - last_reconnect_ms_ > 5000) {
@@ -104,6 +104,7 @@ void ThermalPipeline::run()
                     sensor_initialized_ = true;
                     resetVisionState();
                     ESP_LOGI(TAG, "Sensor auto-reconnected successfully!");
+                    StatusLedManager::getInstance().setState(StatusLedManager::State::TRACKING);
                 }
             }
         }
@@ -123,13 +124,16 @@ void ThermalPipeline::run()
         dispatchIpcPacket(sensor_ok);
 
         // --- Self-Monitoring: Profile Stack High Water Mark (approx every 5s @ 16Hz) ---
+        /*
         static uint32_t monitor_count = 0;
         if (++monitor_count >= 80) {
             monitor_count = 0;
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI(TAG, "Stack High Water Mark: %u words (%u bytes) free", 
-                     (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
+            // [WHITE] Memory monitoring (Full line, commented)
+            // ESP_LOG_COLOR(LOG_COLOR_WHITE, TAG, "Stack High Water Mark: %u words (%u bytes) free", 
+            //               (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
         }
+        */
 
         esp_task_wdt_reset();
         vTaskDelayUntil(&lastWakeTime, period);
@@ -273,7 +277,17 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
     packet.telemetry.num_events = (uint8_t)num_current_events_;
     for (int i = 0; i < num_current_events_; i++) {
         packet.telemetry.events[i] = current_events_[i];
+        
+        // Trigger LED Event for visual feedback
+        if (current_events_[i].is_in) {
+            StatusLedManager::getInstance().triggerEvent(StatusLedManager::Event::CROSS_IN);
+        } else {
+            StatusLedManager::getInstance().triggerEvent(StatusLedManager::Event::CROSS_OUT);
+        }
     }
+
+    // Update LED Track Count display
+    StatusLedManager::getInstance().setTrackCount(packet.telemetry.num_tracks);
     
     // Final image dispatch:
     // - Normal mode (VIEW_MODE=0): composed_frame_ (fused, faithful to sensor)
@@ -287,7 +301,14 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
     }
     packet.image.frame_id = packet.telemetry.frame_id;
 
-    xQueueSend(ipcQueue_, &packet, 0);
+    if (xQueueSend(ipcQueue_, &packet, pdMS_TO_TICKS(5)) != pdTRUE) {
+        static uint32_t s_last_drop_frame = 0;
+        if (frame_id_ - s_last_drop_frame >= 16) {
+            ESP_LOGW(TAG, "IPC queue full — frame %lu dropped (last logged at %lu)",
+                     frame_id_, s_last_drop_frame);
+            s_last_drop_frame = frame_id_;
+        }
+    }
 }
 
 void ThermalPipeline::resetVisionState()
