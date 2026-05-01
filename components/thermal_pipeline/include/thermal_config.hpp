@@ -133,10 +133,10 @@ constexpr int I2C1_SDA_PIN = 1;
 constexpr int I2C1_SCL_PIN = 2;
 
 // MicroSD (SPI2)
-constexpr int SD_MOSI_PIN = 11;
-constexpr int SD_MISO_PIN = 13;
+constexpr int SD_MOSI_PIN = 13;
+constexpr int SD_MISO_PIN = 14;
 constexpr int SD_SCK_PIN  = 12;
-constexpr int SD_CS_PIN   = 14;
+constexpr int SD_CS_PIN   = 11;
 
 // =========================================================================
 //  UDP PROTOCOL — Packet Types

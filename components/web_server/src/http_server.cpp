@@ -473,9 +473,32 @@ esp_err_t HttpServer::otaPostHandler(httpd_req_t *req) {
 // =============================================================================
 
 esp_err_t HttpServer::rebootPostHandler(httpd_req_t *req) {
+  // Save latest counters to NVS before restarting so no counts are lost
+  saveCountersToNvs(s_latest_count_in, s_latest_count_out);
   httpd_resp_sendstr(req, "Rebooting...");
   vTaskDelay(pdMS_TO_TICKS(500));
   esp_restart();
+  return ESP_OK;
+}
+
+// =============================================================================
+//  HTTP HANDLER — SAVE NVS NOW (/save_nvs)
+// =============================================================================
+
+esp_err_t HttpServer::saveNvsHandler(httpd_req_t *req) {
+  int32_t ci = s_latest_count_in;
+  int32_t co = s_latest_count_out;
+  saveCountersToNvs(ci, co);
+
+  // Build JSON response
+  char resp[128];
+  int32_t total_in  = s_session_baseline_in  + ci;
+  int32_t total_out = s_session_baseline_out + co;
+  snprintf(resp, sizeof(resp),
+           "{\"ok\":true,\"saved_in\":%ld,\"saved_out\":%ld}",
+           (long)total_in, (long)total_out);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_sendstr(req, resp);
   return ESP_OK;
 }
 
@@ -861,6 +884,7 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
       {"/app.js", HTTP_GET, appJsGetHandler, NULL, false, false, NULL},
       {"/update", HTTP_POST, otaPostHandler, NULL, false, false, NULL},
       {"/reboot", HTTP_POST, rebootPostHandler, NULL, false, false, NULL},
+      {"/save_nvs", HTTP_POST, saveNvsHandler, NULL, false, false, NULL},
   };
   for (const auto &u : uris)
     httpd_register_uri_handler(server_, &u);

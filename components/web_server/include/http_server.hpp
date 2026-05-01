@@ -72,6 +72,7 @@ private:
     static esp_err_t wsHandler(httpd_req_t *req);
     static esp_err_t otaPostHandler(httpd_req_t *req);
     static esp_err_t rebootPostHandler(httpd_req_t *req); ///< W1-5: static fn, not lambda
+    static esp_err_t saveNvsHandler(httpd_req_t *req);    ///< POST /save_nvs — manual counter persist
     static esp_err_t downloadLogHandler(httpd_req_t *req);
 
     // --- WebSocket ---

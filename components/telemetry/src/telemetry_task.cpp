@@ -113,17 +113,14 @@ void TelemetryTask::run()
                  packet.telemetry.count_out,
                  packet.telemetry.num_tracks);
 
-        // --- Self-Monitoring: Profile Stack & Heap (every 100 packets) ---
-        /* 
+        // --- Self-Monitoring: Stack HWM + Heap every 320 frames (~10s at 32Hz) ---
         static uint32_t packet_count = 0;
-        if (++packet_count >= 100) {
+        if (++packet_count >= 320) {
             packet_count = 0;
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-            // [WHITE] Memory monitoring (Full line, commented)
-            // ESP_LOG_COLOR(LOG_COLOR_WHITE, TAG, "Health: Stack=%u bytes free, Heap=%u bytes free", 
-            //               (unsigned int)(hwm * sizeof(StackType_t)),
-            //               (unsigned int)esp_get_free_heap_size());
+            ESP_LOGI(TAG, "Health: Stack HWM=%u B free | Heap=%u B free",
+                     (unsigned int)(hwm * sizeof(StackType_t)),
+                     (unsigned int)esp_get_free_heap_size());
         }
-        */
     }
 }
