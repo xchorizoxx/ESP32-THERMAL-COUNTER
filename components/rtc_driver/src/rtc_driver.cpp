@@ -18,6 +18,21 @@ RTCDriver::~RTCDriver() {
 }
 
 esp_err_t RTCDriver::init(gpio_num_t sda, gpio_num_t scl) {
+    if (available_) {
+        ESP_LOGI(TAG, "RTC is already initialized. Ignoring init.");
+        return ESP_OK;
+    }
+
+    // Clean up previous attempts if they failed midway
+    if (dev_handle_) {
+        i2c_master_bus_rm_device(dev_handle_);
+        dev_handle_ = nullptr;
+    }
+    if (bus_handle_) {
+        i2c_del_master_bus(bus_handle_);
+        bus_handle_ = nullptr;
+    }
+
     ESP_LOGI(TAG, "Initializing DS3231 on I2C1 (SDA=%d, SCL=%d)", sda, scl);
 
     i2c_master_bus_config_t bus_cfg = {};
@@ -56,6 +71,10 @@ esp_err_t RTCDriver::init(gpio_num_t sda, gpio_num_t scl) {
     }
 
     ESP_LOGE(TAG, "DS3231 found but not responding to reads");
+    i2c_master_bus_rm_device(dev_handle_);
+    i2c_del_master_bus(bus_handle_);
+    dev_handle_ = nullptr;
+    bus_handle_ = nullptr;
     return ESP_FAIL;
 }
 

@@ -129,8 +129,10 @@ constexpr const char *UDP_BROADCAST_IP = "192.168.4.1";
 //  PHASE C1/D1 — PERIPHERALS (RTC & SD)
 // =========================================================================
 // RTC DS3231 (I2C1)
-constexpr int I2C1_SDA_PIN = 1;
-constexpr int I2C1_SCL_PIN = 2;
+constexpr int I2C1_SDA_PIN = 5;
+constexpr int I2C1_SCL_PIN = 4;
+constexpr int I2C1_VCC_PIN = 6;
+constexpr int I2C1_GND_PIN = 7;
 
 // MicroSD (SPI2)
 constexpr int SD_MOSI_PIN = 13;

@@ -95,6 +95,22 @@ extern "C" void app_main(void)
     // -------------------------------------------------------------------------
     // Step 2.2: Real Time Clock (DS3231 on I2C1)
     // -------------------------------------------------------------------------
+    // Set up GPIO Powering for RTC (VCC=6, GND=7)
+    gpio_config_t rtc_pwr_conf = {};
+    rtc_pwr_conf.intr_type = GPIO_INTR_DISABLE;
+    rtc_pwr_conf.mode = GPIO_MODE_OUTPUT;
+    rtc_pwr_conf.pin_bit_mask = (1ULL << ThermalConfig::I2C1_VCC_PIN) | (1ULL << ThermalConfig::I2C1_GND_PIN);
+    rtc_pwr_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    rtc_pwr_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    gpio_config(&rtc_pwr_conf);
+    
+    // Turn on power to the RTC
+    gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 1); // VCC = HIGH
+    gpio_set_level((gpio_num_t)ThermalConfig::I2C1_GND_PIN, 0); // GND = LOW
+    
+    // Give the RTC chip 50ms to boot up after receiving power
+    vTaskDelay(pdMS_TO_TICKS(50));
+
     ret = g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
                      (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
     if (ret == ESP_OK) {
