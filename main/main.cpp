@@ -108,8 +108,8 @@ extern "C" void app_main(void)
     gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 1); // VCC = HIGH
     gpio_set_level((gpio_num_t)ThermalConfig::I2C1_GND_PIN, 0); // GND = LOW
     
-    // Give the RTC chip 50ms to boot up after receiving power
-    vTaskDelay(pdMS_TO_TICKS(50));
+    // Give the RTC chip 150ms to fully boot up and stabilize after power
+    vTaskDelay(pdMS_TO_TICKS(150));
 
     ret = g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
                      (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);

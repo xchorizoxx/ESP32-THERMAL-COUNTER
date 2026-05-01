@@ -5,12 +5,12 @@
  * States:
  *   BOOTING      — Single white blink every 3s (100ms on, 2900ms off)
  *   IDLE         — Breathing cyan (sinusoidal, ~4s period)
- *   TRACKING     — n quick green blinks (n = track count, max 5), then 2s pause
+ *   TRACKING     — Solid green (person detected in FOV), dark purple 80ms flash on crossing
  *   FATAL_ERROR  — 3 fast red blinks, then 5s dark
  *
  * Events (strobes, fire-and-forget):
- *   CROSS_IN     — Single green flash (80ms)
- *   CROSS_OUT    — Single blue flash (80ms)
+ *   CROSS_IN     — Dark purple flash (80ms) - person entered
+ *   CROSS_OUT    — Dark purple flash (80ms) - person exited
  *
  * All timing is tick-based (xTaskGetTickCount). No blocking vTaskDelay inside patterns.
  * The task sleeps 20ms between iterations (50 Hz service rate).
@@ -138,15 +138,20 @@ void StatusLedManager::taskLoop() {
             xSemaphoreGive(m_mutex);
         }
 
-        // --- 2. High-priority events — single short flash, non-blocking ---
+        // --- 2. High-priority events — single short dark purple flash, non-blocking ---
         if (hasEv) {
-            // We do a single quick flash and immediately return to the loop.
+            // Dark purple pulse: indicates a line crossing (IN or OUT).
             // 80ms on is short enough that no state transition is missed.
-            RgbColor c = (event == Event::CROSS_IN) ? RgbColor{0, 220, 0}
-                                                    : RgbColor{0, 60, 255};
-            setPixel(c, 0.40f);
+            // Same color for both IN and OUT — direction info is on the display/log.
+            RgbColor purple = {60, 0, 80}; // Dark purple (low R, no G, mid B)
+            setPixel(purple, 0.60f);
             vTaskDelay(pdMS_TO_TICKS(80));
-            clearPixel();
+            // After flash: restore the base TRACKING color immediately
+            if (cur == State::TRACKING && tracks > 0) {
+                setPixel({0, 200, 0}, 0.70f); // Back to solid green
+            } else {
+                clearPixel();
+            }
             tick++;
             continue;
         }
@@ -188,39 +193,15 @@ void StatusLedManager::taskLoop() {
             break;
         }
 
-        // ---- TRACKING: n quick green blinks (n=tracks, max 5), then 2s pause ----
+        // ---- TRACKING: solid green while tracks > 0, idle cyan if no tracks ----
         case State::TRACKING: {
             if (tracks == 0) {
-                // No tracks → fallback to breathing cyan
+                // No active tracks → fall back to breathing cyan (like IDLE)
                 float breathe = 0.08f + 0.35f * (0.5f + 0.5f * sinf(tick * 0.0314f));
                 setPixel({0, 130, 255}, breathe);
-                break;
-            }
-
-            if (now >= nextTick) {
-                if (blinkPhase == 0) {
-                    // Start a new burst — clamp to 5 blinks max for readability
-                    blinksLeft = (tracks > 5) ? 5 : tracks;
-                    blinkPhase = 1;
-                    nextTick   = now; // process immediately
-                } else if (blinkPhase % 2 == 1) {
-                    // Blink ON
-                    setPixel({0, 200, 0}, 0.90f);
-                    nextTick   = now + pdMS_TO_TICKS(120);
-                    blinkPhase++;
-                } else {
-                    // Blink OFF
-                    clearPixel();
-                    blinksLeft--;
-                    if (blinksLeft > 0) {
-                        nextTick   = now + pdMS_TO_TICKS(130);
-                        blinkPhase++;  // back to ON
-                    } else {
-                        // Burst done — 2s pause
-                        nextTick   = now + pdMS_TO_TICKS(2000);
-                        blinkPhase = 0;
-                    }
-                }
+            } else {
+                // Active tracks → solid green, steady on
+                setPixel({0, 200, 0}, 0.70f);
             }
             break;
         }
