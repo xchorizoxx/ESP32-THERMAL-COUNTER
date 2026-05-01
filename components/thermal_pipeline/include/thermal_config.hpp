@@ -113,7 +113,7 @@ constexpr int PIPELINE_FREQ_HZ = 32; // Pipeline frequency [Hz]
 constexpr int MAX_PEAKS = 20;        // Max. raw peaks per frame
 // MAX_TRACKS is now in thermal_types.hpp
 constexpr int IPC_QUEUE_DEPTH =
-    4; // Bug3-fix: 15→4 saves ~20 KB SRAM (pipeline drops on full, timeout=0)
+    8; // Bug3-fix: increased to 8 to handle jitter without dropping frames too easily
 
 // =========================================================================
 //  NETWORK (SoftAP + UDP)

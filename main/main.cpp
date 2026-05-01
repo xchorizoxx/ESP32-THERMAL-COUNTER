@@ -40,6 +40,18 @@ SDManager g_sd;
 
 extern "C" void app_main(void)
 {
+    esp_reset_reason_t reason = esp_reset_reason();
+    switch (reason) {
+        case ESP_RST_POWERON:   ESP_LOGI(TAG, "Boot: Power on"); break;
+        case ESP_RST_SW:        ESP_LOGW(TAG, "Boot: Software reset (esp_restart)"); break;
+        case ESP_RST_PANIC:     ESP_LOGE(TAG, "Boot: PANIC (exception/assertion)"); break;
+        case ESP_RST_INT_WDT:   ESP_LOGE(TAG, "Boot: INT Watchdog timeout"); break;
+        case ESP_RST_TASK_WDT:  ESP_LOGE(TAG, "Boot: TASK Watchdog timeout"); break;
+        case ESP_RST_WDT:       ESP_LOGE(TAG, "Boot: Watchdog (generic)"); break;
+        case ESP_RST_BROWNOUT:  ESP_LOGE(TAG, "Boot: Brownout (power supply issue)"); break;
+        default:                ESP_LOGW(TAG, "Boot: Unknown reason (%d)", reason); break;
+    }
+
     ESP_LOGI(TAG, "=== Thermal Counting System initializing ===");
 
     // -------------------------------------------------------------------------
@@ -126,12 +138,25 @@ extern "C" void app_main(void)
 
     ret = sensor.init();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "FAILED to initialize MLX90640 sensor (is it connected?)");
+        ESP_LOGE(TAG, "FAILED to initialize MLX90640 sensor — pipeline will retry in background");
         // Continuing to allow Web panel to start and show the error
     } else {
-        ret = sensor.setRefreshRate(0x05); // 16 Hz
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "FAILED to configure refresh rate");
+        bool rate_ok = false;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            ret = sensor.setRefreshRate(0x05); // 16 Hz
+            if (ret == ESP_OK) {
+                ESP_LOGI(TAG, "MLX90640 configured at 16Hz (attempt %d)", attempt);
+                rate_ok = true;
+                break;
+            }
+            ESP_LOGW(TAG, "setRefreshRate attempt %d/3 failed: %s", attempt, esp_err_to_name(ret));
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+
+        if (!rate_ok) {
+            ESP_LOGE(TAG, "CRITICAL: Cannot set MLX90640 to 16Hz after 3 attempts — rebooting in 2s");
+            vTaskDelay(pdMS_TO_TICKS(2000)); // Let log print
+            esp_restart();
         }
     }
 

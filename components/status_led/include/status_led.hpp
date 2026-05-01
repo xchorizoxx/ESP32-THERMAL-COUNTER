@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include <atomic>
 
 /**
  * @brief Manager for the system status LED (WS2812).
@@ -18,6 +19,8 @@ public:
         IDLE,           ///< 0 tracks: Breathing Cyan/White
         TRACKING,       ///< 1-20 tracks: Resistor code + blink pattern
         FATAL_ERROR,    ///< Sensor/I2C Fail: Breathing Red
+        I2C_RECOVERING, ///< Bus I2C en recovery
+        WIFI_LOST,      ///< Sin conexion WiFi
     };
 
     enum class Event {
@@ -77,7 +80,7 @@ private:
     uint8_t  m_trackCount = 0;
     Event    m_pendingEvent = (Event)-1;
     bool     m_hasEvent = false;
-    float    m_masterBrightness = 0.50f; // Default 50%
+    std::atomic<float> m_masterBrightness{0.50f}; // Default 50%
     
     SemaphoreHandle_t m_mutex = nullptr;
     TaskHandle_t      m_taskHandle = nullptr;

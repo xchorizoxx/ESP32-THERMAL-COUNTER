@@ -1139,18 +1139,6 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev) {
   if (server_ == NULL)
     return;
 
-  cJSON *root = cJSON_CreateObject();
-  if (!root)
-    return;
-
-  cJSON_AddStringToObject(root, "type", "crossing");
-  cJSON_AddStringToObject(root, "dir", ev.is_in ? "IN" : "OUT");
-  cJSON_AddNumberToObject(root, "cnt_in", (double)ev.count_in);
-  cJSON_AddNumberToObject(root, "cnt_out", (double)ev.count_out);
-  cJSON_AddNumberToObject(root, "temp", (double)ev.temperature);
-  cJSON_AddNumberToObject(root, "id", (double)ev.id);
-  cJSON_AddNumberToObject(root, "ts", (double)ev.timestamp_ms);
-
   // W4-CSV: Persist to SD if available
   if (g_sd.isMounted()) {
     char line[128];
@@ -1168,28 +1156,41 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev) {
     g_sd.appendLine(log_file, line);
   }
 
-  char *str = cJSON_PrintUnformatted(root);
-  if (str) {
-    // Enviar a todos los clientes (sincrónico para JSON pequeños es seguro en
-    // Core 0)
-    size_t clients = 7;
-    int fds[7];
-    if (httpd_get_client_list(server_, &clients, fds) == ESP_OK) {
-      httpd_ws_frame_t pkt;
-      memset(&pkt, 0, sizeof(pkt));
-      pkt.type = HTTPD_WS_TYPE_TEXT;
-      pkt.payload = (uint8_t *)str;
-      pkt.len = strlen(str);
-      pkt.final = true;
+  // ══ FIX B5 ══ Buffer estático circular: persiste durante el envío async
+  static char s_event_bufs[4][256];
+  static int  s_event_buf_idx = 0;
 
-      for (size_t i = 0; i < clients; i++) {
-        if (httpd_ws_get_fd_info(server_, fds[i]) ==
-            HTTPD_WS_CLIENT_WEBSOCKET) {
-          httpd_ws_send_frame_async(server_, fds[i], &pkt);
-        }
+  int idx = s_event_buf_idx;
+  s_event_buf_idx = (s_event_buf_idx + 1) % 4; // avanzar
+
+  int written = snprintf(s_event_bufs[idx], sizeof(s_event_bufs[idx]),
+      "{\"type\":\"crossing\",\"dir\":\"%s\",\"cnt_in\":%d,\"cnt_out\":%d,\"temp\":%.2f,\"id\":%u,\"ts\":%" PRIu64 "}",
+      ev.is_in ? "IN" : "OUT",
+      ev.count_in,
+      ev.count_out,
+      ev.temperature,
+      ev.id,
+      (uint64_t)ev.timestamp_ms);
+
+  if (written <= 0 || written >= (int)sizeof(s_event_bufs[idx])) {
+      ESP_LOGW(TAG, "broadcastEvent: JSON truncated or error");
+      return;
+  }
+
+  size_t clients = 7;
+  int fds[7];
+  if (httpd_get_client_list(server_, &clients, fds) == ESP_OK) {
+    httpd_ws_frame_t pkt;
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.type = HTTPD_WS_TYPE_TEXT;
+    pkt.payload = (uint8_t *)s_event_bufs[idx];
+    pkt.len = (size_t)written;
+    pkt.final = true;
+
+    for (size_t i = 0; i < clients; i++) {
+      if (httpd_ws_get_fd_info(server_, fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
+        httpd_ws_send_frame_async(server_, fds[i], &pkt);
       }
     }
-    free(str);
   }
-  cJSON_Delete(root);
 }

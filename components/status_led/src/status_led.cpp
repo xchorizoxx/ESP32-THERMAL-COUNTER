@@ -90,11 +90,8 @@ void StatusLedManager::triggerEvent(Event event) {
 }
 
 void StatusLedManager::setMasterBrightness(float brightness) {
-  if (xSemaphoreTake(m_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-    m_masterBrightness =
-        brightness > 1.0f ? 1.0f : (brightness < 0.0f ? 0.0f : brightness);
-    xSemaphoreGive(m_mutex);
-  }
+  float valid_bright = brightness > 1.0f ? 1.0f : (brightness < 0.0f ? 0.0f : brightness);
+  m_masterBrightness.store(valid_bright, std::memory_order_relaxed);
 }
 
 void StatusLedManager::taskWrapper(void *pvParameters) {
@@ -113,6 +110,9 @@ void StatusLedManager::flashColor(RgbColor color, float brightness, int blinks,
 
 void StatusLedManager::taskLoop() {
   uint32_t tick = 0;
+  TickType_t s_blink_next_tick = 0;
+  int        s_blink_phase     = 0;
+  State      s_last_state      = State::BOOTING;
 
   while (true) {
     State current_state = State::IDLE;
@@ -139,6 +139,15 @@ void StatusLedManager::taskLoop() {
       flashColor(strobeColor, 0.30f, 1, 50, 50);
       continue; // Prevent interfering with state machine delays
     }
+
+    // Resetear la máquina de parpadeo cuando el estado cambia
+    if (current_state != s_last_state) {
+        s_blink_phase    = 0;
+        s_blink_next_tick = xTaskGetTickCount();
+        s_last_state     = current_state;
+    }
+
+    TickType_t now = xTaskGetTickCount();
 
     // 3. Handle persistent states
     switch (current_state) {
@@ -174,10 +183,67 @@ void StatusLedManager::taskLoop() {
       break;
     }
 
-    case State::FATAL_ERROR:
-      flashColor({180, 0, 0}, 1.0f, 3, 150, 100);
-      vTaskDelay(pdMS_TO_TICKS(5000));
-      break;
+    case State::FATAL_ERROR: {
+        if (now >= s_blink_next_tick) {
+            if (s_blink_phase < 6) {
+                if (s_blink_phase % 2 == 0) {
+                    updateHardware({180, 0, 0}, 1.0f); // rojo
+                    s_blink_next_tick = now + pdMS_TO_TICKS(150);
+                } else {
+                    led_strip_clear(s_led_handle);
+                    led_strip_refresh(s_led_handle);
+                    s_blink_next_tick = now + pdMS_TO_TICKS(100);
+                }
+                s_blink_phase++;
+            } else {
+                led_strip_clear(s_led_handle);
+                led_strip_refresh(s_led_handle);
+                s_blink_next_tick = now + pdMS_TO_TICKS(4700);
+                s_blink_phase = 0; // reiniciar ciclo
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+        break;
+    }
+
+    case State::I2C_RECOVERING: {
+        if (now >= s_blink_next_tick) {
+            if (s_blink_phase < 4) {
+                if (s_blink_phase % 2 == 0) {
+                    updateHardware({255, 140, 0}, 0.8f); // naranja
+                    s_blink_next_tick = now + pdMS_TO_TICKS(100);
+                } else {
+                    led_strip_clear(s_led_handle);
+                    led_strip_refresh(s_led_handle);
+                    s_blink_next_tick = now + pdMS_TO_TICKS(100);
+                }
+                s_blink_phase++;
+            } else {
+                led_strip_clear(s_led_handle);
+                led_strip_refresh(s_led_handle);
+                s_blink_next_tick = now + pdMS_TO_TICKS(800);
+                s_blink_phase = 0;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+        break;
+    }
+
+    case State::WIFI_LOST: {
+        if (now >= s_blink_next_tick) {
+            if (s_blink_phase % 2 == 0) {
+                updateHardware({255, 0, 255}, 0.25f); // magenta tenue
+                s_blink_next_tick = now + pdMS_TO_TICKS(500);
+            } else {
+                led_strip_clear(s_led_handle);
+                led_strip_refresh(s_led_handle);
+                s_blink_next_tick = now + pdMS_TO_TICKS(500);
+            }
+            s_blink_phase++;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+        break;
+    }
     }
 
     tick++;
@@ -185,7 +251,8 @@ void StatusLedManager::taskLoop() {
 }
 
 void StatusLedManager::updateHardware(RgbColor color, float state_brightness) {
-  float final_pct = state_brightness * m_masterBrightness;
+  float current_master = m_masterBrightness.load(std::memory_order_relaxed);
+  float final_pct = state_brightness * current_master;
 
   auto apply = [&](uint8_t val) -> uint8_t {
     float fval = (float)val * final_pct;
@@ -203,7 +270,7 @@ void StatusLedManager::updateHardware(RgbColor color, float state_brightness) {
   if (log_count < 10) {
     log_count++;
     ESP_LOGI(TAG, "LED Update #%lu: R=%d G=%d B=%d (Master: %.2f)",
-             (unsigned long)log_count, rs, gs, bs, m_masterBrightness);
+             (unsigned long)log_count, rs, gs, bs, current_master);
   }
 
   led_strip_set_pixel(s_led_handle, 0, rs, gs, bs);

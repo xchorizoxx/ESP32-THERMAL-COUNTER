@@ -29,9 +29,16 @@ void TelemetryTask::init()
 void TelemetryTask::TaskWrapper(void* pvParameters)
 {
     // P05-fix: Register this task with the WDT to prevent zombie-task on network freeze.
-    esp_task_wdt_add(NULL);
+    esp_err_t wdt_err = esp_task_wdt_add(NULL);
+    if (wdt_err != ESP_OK && wdt_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "WDT register failed: %s — task will run unmonitored", esp_err_to_name(wdt_err));
+    }
+
     auto* self = static_cast<TelemetryTask*>(pvParameters);
     self->run();
+
+    esp_task_wdt_delete(NULL);
+    ESP_LOGE(TAG, "TelemetryTask::run() returned unexpectedly — deleting task");
     vTaskDelete(NULL);
 }
 
@@ -43,8 +50,12 @@ void TelemetryTask::run()
     ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "Telemetry task started on Core %d", xPortGetCoreID());
 
     while (true) {
+        // WDT reset FIRST — before any potentially blocking I/O (like HTTP locks)
+        esp_task_wdt_reset();
+
         // Block until receiving a packet from the pipeline (Core 1)
-        BaseType_t received = xQueueReceive(ipcQueue_, &packet, portMAX_DELAY);
+        // Timeout 100ms guarantees the WDT gets reset even if queue is empty
+        BaseType_t received = xQueueReceive(ipcQueue_, &packet, pdMS_TO_TICKS(100));
         if (received != pdTRUE) {
             continue;
         }
@@ -93,9 +104,8 @@ void TelemetryTask::run()
             HttpServer::broadcastEvent(packet.telemetry.events[i]);
         }
 
-        // P05-fix: Reset WDT after each successful iteration.
-        // If the network freezes and blocks here, the system restarts in 5s.
-        esp_task_wdt_reset();
+        // WDT reset moved to top of loop
+        // esp_task_wdt_reset();
 
         ESP_LOGD(TAG, "Frame %lu transmitted: IN=%d OUT=%d tracks=%d",
                  packet.telemetry.frame_id,

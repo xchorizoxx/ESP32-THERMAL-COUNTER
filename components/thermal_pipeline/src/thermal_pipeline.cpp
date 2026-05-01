@@ -50,12 +50,8 @@ void ThermalPipeline::init()
     FovCorrection::init(ThermalConfig::SENSOR_HEIGHT_M);
     
     // Initial sensor connection attempt to avoid 5s delay in run() loop
-    if (sensor_.init() == ESP_OK) {
-        sensor_initialized_ = true;
-        ESP_LOGI(TAG, "Sensor initialized at startup");
-    } else {
-        ESP_LOGE(TAG, "Sensor NOT found at startup, will retry in background...");
-    }
+    // [FIX] Removed sensor_.init() here to prevent double DumpEE on boot.
+    // main.cpp already initialized the sensor. run() will verify its state.
 
     ESP_LOGI(TAG, "Pipeline initialized (Standard stack: %.1f KB)",
              (float)(sizeof(current_frame_) + sizeof(background_map_) + sizeof(blocking_mask_)) / 1024.0f);
@@ -305,7 +301,14 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
     }
     packet.image.frame_id = packet.telemetry.frame_id;
 
-    xQueueSend(ipcQueue_, &packet, 0);
+    if (xQueueSend(ipcQueue_, &packet, pdMS_TO_TICKS(5)) != pdTRUE) {
+        static uint32_t s_last_drop_frame = 0;
+        if (frame_id_ - s_last_drop_frame >= 16) {
+            ESP_LOGW(TAG, "IPC queue full — frame %lu dropped (last logged at %lu)",
+                     frame_id_, s_last_drop_frame);
+            s_last_drop_frame = frame_id_;
+        }
+    }
 }
 
 void ThermalPipeline::resetVisionState()
