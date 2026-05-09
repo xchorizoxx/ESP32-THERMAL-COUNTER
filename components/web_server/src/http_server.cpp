@@ -689,9 +689,12 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
         }
       }
       if (matched && s_configQueue) {
-        xQueueSend(s_configQueue, &cfgCmd, 0);
-        ESP_LOGI(TAG, "SET_PARAM: %s = %.3f", param->valuestring,
-                 (double)cfgCmd.value);
+        if (xQueueSend(s_configQueue, &cfgCmd, pdMS_TO_TICKS(10)) == pdTRUE) {
+          ESP_LOGI(TAG, "SET_PARAM: %s = %.3f", param->valuestring,
+                   (double)cfgCmd.value);
+        } else {
+          ESP_LOGW(TAG, "SET_PARAM: Queue full, command %s dropped", param->valuestring);
+        }
       }
     }
   }
@@ -735,7 +738,9 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
 
       if (s_configQueue) {
         AppConfigCmd cfgCmd{ConfigCmdType::APPLY_CONFIG, 0.0f};
-        xQueueSend(s_configQueue, &cfgCmd, 0);
+        if (xQueueSend(s_configQueue, &cfgCmd, pdMS_TO_TICKS(10)) != pdTRUE) {
+          ESP_LOGW(TAG, "SET_COUNTING_LINES: Queue full, apply command dropped");
+        }
       }
       ESP_LOGI(TAG, "SET_COUNTING_LINES: %d segments",
                ThermalConfig::door_lines.num_lines);
@@ -760,7 +765,9 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
   else if (strcmp(cmdStr, "RESET_COUNTS") == 0) {
     if (s_configQueue) {
       AppConfigCmd cfgCmd{ConfigCmdType::RESET_COUNTS, 0.0f};
-      xQueueSend(s_configQueue, &cfgCmd, 0);
+      if (xQueueSend(s_configQueue, &cfgCmd, pdMS_TO_TICKS(10)) != pdTRUE) {
+        ESP_LOGW(TAG, "RESET_COUNTS: Queue full, command dropped");
+      }
     }
     // Also reset the session counters so NVS timer doesn't re-save old values
     s_latest_count_in = 0;
@@ -774,7 +781,9 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
   else if (strcmp(cmdStr, "RETRY_SENSOR") == 0) {
     if (s_configQueue) {
       AppConfigCmd cfgCmd{ConfigCmdType::RETRY_SENSOR, 0.0f};
-      xQueueSend(s_configQueue, &cfgCmd, 0);
+      if (xQueueSend(s_configQueue, &cfgCmd, pdMS_TO_TICKS(10)) != pdTRUE) {
+        ESP_LOGW(TAG, "RETRY_SENSOR: Queue full, command dropped");
+      }
     }
     ESP_LOGI(TAG, "RETRY_SENSOR requested");
   } else if (strcmp(cmdStr, "RETRY_RTC") == 0) {

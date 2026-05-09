@@ -8,6 +8,7 @@
 #include "tracklet_tracker.hpp"
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 #include "esp_log.h"
 
 static const char* TAG = "TRACKLET";
@@ -306,14 +307,8 @@ void TrackletTracker::fillTrackArray(Track* out, int* out_count) const
     }
 
     // Sort output by ascending ID for consistent HUD display ordering
-    for (int i = 0; i < *out_count - 1; i++) {
-        for (int j = i + 1; j < *out_count; j++) {
-            if (out[j].id < out[i].id) {
-                Track tmp = out[i];
-                out[i]   = out[j];
-                out[j]   = tmp;
-            }
-        }
-    }
+    std::sort(out, out + *out_count, [](const Track& a, const Track& b) {
+        return a.id < b.id;
+    });
 }
 

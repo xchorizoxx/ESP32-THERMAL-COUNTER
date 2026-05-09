@@ -60,41 +60,10 @@ void TelemetryTask::run()
             continue;
         }
 
-        // Check if ANY netif is up before trying to send via UDP
-        // This stops the log flood if there's no network link.
-        /* 
-        // [W4-CLEANUP] network_ready unused while UDP is disabled
-        bool network_ready = false;
-        esp_netif_t* netif = nullptr;
-        while ((netif = esp_netif_next_unsafe(netif)) != nullptr) {
-            if (esp_netif_is_netif_up(netif)) {
-                network_ready = true;
-                break;
-            }
-        }
-        */
-
-        // [FIX] Disable UDP broadcasts globally.
+        // [FIX] UDP broadcasts are disabled globally.
         // Broadcasting huge thermal frames (1500+ bytes) to 255.255.255.255 saturates the 
         // TinyUSB NCM driver queue and prevents essential network traffic (like DHCP replies)
         // from going out. The Web UI uses WebSockets, not UDP.
-        /*
-        if (network_ready) {
-            // Send telemetry (counters + tracks)
-            esp_err_t err = udp_.sendTelemetry(packet.telemetry);
-            if (err != ESP_OK) {
-                ESP_LOGD(TAG, "Error sending telemetry (frame %lu) - errno=%d",
-                         packet.telemetry.frame_id, errno);
-            }
-
-            // Send thermal image
-            err = udp_.sendImage(packet.image);
-            if (err != ESP_OK) {
-                ESP_LOGD(TAG, "Error sending image (frame %lu) - errno=%d",
-                         packet.image.frame_id, errno);
-            }
-        }
-        */
 
         // [NEW] Send via WebSocket to HTTP clients
         HttpServer::broadcastFrame(packet.image, packet.telemetry, packet.sensor_ok);

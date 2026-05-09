@@ -102,11 +102,11 @@ extern "C" void app_main(void)
     rtc_pwr_conf.pin_bit_mask = (1ULL << ThermalConfig::I2C1_VCC_PIN) | (1ULL << ThermalConfig::I2C1_GND_PIN);
     rtc_pwr_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
     rtc_pwr_conf.pull_up_en = GPIO_PULLUP_DISABLE;
-    gpio_config(&rtc_pwr_conf);
+    ESP_ERROR_CHECK(gpio_config(&rtc_pwr_conf));
     
     // Turn on power to the RTC
-    gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 1); // VCC = HIGH
-    gpio_set_level((gpio_num_t)ThermalConfig::I2C1_GND_PIN, 0); // GND = LOW
+    ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 1)); // VCC = HIGH
+    ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_GND_PIN, 0)); // GND = LOW
     
     // Give the RTC chip 150ms to fully boot up and stabilize after power
     vTaskDelay(pdMS_TO_TICKS(150));
@@ -305,8 +305,9 @@ extern "C" void app_main(void)
     // Step 9: Peripheral Auto-Reconnect Watchdog
     // -------------------------------------------------------------------------
     xTaskCreate([](void* arg) {
+        const TickType_t WATCHDOG_INTERVAL = pdMS_TO_TICKS(120000); // Check every 2 minutes
         while (true) {
-            vTaskDelay(pdMS_TO_TICKS(60000 * 2)); // Check every 2 minutes
+            vTaskDelay(WATCHDOG_INTERVAL);
             
             if (!g_sd.isMounted()) {
                 ESP_LOGW(TAG, "SD Card disconnected. Auto-reconnecting...");
