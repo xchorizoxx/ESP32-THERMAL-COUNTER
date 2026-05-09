@@ -24,7 +24,7 @@ Mlx90640Sensor::Mlx90640Sensor(i2c_port_t port, gpio_num_t sda,
 
 esp_err_t Mlx90640Sensor::init()
 {
-    ESP_LOGI(TAG, "Initializing MLX90640 sensor (addr=0x%02X, SDA=%d, SCL=%d)",
+    ESP_LOGI(TAG, "Attempting to probe MLX90640 (addr=0x%02X, SDA=%d, SCL=%d)",
              addr_, sda_, scl_);
 
     // 1. Configure and start I2C
@@ -61,9 +61,8 @@ esp_err_t Mlx90640Sensor::init()
         return ESP_FAIL;
     }
 
-    // Refresh rate 32 Hz (0x06) — requiere I2C FM+ 1 MHz para tener margen de procesamiento.
-    // Tabla: 0x04=8Hz, 0x05=16Hz, 0x06=32Hz, 0x07=64Hz
-    setRefreshRate(0x06);
+    // FIX-4: Refresh rate is set by the caller (main.cpp), not here.
+    // Setting it here and then overriding in main.cpp wastes an I2C write.
 
     initialized_ = true;
     ESP_LOGI(TAG, "Sensor Hardware and Parameters Initialized successfully");

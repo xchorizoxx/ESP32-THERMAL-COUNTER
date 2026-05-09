@@ -34,9 +34,33 @@
 
 static const char* TAG = "MAIN";
 
-// Global instances for Web Server access
+// Global instances for Web Server access (must be before periphWatchdogTask)
 RTCDriver g_rtc;
 SDManager g_sd;
+
+// FIX-2a: Static task buffers for PeriphWatchdog (no heap allocation)
+static StaticTask_t s_periphWatchdogTaskBuffer;
+static StackType_t  s_periphWatchdogStack[4096 / sizeof(StackType_t)];
+
+static void periphWatchdogTask(void* arg)
+{
+    const TickType_t WATCHDOG_INTERVAL = pdMS_TO_TICKS(300000);
+    while (true) {
+        vTaskDelay(WATCHDOG_INTERVAL);
+        if (!g_sd.isMounted()) {
+            ESP_LOGW(TAG, "SD Card disconnected. Auto-reconnecting...");
+            g_sd.init((gpio_num_t)ThermalConfig::SD_MOSI_PIN,
+                      (gpio_num_t)ThermalConfig::SD_MISO_PIN,
+                      (gpio_num_t)ThermalConfig::SD_SCK_PIN,
+                      (gpio_num_t)ThermalConfig::SD_CS_PIN);
+        }
+        if (!g_rtc.isAvailable()) {
+            ESP_LOGW(TAG, "RTC disconnected. Auto-reconnecting...");
+            g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
+                       (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
+        }
+    }
+}
 
 extern "C" void app_main(void)
 {
@@ -159,9 +183,9 @@ extern "C" void app_main(void)
     } else {
         bool rate_ok = false;
         for (int attempt = 1; attempt <= 3; attempt++) {
-            ret = sensor.setRefreshRate(0x05); // 16 Hz
+            ret = sensor.setRefreshRate(0x06); // 32 Hz — match PIPELINE_FREQ_HZ
             if (ret == ESP_OK) {
-                ESP_LOGI(TAG, "MLX90640 configured at 16Hz (attempt %d)", attempt);
+                ESP_LOGI(TAG, "MLX90640 configured at 32Hz (attempt %d)", attempt);
                 rate_ok = true;
                 break;
             }
@@ -170,7 +194,7 @@ extern "C" void app_main(void)
         }
 
         if (!rate_ok) {
-            ESP_LOGE(TAG, "CRITICAL: Cannot set MLX90640 to 16Hz after 3 attempts — rebooting in 2s");
+            ESP_LOGE(TAG, "CRITICAL: Cannot set MLX90640 to 32Hz after 3 attempts — rebooting in 2s");
             vTaskDelay(pdMS_TO_TICKS(2000)); // Let log print
             esp_restart();
         }
@@ -302,27 +326,18 @@ extern "C" void app_main(void)
     }
 
     // -------------------------------------------------------------------------
-    // Step 9: Peripheral Auto-Reconnect Watchdog
+    // Step 9: Peripheral Auto-Reconnect Watchdog (Core 0, static stack)
+    // FIX-2a: xTaskCreateStaticPinnedToCore — zero heap, 4096 B stack, Core 0
     // -------------------------------------------------------------------------
-    xTaskCreate([](void* arg) {
-        const TickType_t WATCHDOG_INTERVAL = pdMS_TO_TICKS(120000); // Check every 2 minutes
-        while (true) {
-            vTaskDelay(WATCHDOG_INTERVAL);
-            
-            if (!g_sd.isMounted()) {
-                ESP_LOGW(TAG, "SD Card disconnected. Auto-reconnecting...");
-                g_sd.init((gpio_num_t)ThermalConfig::SD_MOSI_PIN,
-                          (gpio_num_t)ThermalConfig::SD_MISO_PIN,
-                          (gpio_num_t)ThermalConfig::SD_SCK_PIN,
-                          (gpio_num_t)ThermalConfig::SD_CS_PIN);
-            }
-            if (!g_rtc.isAvailable()) {
-                ESP_LOGW(TAG, "RTC disconnected. Auto-reconnecting...");
-                g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
-                           (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
-            }
-        }
-    }, "PeriphWatchdog", 2560, NULL, tskIDLE_PRIORITY + 1, NULL);
+    TaskHandle_t periphHandle = xTaskCreateStaticPinnedToCore(
+        periphWatchdogTask, "PeriphWatchdog",
+        4096 / sizeof(StackType_t),
+        NULL, tskIDLE_PRIORITY + 1,
+        s_periphWatchdogStack, &s_periphWatchdogTaskBuffer,
+        0);
+    if (periphHandle == NULL) {
+        ESP_LOGE(TAG, "FAILED to create PeriphWatchdog task");
+    }
 
     StatusLedManager::getInstance().setState(StatusLedManager::State::IDLE);
 

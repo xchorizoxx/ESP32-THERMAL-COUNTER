@@ -144,7 +144,7 @@ static uint64_t __attribute__((unused)) getSystemTimeMs() {
   return s_time_ref_unix_ms + (uint64_t)(elapsed_us / 1000LL);
 }
 
-static void getLogPathForToday(char* buf, size_t n) {
+static void getLogPathForToday(char *buf, size_t n) {
   uint64_t ms = getSystemTimeMs();
   if (ms == 0) {
     snprintf(buf, n, "logs/counts_session_%03u.csv", s_session_id);
@@ -152,8 +152,8 @@ static void getLogPathForToday(char* buf, size_t n) {
     time_t t = (time_t)(ms / 1000);
     struct tm ti;
     gmtime_r(&t, &ti);
-    snprintf(buf, n, "logs/counts_%04d-%02d-%02d.csv", 
-             ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday);
+    snprintf(buf, n, "logs/counts_%04d-%02d-%02d.csv", ti.tm_year + 1900,
+             ti.tm_mon + 1, ti.tm_mday);
   }
 }
 
@@ -200,10 +200,10 @@ static void counterSaveTimerCb(TimerHandle_t xTimer) {
   // int32_t read from Xtensa LX7 aligned volatile is effectively atomic
   int32_t ci = s_latest_count_in;
   int32_t co = s_latest_count_out;
-  
+
   static int32_t last_saved_in = -1;
   static int32_t last_saved_out = -1;
-  
+
   if (ci != last_saved_in || co != last_saved_out) {
     saveCountersToNvs(ci, co);
     last_saved_in = ci;
@@ -514,11 +514,11 @@ esp_err_t HttpServer::saveNvsHandler(httpd_req_t *req) {
 
   // Build JSON response
   char resp[128];
-  int32_t total_in  = s_session_baseline_in  + ci;
+  int32_t total_in = s_session_baseline_in + ci;
   int32_t total_out = s_session_baseline_out + co;
   snprintf(resp, sizeof(resp),
-           "{\"ok\":true,\"saved_in\":%ld,\"saved_out\":%ld}",
-           (long)total_in, (long)total_out);
+           "{\"ok\":true,\"saved_in\":%ld,\"saved_out\":%ld}", (long)total_in,
+           (long)total_out);
   httpd_resp_set_type(req, "application/json");
   httpd_resp_sendstr(req, resp);
   return ESP_OK;
@@ -666,10 +666,11 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
 
       // Update hardware RTC if available
       if (g_rtc.isAvailable()) {
-          RTCDriver::DateTime dt = RTCDriver::DateTime::fromUnix((uint32_t)(s_time_ref_unix_ms / 1000));
-          if (g_rtc.setTime(dt) == ESP_OK) {
-              ESP_LOGI(TAG, "Hardware RTC synchronized with browser time");
-          }
+        RTCDriver::DateTime dt = RTCDriver::DateTime::fromUnix(
+            (uint32_t)(s_time_ref_unix_ms / 1000));
+        if (g_rtc.setTime(dt) == ESP_OK) {
+          ESP_LOGI(TAG, "Hardware RTC synchronized with browser time");
+        }
       }
     } else {
       ESP_LOGW(TAG, "SET_TIME: invalid or missing unix_ms");
@@ -723,7 +724,8 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
           ESP_LOGI(TAG, "SET_PARAM: %s = %.3f", param->valuestring,
                    (double)cfgCmd.value);
         } else {
-          ESP_LOGW(TAG, "SET_PARAM: Queue full, command %s dropped", param->valuestring);
+          ESP_LOGW(TAG, "SET_PARAM: Queue full, command %s dropped",
+                   param->valuestring);
         }
       }
     }
@@ -769,7 +771,8 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
       if (s_configQueue) {
         AppConfigCmd cfgCmd{ConfigCmdType::APPLY_CONFIG, 0.0f};
         if (xQueueSend(s_configQueue, &cfgCmd, pdMS_TO_TICKS(10)) != pdTRUE) {
-          ESP_LOGW(TAG, "SET_COUNTING_LINES: Queue full, apply command dropped");
+          ESP_LOGW(TAG,
+                   "SET_COUNTING_LINES: Queue full, apply command dropped");
         }
       }
       ESP_LOGI(TAG, "SET_COUNTING_LINES: %d segments",
@@ -795,7 +798,8 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
   else if (strcmp(cmdStr, "RESET_COUNTS") == 0) {
     bool reset_nvs = false;
     cJSON *jnvs = cJSON_GetObjectItem(root, "reset_nvs");
-    if (cJSON_IsTrue(jnvs)) reset_nvs = true;
+    if (cJSON_IsTrue(jnvs))
+      reset_nvs = true;
 
     if (s_configQueue) {
       AppConfigCmd cfgCmd{ConfigCmdType::RESET_COUNTS, 0.0f};
@@ -805,14 +809,14 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
     }
     s_latest_count_in = 0;
     s_latest_count_out = 0;
-    
+
     if (reset_nvs) {
-        s_session_baseline_in = 0;
-        s_session_baseline_out = 0;
-        saveCountersToNvs(0, 0); // Fija a 0 en la memoria Flash
-        ESP_LOGI(TAG, "RESET_COUNTS: RAM and NVS baselines wiped to 0");
+      s_session_baseline_in = 0;
+      s_session_baseline_out = 0;
+      saveCountersToNvs(0, 0); // Fija a 0 en la memoria Flash
+      ESP_LOGI(TAG, "RESET_COUNTS: RAM and NVS baselines wiped to 0");
     } else {
-        ESP_LOGI(TAG, "RESET_COUNTS: RAM wiped (NVS baselines preserved)");
+      ESP_LOGI(TAG, "RESET_COUNTS: RAM wiped (NVS baselines preserved)");
     }
   }
 
@@ -918,6 +922,7 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
   // Start HTTP server on Core 0
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.core_id = 0;
+  config.max_uri_handlers = 16;
   config.max_open_sockets = 7;
   config.stack_size = 16384;
 
@@ -956,8 +961,13 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
       "/api/sd/info", HTTP_GET, sdInfoHandler, NULL, false, false, NULL};
   httpd_register_uri_handler(server_, &sd_info_uri);
 
-  const httpd_uri_t sd_down_uri = {
-      "/api/sd/download", HTTP_GET, sdDownloadHandler, NULL, false, false, NULL};
+  const httpd_uri_t sd_down_uri = {"/api/sd/download",
+                                   HTTP_GET,
+                                   sdDownloadHandler,
+                                   NULL,
+                                   false,
+                                   false,
+                                   NULL};
   httpd_register_uri_handler(server_, &sd_down_uri);
 
   const httpd_uri_t sd_del_uri = {
@@ -1009,7 +1019,7 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
   // int32_t write to aligned address is atomic on Xtensa LX7
   s_latest_count_in = (int32_t)tel.count_in;
   s_latest_count_out = (int32_t)tel.count_out;
-  
+
   // Release buffers that have been stuck for > 2 seconds
   uint32_t now = pdTICKS_TO_MS(xTaskGetTickCount());
   int stuck_idx = -1;
@@ -1028,7 +1038,8 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
   portEXIT_CRITICAL(&s_ws_mux);
 
   if (stuck_idx != -1) {
-    ESP_LOGW(TAG, "Buffer %d stuck for %lu ms, forcing release", stuck_idx, stuck_time);
+    ESP_LOGW(TAG, "Buffer %d stuck for %lu ms, forcing release", stuck_idx,
+             stuck_time);
   }
 
   // ---- Find a free buffer ----
@@ -1176,6 +1187,34 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
   }
 }
 
+// =============================================================================
+//  FIX-3: Event buffer pool for broadcastEvent (async, non-blocking)
+// =============================================================================
+#define WS_EVENT_BUFFER_COUNT 4
+#define WS_EVENT_BUFFER_SIZE  256
+static uint8_t  s_event_buffers[WS_EVENT_BUFFER_COUNT][WS_EVENT_BUFFER_SIZE];
+static int      s_event_ref_counts[WS_EVENT_BUFFER_COUNT];
+static uint32_t s_event_acquired_ticks[WS_EVENT_BUFFER_COUNT];
+static portMUX_TYPE s_event_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static void eventAsyncCompletionCb(esp_err_t err, int socket, void *arg) {
+    int buf_idx = (int)(uintptr_t)arg;
+    if (buf_idx < 0 || buf_idx >= WS_EVENT_BUFFER_COUNT)
+        return;
+    portENTER_CRITICAL(&s_event_mux);
+    if (s_event_ref_counts[buf_idx] > 0) {
+        s_event_ref_counts[buf_idx]--;
+    }
+    portEXIT_CRITICAL(&s_event_mux);
+    if (err != ESP_OK && err != ESP_ERR_HTTPD_INVALID_REQ) {
+        ESP_LOGV(TAG, "eventAsync: fd=%d err=%s", socket, esp_err_to_name(err));
+    }
+}
+
+// =============================================================================
+//  W1-3: REFERENCE-COUNTED WS ASYNC COMPLETION CALLBACK
+// =============================================================================
+
 void HttpServer::wsAsyncCompletionCb(esp_err_t err, int socket, void *arg) {
   int buf_idx = (int)(uintptr_t)arg;
   if (buf_idx < 0 || buf_idx >= (int)WS_BUFFER_COUNT)
@@ -1194,25 +1233,28 @@ void HttpServer::wsAsyncCompletionCb(esp_err_t err, int socket, void *arg) {
 
 esp_err_t HttpServer::sdInfoHandler(httpd_req_t *req) {
   if (!g_sd.isMounted()) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD Card not mounted");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "SD Card not mounted");
     return ESP_FAIL;
   }
-  
+
   char json_buf[1024];
   if (g_sd.listDirectory("logs", json_buf, sizeof(json_buf)) != ESP_OK) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to list logs");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "Failed to list logs");
     return ESP_FAIL;
   }
-  
+
   cJSON *resp = cJSON_CreateObject();
   cJSON_AddNumberToObject(resp, "free_bytes", (double)g_sd.getFreeSpaceBytes());
-  cJSON_AddNumberToObject(resp, "total_bytes", (double)g_sd.getTotalSpaceBytes());
-  
+  cJSON_AddNumberToObject(resp, "total_bytes",
+                          (double)g_sd.getTotalSpaceBytes());
+
   cJSON *files_arr = cJSON_Parse(json_buf);
   if (files_arr) {
     cJSON_AddItemToObject(resp, "files", files_arr);
   }
-  
+
   httpd_resp_set_type(req, "application/json");
   wsSendJson(req, resp);
   cJSON_Delete(resp);
@@ -1221,10 +1263,11 @@ esp_err_t HttpServer::sdInfoHandler(httpd_req_t *req) {
 
 esp_err_t HttpServer::sdDownloadHandler(httpd_req_t *req) {
   if (!g_sd.isMounted()) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD Card not mounted");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "SD Card not mounted");
     return ESP_FAIL;
   }
-  
+
   char query[128];
   char path[128];
   if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
@@ -1232,39 +1275,40 @@ esp_err_t HttpServer::sdDownloadHandler(httpd_req_t *req) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing file param");
     return ESP_FAIL;
   }
-  
+
   // Basic path traversal protection
   if (strstr(path, "..")) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
     return ESP_FAIL;
   }
-  
+
   if (!g_sd.fileExists(path)) {
     httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
     return ESP_FAIL;
   }
-  
+
   char full_path[256];
   snprintf(full_path, sizeof(full_path), "/sdcard/%s", path);
-  
+
   g_sd.lock();
   FILE *f = fopen(full_path, "r");
   if (!f) {
     g_sd.unlock();
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "Failed to open file");
     return ESP_FAIL;
   }
-  
+
   httpd_resp_set_type(req, "text/csv");
-  
+
   // Extraer el nombre de archivo (basename) para Content-Disposition
   const char *basename = strrchr(path, '/');
   basename = basename ? (basename + 1) : path;
-  
+
   char disp[256];
   snprintf(disp, sizeof(disp), "attachment; filename=%s", basename);
   httpd_resp_set_hdr(req, "Content-Disposition", disp);
-  
+
   char chunk[1024];
   size_t n;
   while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0) {
@@ -1282,10 +1326,11 @@ esp_err_t HttpServer::sdDownloadHandler(httpd_req_t *req) {
 
 esp_err_t HttpServer::sdDeleteHandler(httpd_req_t *req) {
   if (!g_sd.isMounted()) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD Card not mounted");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "SD Card not mounted");
     return ESP_FAIL;
   }
-  
+
   char buf[128];
   int ret = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf) - 1));
   if (ret <= 0) {
@@ -1293,32 +1338,34 @@ esp_err_t HttpServer::sdDeleteHandler(httpd_req_t *req) {
     return ESP_FAIL;
   }
   buf[ret] = '\0';
-  
+
   cJSON *root = cJSON_Parse(buf);
   if (!root) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
     return ESP_FAIL;
   }
-  
+
   cJSON *file_j = cJSON_GetObjectItem(root, "file");
   if (!cJSON_IsString(file_j) || strstr(file_j->valuestring, "..")) {
     cJSON_Delete(root);
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid file param");
     return ESP_FAIL;
   }
-  
+
   if (g_sd.deleteFile(file_j->valuestring) != ESP_OK) {
     cJSON_Delete(root);
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to delete file");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "Failed to delete file");
     return ESP_FAIL;
   }
-  
+
   cJSON_Delete(root);
   httpd_resp_set_type(req, "application/json");
   return httpd_resp_send(req, "{\"status\":\"ok\"}", -1);
 }
 
-// downloadLogHandler (legacy) remains for compatibility if needed, or we can leave it.
+// downloadLogHandler (legacy) remains for compatibility if needed, or we can
+// leave it.
 esp_err_t HttpServer::downloadLogHandler(httpd_req_t *req) {
   if (!g_sd.isMounted()) {
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
@@ -1360,7 +1407,8 @@ esp_err_t HttpServer::downloadLogHandler(httpd_req_t *req) {
   return ESP_OK;
 }
 
-void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp, uint8_t active_tracks) {
+void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
+                                uint8_t active_tracks) {
   if (server_ == NULL)
     return;
 
@@ -1368,56 +1416,120 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp, uin
   if (g_sd.isMounted()) {
     char log_file[64];
     getLogPathForToday(log_file, sizeof(log_file));
-    
+
     char line[128];
-    // Format: session,timestamp_ms,dir,count_in,count_out,track_temp,ambient_temp,active_tracks,id
+    // Format:
+    // session,timestamp_ms,dir,count_in,count_out,track_temp,ambient_temp,active_tracks,id
     snprintf(line, sizeof(line), "%u,%" PRIu64 ",%s,%d,%d,%.2f,%.2f,%u,%u",
              s_session_id, (uint64_t)ev.timestamp_ms, ev.is_in ? "IN" : "OUT",
-             ev.count_in, ev.count_out, ev.temperature, ambient_temp, active_tracks, ev.id);
+             ev.count_in, ev.count_out, ev.temperature, ambient_temp,
+             active_tracks, ev.id);
 
     if (!g_sd.fileExists(log_file)) {
-      g_sd.appendLine(
-          log_file,
-          "session,timestamp_ms,direction,count_in,count_out,track_temp,ambient_temp,active_tracks,track_id");
+      g_sd.appendLine(log_file,
+                      "session,timestamp_ms,direction,count_in,count_out,track_"
+                      "temp,ambient_temp,active_tracks,track_id");
     }
     g_sd.appendLine(log_file, line);
   }
 
-  // ══ FIX B5 ══ Buffer estático circular: persiste durante el envío async
-  static char s_event_bufs[4][256];
-  static int  s_event_buf_idx = 0;
+  // FIX-3: Async pool with ref-counting (mirrors broadcastFrame pattern)
+  // Ensures TelemetryTask never blocks on slow WebSocket clients.
 
-  int idx = s_event_buf_idx;
-  s_event_buf_idx = (s_event_buf_idx + 1) % 4; // avanzar
-
-  int written = snprintf(s_event_bufs[idx], sizeof(s_event_bufs[idx]),
-      "{\"type\":\"crossing\",\"dir\":\"%s\",\"cnt_in\":%d,\"cnt_out\":%d,\"temp\":%.2f,\"id\":%u,\"ts\":%" PRIu64 "}",
-      ev.is_in ? "IN" : "OUT",
-      ev.count_in,
-      ev.count_out,
-      ev.temperature,
-      ev.id,
-      (uint64_t)ev.timestamp_ms);
-
-  if (written <= 0 || written >= (int)sizeof(s_event_bufs[idx])) {
-      ESP_LOGW(TAG, "broadcastEvent: JSON truncated or error");
-      return;
-  }
-
-  size_t clients = 7;
-  int fds[7];
-  if (httpd_get_client_list(server_, &clients, fds) == ESP_OK) {
-    httpd_ws_frame_t pkt;
-    memset(&pkt, 0, sizeof(pkt));
-    pkt.type = HTTPD_WS_TYPE_TEXT;
-    pkt.payload = (uint8_t *)s_event_bufs[idx];
-    pkt.len = (size_t)written;
-    pkt.final = true;
-
-    for (size_t i = 0; i < clients; i++) {
-      if (httpd_ws_get_fd_info(server_, fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
-        httpd_ws_send_frame_async(server_, fds[i], &pkt);
+  // Watchdog: release stuck buffers
+  uint32_t now = pdTICKS_TO_MS(xTaskGetTickCount());
+  portENTER_CRITICAL(&s_event_mux);
+  for (int i = 0; i < WS_EVENT_BUFFER_COUNT; i++) {
+    if (s_event_ref_counts[i] > 0 || s_event_ref_counts[i] == -1) {
+      if (now - s_event_acquired_ticks[i] > 2000) {
+        s_event_ref_counts[i] = 0;
+        ESP_LOGW(TAG, "event buf %d stuck for %lu ms, forced free", i,
+                 now - s_event_acquired_ticks[i]);
       }
     }
+  }
+  portEXIT_CRITICAL(&s_event_mux);
+
+  // Find free buffer
+  int buf_idx = -1;
+  portENTER_CRITICAL(&s_event_mux);
+  for (int i = 0; i < WS_EVENT_BUFFER_COUNT; i++) {
+    if (s_event_ref_counts[i] == 0) {
+      s_event_ref_counts[i] = -1;
+      s_event_acquired_ticks[i] = now;
+      buf_idx = i;
+      break;
+    }
+  }
+  portEXIT_CRITICAL(&s_event_mux);
+
+  if (buf_idx == -1)
+    return; // All buffers busy — skip event
+
+  // Serialize JSON
+  int written =
+      snprintf((char *)s_event_buffers[buf_idx], WS_EVENT_BUFFER_SIZE,
+               "{\"type\":\"crossing\",\"dir\":\"%s\",\"cnt_in\":%d,\"cnt_"
+               "out\":%d,\"temp\":%.2f,\"id\":%u,\"ts\":%" PRIu64 "}",
+               ev.is_in ? "IN" : "OUT", ev.count_in, ev.count_out,
+               ev.temperature, ev.id, (uint64_t)ev.timestamp_ms);
+
+  if (written <= 0 || written >= WS_EVENT_BUFFER_SIZE) {
+    ESP_LOGW(TAG, "broadcastEvent: JSON truncated or error");
+    portENTER_CRITICAL(&s_event_mux);
+    s_event_ref_counts[buf_idx] = 0;
+    portEXIT_CRITICAL(&s_event_mux);
+    return;
+  }
+
+  // Identify WS clients
+  int ws_fds[7];
+  int ws_count = 0;
+  int client_fds[7];
+  size_t clients = sizeof(client_fds) / sizeof(client_fds[0]);
+
+  if (httpd_get_client_list(server_, &clients, client_fds) == ESP_OK) {
+    for (size_t i = 0; i < clients; i++) {
+      if (httpd_ws_get_fd_info(server_, client_fds[i]) ==
+          HTTPD_WS_CLIENT_WEBSOCKET) {
+        ws_fds[ws_count++] = client_fds[i];
+      }
+    }
+  }
+
+  // Set ref count
+  portENTER_CRITICAL(&s_event_mux);
+  s_event_ref_counts[buf_idx] = ws_count;
+  portEXIT_CRITICAL(&s_event_mux);
+
+  if (ws_count == 0)
+    return;
+
+  // Queue async sends
+  httpd_ws_frame_t pkt;
+  memset(&pkt, 0, sizeof(pkt));
+  pkt.type = HTTPD_WS_TYPE_TEXT;
+  pkt.payload = s_event_buffers[buf_idx];
+  pkt.len = (size_t)written;
+  pkt.final = true;
+
+  int successful = 0;
+  for (int i = 0; i < ws_count; i++) {
+    esp_err_t err = httpd_ws_send_data_async(server_, ws_fds[i], &pkt,
+                                              eventAsyncCompletionCb,
+                                              (void *)(uintptr_t)buf_idx);
+    if (err == ESP_OK)
+      successful++;
+  }
+
+  if (successful < ws_count) {
+    portENTER_CRITICAL(&s_event_mux);
+    int failed = ws_count - successful;
+    if (s_event_ref_counts[buf_idx] >= failed) {
+      s_event_ref_counts[buf_idx] -= failed;
+    } else {
+      s_event_ref_counts[buf_idx] = 0;
+    }
+    portEXIT_CRITICAL(&s_event_mux);
   }
 }

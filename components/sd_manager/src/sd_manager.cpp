@@ -18,7 +18,7 @@ SDManager::SDManager() : card_(nullptr), mounted_(false), mutex_(nullptr) {
 }
 
 SDManager::~SDManager() {
-    if (mounted_) {
+    if (mounted_.load(std::memory_order_relaxed)) {
         esp_vfs_fat_sdcard_unmount(MOUNT_POINT, card_);
     }
 }
@@ -37,8 +37,11 @@ void SDManager::unlock() const {
 }
 
 esp_err_t SDManager::init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sck, gpio_num_t cs) {
-    if (mounted_) {
+    lock();
+
+    if (mounted_.load(std::memory_order_relaxed)) {
         ESP_LOGI(TAG, "SD Card is already mounted. Ignoring init.");
+        unlock();
         return ESP_OK;
     }
 
@@ -57,8 +60,9 @@ esp_err_t SDManager::init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sck, gpio
     bus_cfg.max_transfer_sz = 4096;
 
     esp_err_t err = spi_bus_initialize((spi_host_device_t)host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
-    if (err != ESP_OK) {
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "Failed to initialize SPI bus: %s", esp_err_to_name(err));
+        unlock();
         return err;
     }
 
@@ -78,35 +82,37 @@ esp_err_t SDManager::init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sck, gpio
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Failed to mount SD card (%s). Card might not be inserted.", esp_err_to_name(err));
         spi_bus_free((spi_host_device_t)host.slot);
+        unlock();
         return err;
     }
 
-    mounted_ = true;
+    mounted_.store(true, std::memory_order_relaxed);
     ESP_LOGI(TAG, "SD Card mounted successfully at %s", MOUNT_POINT);
     
-    // Create base directories
+    // Create base directories (still holding lock to prevent concurrent access)
     mkdir("logs");
     mkdir("clips");
 
+    unlock();
     return ESP_OK;
 }
 
 uint64_t SDManager::getFreeSpaceBytes() const {
-    if (!mounted_) return 0;
+    if (!mounted_.load(std::memory_order_relaxed)) return 0;
     struct statvfs vfs;
     if (statvfs(MOUNT_POINT, &vfs) != 0) return 0;
     return (uint64_t)vfs.f_bfree * vfs.f_bsize;
 }
 
 uint64_t SDManager::getTotalSpaceBytes() const {
-    if (!mounted_) return 0;
+    if (!mounted_.load(std::memory_order_relaxed)) return 0;
     struct statvfs vfs;
     if (statvfs(MOUNT_POINT, &vfs) != 0) return 0;
     return (uint64_t)vfs.f_blocks * vfs.f_bsize;
 }
 
 esp_err_t SDManager::mkdir(const char* rel_path) {
-    if (!mounted_) return ESP_ERR_INVALID_STATE;
+    if (!mounted_.load(std::memory_order_relaxed)) return ESP_ERR_INVALID_STATE;
     lock();
     const char* fp = toFull(rel_path);
     struct stat st;
@@ -125,7 +131,7 @@ esp_err_t SDManager::mkdir(const char* rel_path) {
 }
 
 esp_err_t SDManager::writeFile(const char* rel_path, const uint8_t* data, size_t len, bool append) {
-    if (!mounted_) return ESP_ERR_INVALID_STATE;
+    if (!mounted_.load(std::memory_order_relaxed)) return ESP_ERR_INVALID_STATE;
     lock();
     FILE* f = fopen(toFull(rel_path), append ? "ab" : "wb");
     if (!f) {
@@ -141,7 +147,7 @@ esp_err_t SDManager::writeFile(const char* rel_path, const uint8_t* data, size_t
 }
 
 esp_err_t SDManager::appendLine(const char* rel_path, const char* line) {
-    if (!mounted_) return ESP_ERR_INVALID_STATE;
+    if (!mounted_.load(std::memory_order_relaxed)) return ESP_ERR_INVALID_STATE;
     lock();
     FILE* f = fopen(toFull(rel_path), "a");
     if (!f) {
@@ -156,13 +162,13 @@ esp_err_t SDManager::appendLine(const char* rel_path, const char* line) {
 }
 
 bool SDManager::fileExists(const char* rel_path) const {
-    if (!mounted_) return false;
+    if (!mounted_.load(std::memory_order_relaxed)) return false;
     struct stat st;
     return stat(const_cast<SDManager*>(this)->toFull(rel_path), &st) == 0;
 }
 
 size_t SDManager::fileSize(const char* rel_path) const {
-    if (!mounted_) return 0;
+    if (!mounted_.load(std::memory_order_relaxed)) return 0;
     struct stat st;
     if (stat(const_cast<SDManager*>(this)->toFull(rel_path), &st) == 0) {
         return st.st_size;
@@ -171,13 +177,13 @@ size_t SDManager::fileSize(const char* rel_path) const {
 }
 
 esp_err_t SDManager::deleteFile(const char* rel_path) {
-    if (!mounted_) return ESP_ERR_INVALID_STATE;
+    if (!mounted_.load(std::memory_order_relaxed)) return ESP_ERR_INVALID_STATE;
     if (unlink(toFull(rel_path)) != 0) return ESP_FAIL;
     return ESP_OK;
 }
 
 esp_err_t SDManager::listDirectory(const char* rel_path, char* out_json, size_t json_size) const {
-    if (!mounted_ || !out_json || json_size == 0) {
+    if (!mounted_.load(std::memory_order_relaxed) || !out_json || json_size == 0) {
         if (out_json && json_size > 0) snprintf(out_json, json_size, "[]");
         return ESP_ERR_INVALID_STATE;
     }

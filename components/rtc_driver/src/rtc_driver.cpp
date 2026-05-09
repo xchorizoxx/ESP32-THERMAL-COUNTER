@@ -6,7 +6,9 @@
 static const char* TAG = "RTC_DS3231";
 
 RTCDriver::RTCDriver() 
-    : bus_handle_(nullptr), dev_handle_(nullptr), available_(false) {}
+    : bus_handle_(nullptr), dev_handle_(nullptr), available_(false) {
+    init_mutex_ = xSemaphoreCreateMutex();
+}
 
 RTCDriver::~RTCDriver() {
     if (dev_handle_) {
@@ -18,8 +20,11 @@ RTCDriver::~RTCDriver() {
 }
 
 esp_err_t RTCDriver::init(gpio_num_t sda, gpio_num_t scl) {
-    if (available_) {
+    xSemaphoreTake(init_mutex_, portMAX_DELAY);
+
+    if (available_.load(std::memory_order_relaxed)) {
         ESP_LOGI(TAG, "RTC is already initialized. Ignoring init.");
+        xSemaphoreGive(init_mutex_);
         return ESP_OK;
     }
 
@@ -46,6 +51,7 @@ esp_err_t RTCDriver::init(gpio_num_t sda, gpio_num_t scl) {
     esp_err_t err = i2c_new_master_bus(&bus_cfg, &bus_handle_);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to create I2C1 bus: %s", esp_err_to_name(err));
+        xSemaphoreGive(init_mutex_);
         return err;
     }
 
@@ -59,14 +65,16 @@ esp_err_t RTCDriver::init(gpio_num_t sda, gpio_num_t scl) {
         ESP_LOGW(TAG, "DS3231 NOT found: %s", esp_err_to_name(err));
         i2c_del_master_bus(bus_handle_);
         bus_handle_ = nullptr;
+        xSemaphoreGive(init_mutex_);
         return err;
     }
 
     // Basic ping: read seconds register
     uint8_t dummy;
     if (readReg(0x00, &dummy, 1) == ESP_OK) {
-        available_ = true;
+        available_.store(true, std::memory_order_relaxed);
         ESP_LOGI(TAG, "DS3231 initialized successfully");
+        xSemaphoreGive(init_mutex_);
         return ESP_OK;
     }
 
@@ -75,6 +83,7 @@ esp_err_t RTCDriver::init(gpio_num_t sda, gpio_num_t scl) {
     i2c_del_master_bus(bus_handle_);
     dev_handle_ = nullptr;
     bus_handle_ = nullptr;
+    xSemaphoreGive(init_mutex_);
     return ESP_FAIL;
 }
 
@@ -90,7 +99,7 @@ esp_err_t RTCDriver::writeReg(uint8_t reg, uint8_t val) {
 }
 
 esp_err_t RTCDriver::getTime(DateTime& dt) const {
-    if (!available_) return ESP_ERR_INVALID_STATE;
+    if (!available_.load(std::memory_order_relaxed)) return ESP_ERR_INVALID_STATE;
     uint8_t regs[7];
     esp_err_t err = readReg(0x00, regs, 7);
     if (err != ESP_OK) return err;
@@ -106,7 +115,7 @@ esp_err_t RTCDriver::getTime(DateTime& dt) const {
 }
 
 esp_err_t RTCDriver::setTime(const DateTime& dt) {
-    if (!available_) return ESP_ERR_INVALID_STATE;
+    if (!available_.load(std::memory_order_relaxed)) return ESP_ERR_INVALID_STATE;
     uint8_t buf[8] = {
         0x00, // Start address
         dec2bcd(dt.second),
@@ -121,7 +130,7 @@ esp_err_t RTCDriver::setTime(const DateTime& dt) {
 }
 
 uint64_t RTCDriver::getTimestampMs() const {
-    if (available_) {
+    if (available_.load(std::memory_order_relaxed)) {
         DateTime dt;
         if (getTime(dt) == ESP_OK) {
             return (uint64_t)dt.toUnix() * 1000ULL;
@@ -132,7 +141,7 @@ uint64_t RTCDriver::getTimestampMs() const {
 }
 
 esp_err_t RTCDriver::getChipTemperature(float& temp_c) const {
-    if (!available_) return ESP_ERR_INVALID_STATE;
+    if (!available_.load(std::memory_order_relaxed)) return ESP_ERR_INVALID_STATE;
     uint8_t regs[2];
     esp_err_t err = readReg(0x11, regs, 2);
     if (err != ESP_OK) return err;

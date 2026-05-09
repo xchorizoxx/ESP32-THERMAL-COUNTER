@@ -9,6 +9,9 @@
 #include "esp_err.h"
 #include <cstdint>
 #include <ctime>
+#include <atomic>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 class RTCDriver {
 public:
@@ -63,7 +66,7 @@ public:
      */
     esp_err_t init(gpio_num_t sda, gpio_num_t scl);
 
-    bool isAvailable() const { return available_; }
+    bool isAvailable() const { return available_.load(std::memory_order_relaxed); }
 
     esp_err_t getTime(DateTime& dt) const;
     esp_err_t setTime(const DateTime& dt);
@@ -79,7 +82,8 @@ public:
 private:
     i2c_master_bus_handle_t bus_handle_;
     i2c_master_dev_handle_t dev_handle_;
-    bool available_;
+    std::atomic<bool> available_;
+    SemaphoreHandle_t init_mutex_;
 
     esp_err_t readReg(uint8_t reg, uint8_t* data, size_t len) const;
     esp_err_t writeReg(uint8_t reg, uint8_t val);
