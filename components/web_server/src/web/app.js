@@ -162,7 +162,7 @@ function switchMainView(viewId, btn) {
     document.getElementById(`view-${viewId}`).classList.add('active');
     document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    if (viewId === 'stats') { drawMiniChart(); updateEventsTable(); }
+    if (viewId === 'stats') { drawMiniChart(); updateEventsTable(); loadSdStatus(); }
 }
 
 // W2-3 FIX: receives event explicitly — no implicit global `event`
@@ -1070,4 +1070,164 @@ function logMsg(txt, isErr = false) {
     cons.appendChild(el);
     while (cons.childElementCount > 50) cons.removeChild(cons.firstChild);
     cons.scrollTop = cons.scrollHeight;
+}
+
+// =============================================================================
+//  SD & NVS BACKUP (Fase 3)
+// =============================================================================
+function loadSdStatus() {
+    fetch('/api/sd/info')
+        .then(res => {
+            if (!res.ok) throw new Error('SD no montada o error HTTP: ' + res.status);
+            return res.json();
+        })
+        .then(data => {
+            const used = data.total_bytes - data.free_bytes;
+            const pct = data.total_bytes > 0 ? (used / data.total_bytes) * 100 : 0;
+            document.getElementById('sd-bar-fill').style.width = `${pct}%`;
+            document.getElementById('sd-lbl-used').textContent = `${(used/1048576).toFixed(1)} MB usados`;
+            document.getElementById('sd-lbl-free').textContent = `${(data.free_bytes/1048576).toFixed(1)} MB libres`;
+            
+            const tbody = document.getElementById('sd-files-tbody');
+            tbody.innerHTML = '';
+            
+            if (data.files && data.files.length > 0) {
+                data.files.sort((a,b) => b.name.localeCompare(a.name));
+                data.files.forEach(f => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${f.name}</td>
+                        <td>${(f.size/1024).toFixed(1)} KB</td>
+                        <td style="text-align:right;">
+                            <button class="btn-icon" title="Descargar" onclick="downloadSdFile('${f.name}')" style="color:var(--accent-blue)">⬇</button>
+                            <button class="btn-icon" title="Eliminar" onclick="deleteSdFile('${f.name}')" style="color:var(--accent-red)">🗑</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+                document.getElementById('btn-sd-zip').disabled = false;
+                document.getElementById('btn-sd-format').disabled = false;
+            } else {
+                tbody.innerHTML = `<tr><td colspan="3" class="no-events">No hay archivos guardados</td></tr>`;
+                document.getElementById('btn-sd-zip').disabled = true;
+                document.getElementById('btn-sd-format').disabled = true;
+            }
+        })
+        .catch(err => {
+            console.error('SD Status Error:', err);
+            const tbody = document.getElementById('sd-files-tbody');
+            tbody.innerHTML = `<tr><td colspan="3" class="no-events" style="color:var(--accent-amber);">⚠ SD NO DISPONIBLE<br><small>Por favor, inserte una tarjeta y reinicie</small></td></tr>`;
+            document.getElementById('btn-sd-zip').disabled = true;
+            document.getElementById('btn-sd-format').disabled = true;
+            document.getElementById('sd-lbl-used').textContent = 'Error';
+            document.getElementById('sd-lbl-free').textContent = '--';
+            document.getElementById('sd-bar-fill').style.width = '0%';
+        });
+}
+
+function downloadSdFile(name) {
+    window.location.href = `/api/sd/download?file=logs/${name}`;
+}
+
+async function deleteSdFile(name) {
+    if(!confirm(`¿Eliminar permanentemente ${name}?`)) return;
+    try {
+        const res = await fetch('/api/sd/delete', {
+            method: 'POST',
+            body: JSON.stringify({ file: `logs/${name}` })
+        });
+        if(res.ok) {
+            loadSdStatus();
+        } else {
+            alert("Error al eliminar archivo");
+        }
+    } catch(e) {
+        alert("Fallo de red");
+    }
+}
+
+async function formatSdCard() {
+    if(!confirm("⚠️ ADVERTENCIA ⚠️\nEsto borrará TODO el historial en la SD.\n¿Estás seguro?")) return;
+    try {
+        const res = await fetch('/api/sd/info');
+        if(!res.ok) return;
+        const data = await res.json();
+        if(data.files) {
+            for(let f of data.files) {
+                await fetch('/api/sd/delete', {
+                    method: 'POST',
+                    body: JSON.stringify({ file: `logs/${f.name}` })
+                });
+            }
+        }
+        loadSdStatus();
+        alert("SD formateada correctamente");
+    } catch(e) {
+        alert("Error durante el formato");
+    }
+}
+
+async function downloadAllLogsZip() {
+    try {
+        const btn = document.getElementById('btn-sd-zip');
+        btn.textContent = "⏳ Procesando...";
+        btn.disabled = true;
+        
+        const res = await fetch('/api/sd/info');
+        if(!res.ok) throw new Error();
+        const data = await res.json();
+        
+        if(!data.files || data.files.length === 0) throw new Error();
+        
+        let allData = "";
+        let headerAdded = false;
+        
+        // Ordenar del más viejo al más nuevo para mantener cronología al unirlos
+        data.files.sort((a,b) => a.name.localeCompare(b.name));
+        
+        for(let f of data.files) {
+            const req = await fetch(`/api/sd/download?file=logs/${f.name}`);
+            if(req.ok) {
+                const text = await req.text();
+                const lines = text.trim().split('\\n');
+                if(lines.length > 0) {
+                    if(!headerAdded) {
+                        allData += lines[0] + '\\n';
+                        headerAdded = true;
+                    }
+                    if(lines.length > 1) {
+                        allData += lines.slice(1).join('\\n') + '\\n';
+                    }
+                }
+            }
+        }
+        
+        const blob = new Blob([allData], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `thermal_full_backup_${Date.now()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        btn.textContent = "📦 Descargar TODO en ZIP";
+        btn.disabled = false;
+    } catch(e) {
+        alert("Error al procesar los archivos");
+        const btn = document.getElementById('btn-sd-zip');
+        btn.textContent = "📦 Descargar TODO en ZIP";
+        btn.disabled = false;
+    }
+}
+
+function resetAllCounters() {
+    if(confirm("⚠️ PELIGRO ⚠️\\nEsto pondrá a CERO los contadores totales de la RAM y la memoria Flash interna.\\n\\nEl archivo de la SD de hoy comenzará desde cero en su próxima línea.\\n\\n¿Deseas continuar?")) {
+        sendCmd({ cmd: 'RESET_COUNTS', reset_nvs: true });
+        setTimeout(() => {
+            document.getElementById('stat-in').textContent = "0";
+            document.getElementById('stat-out').textContent = "0";
+            document.getElementById('stat-net').textContent = "0";
+            alert("Contadores reseteados correctamente.");
+        }, 800);
+    }
 }

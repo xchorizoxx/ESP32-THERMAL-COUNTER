@@ -793,16 +793,27 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
   //  RESET_COUNTS
   // -------------------------------------------------------------------------
   else if (strcmp(cmdStr, "RESET_COUNTS") == 0) {
+    bool reset_nvs = false;
+    cJSON *jnvs = cJSON_GetObjectItem(root, "reset_nvs");
+    if (cJSON_IsTrue(jnvs)) reset_nvs = true;
+
     if (s_configQueue) {
       AppConfigCmd cfgCmd{ConfigCmdType::RESET_COUNTS, 0.0f};
       if (xQueueSend(s_configQueue, &cfgCmd, pdMS_TO_TICKS(10)) != pdTRUE) {
         ESP_LOGW(TAG, "RESET_COUNTS: Queue full, command dropped");
       }
     }
-    // Also reset the session counters so NVS timer doesn't re-save old values
     s_latest_count_in = 0;
     s_latest_count_out = 0;
-    ESP_LOGI(TAG, "RESET_COUNTS requested");
+    
+    if (reset_nvs) {
+        s_session_baseline_in = 0;
+        s_session_baseline_out = 0;
+        saveCountersToNvs(0, 0); // Fija a 0 en la memoria Flash
+        ESP_LOGI(TAG, "RESET_COUNTS: RAM and NVS baselines wiped to 0");
+    } else {
+        ESP_LOGI(TAG, "RESET_COUNTS: RAM wiped (NVS baselines preserved)");
+    }
   }
 
   // -------------------------------------------------------------------------
