@@ -60,7 +60,7 @@ public:
      * @brief Broadcast a JSON event (e.g., person crossing) to all clients.
      *        W4-CSV: Sends { "type": "crossing", "dir": "IN", "temp": 36.5 }
      */
-    static void broadcastEvent(const CrossingEvent& ev);
+    static void broadcastEvent(const CrossingEvent& ev, float ambient_temp, uint8_t active_tracks);
 
 private:
     static httpd_handle_t server_;
@@ -74,6 +74,11 @@ private:
     static esp_err_t rebootPostHandler(httpd_req_t *req); ///< W1-5: static fn, not lambda
     static esp_err_t saveNvsHandler(httpd_req_t *req);    ///< POST /save_nvs — manual counter persist
     static esp_err_t downloadLogHandler(httpd_req_t *req);
+    
+    // --- SD API ---
+    static esp_err_t sdInfoHandler(httpd_req_t *req);
+    static esp_err_t sdDownloadHandler(httpd_req_t *req);
+    static esp_err_t sdDeleteHandler(httpd_req_t *req);
 
     // --- WebSocket ---
     static void wsAsyncCompletionCb(esp_err_t err, int socket, void *arg);

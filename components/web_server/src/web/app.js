@@ -611,7 +611,7 @@ function generateCSV() {
     const rows = ['session_id,timestamp_iso,time_quality,direction,' +
                   'count_in_total,count_out_total,track_temp_c,ambient_temp_c,active_tracks'];
     crossingEvents.forEach(e => {
-        const tsISO = (e.time_quality > 0 && e.timestamp_ms > 0)
+        const tsISO = (e.timestamp_ms > 0)
             ? new Date(e.timestamp_ms).toISOString() : '';
         rows.push([
             e.session_id,
@@ -703,7 +703,11 @@ function applyConfig(obj) {
     setDot('dot-sd-top',  sdOk  ? 'green' : 'gray');
     setEl('lbl-rtc-status', rtcOk ? (obj.rtc_time ? `DS3231: ${obj.rtc_time}` : 'DS3231 conectado') : 'DS3231 no detectado');
 
-    if (obj.lines && Array.isArray(obj.lines)) { userLines = obj.lines; updateLineList(); }
+    if (obj.lines && Array.isArray(obj.lines)) { 
+        userLines = obj.lines; 
+        CONFIG.use_segments = userLines.length > 0;
+        updateLineList(); 
+    }
 
     // Vision mode button
     document.querySelectorAll('.vision-controls .btn-pill').forEach(b => b.classList.remove('active'));
@@ -746,7 +750,13 @@ document.addEventListener('DOMContentLoaded', () => {
 //  ACTIONS
 // =============================================================================
 function saveConfig()    { sendCmd({ cmd: 'SAVE_CONFIG' }); logMsg('Guardando config...'); }
-function appCmd(cmdStr)  { sendCmd({ cmd: cmdStr }); logMsg(`CMD: ${cmdStr}`); }
+function appCmd(cmdStr) {
+    sendCmd({ cmd: cmdStr });
+    logMsg(`CMD: ${cmdStr}`);
+    if (cmdStr === 'RESET_COUNTS') {
+        setTimeout(() => requestStatus(), 500);
+    }
+}
 function requestStatus() { sendCmd({ cmd: 'GET_STATUS' }); logMsg('GET_STATUS'); }
 
 function rebootEsp() {
@@ -795,8 +805,14 @@ function startOTA() {
         }
     };
     xhr.onload = () => {
-        if (label) label.textContent = xhr.responseText || 'Completado';
-        logMsg('OTA: ' + xhr.responseText);
+        let txt = xhr.responseText;
+        try {
+            const resp = JSON.parse(txt);
+            if (resp.message) txt = resp.message;
+        } catch (err) {}
+        
+        if (label) label.textContent = txt || 'Completado';
+        logMsg('OTA: ' + txt);
     };
     xhr.onerror = () => {
         if (label) label.textContent = 'Error en la transferencia';

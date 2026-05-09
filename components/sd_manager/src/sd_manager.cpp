@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <cstdio>
+#include <dirent.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -174,3 +175,57 @@ esp_err_t SDManager::deleteFile(const char* rel_path) {
     if (unlink(toFull(rel_path)) != 0) return ESP_FAIL;
     return ESP_OK;
 }
+
+esp_err_t SDManager::listDirectory(const char* rel_path, char* out_json, size_t json_size) const {
+    if (!mounted_ || !out_json || json_size == 0) {
+        if (out_json && json_size > 0) snprintf(out_json, json_size, "[]");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    lock();
+    DIR* dir = opendir(const_cast<SDManager*>(this)->toFull(rel_path));
+    if (!dir) {
+        unlock();
+        snprintf(out_json, json_size, "[]");
+        return ESP_FAIL;
+    }
+
+    size_t pos = 0;
+    pos += snprintf(out_json + pos, json_size - pos, "[");
+    bool first = true;
+    struct dirent* entry;
+    
+    while ((entry = readdir(dir)) != nullptr) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+
+        if (!first && pos < json_size) {
+            pos += snprintf(out_json + pos, json_size - pos, ",");
+        }
+        first = false;
+
+        char file_path[512];
+        snprintf(file_path, sizeof(file_path), "%s/%s", const_cast<SDManager*>(this)->toFull(rel_path), entry->d_name);
+        
+        struct stat st;
+        size_t size = 0;
+        if (stat(file_path, &st) == 0) {
+            size = st.st_size;
+        }
+
+        if (pos < json_size) {
+            pos += snprintf(out_json + pos, json_size - pos, "{\"name\":\"%s\",\"size\":%lu}", entry->d_name, (unsigned long)size);
+        }
+    }
+    closedir(dir);
+    
+    if (pos < json_size) {
+        pos += snprintf(out_json + pos, json_size - pos, "]");
+    } else {
+        out_json[json_size - 1] = '\0';
+        if (json_size > 2) out_json[json_size - 2] = ']';
+    }
+    
+    unlock();
+    return ESP_OK;
+}
+

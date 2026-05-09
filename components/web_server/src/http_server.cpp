@@ -32,6 +32,7 @@
 #include <inttypes.h> // [NEW] Required for PRIu64 format macro
 #include <string.h>
 #include <sys/param.h>
+#include <time.h>
 
 static const char *TAG = "HTTP_SERVER";
 static const char *NVS_NS = "thcfg"; ///< NVS namespace for thermal config
@@ -143,6 +144,19 @@ static uint64_t __attribute__((unused)) getSystemTimeMs() {
   return s_time_ref_unix_ms + (uint64_t)(elapsed_us / 1000LL);
 }
 
+static void getLogPathForToday(char* buf, size_t n) {
+  uint64_t ms = getSystemTimeMs();
+  if (ms == 0) {
+    snprintf(buf, n, "logs/counts_session_%03u.csv", s_session_id);
+  } else {
+    time_t t = (time_t)(ms / 1000);
+    struct tm ti;
+    gmtime_r(&t, &ti);
+    snprintf(buf, n, "logs/counts_%04d-%02d-%02d.csv", 
+             ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday);
+  }
+}
+
 // =============================================================================
 //  W6: COUNTER PERSISTENCE HELPERS
 // =============================================================================
@@ -186,7 +200,15 @@ static void counterSaveTimerCb(TimerHandle_t xTimer) {
   // int32_t read from Xtensa LX7 aligned volatile is effectively atomic
   int32_t ci = s_latest_count_in;
   int32_t co = s_latest_count_out;
-  saveCountersToNvs(ci, co);
+  
+  static int32_t last_saved_in = -1;
+  static int32_t last_saved_out = -1;
+  
+  if (ci != last_saved_in || co != last_saved_out) {
+    saveCountersToNvs(ci, co);
+    last_saved_in = ci;
+    last_saved_out = co;
+  }
 }
 
 // =============================================================================
@@ -919,6 +941,18 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
       "/download_log", HTTP_GET, downloadLogHandler, NULL, false, false, NULL};
   httpd_register_uri_handler(server_, &log_uri);
 
+  const httpd_uri_t sd_info_uri = {
+      "/api/sd/info", HTTP_GET, sdInfoHandler, NULL, false, false, NULL};
+  httpd_register_uri_handler(server_, &sd_info_uri);
+
+  const httpd_uri_t sd_down_uri = {
+      "/api/sd/download", HTTP_GET, sdDownloadHandler, NULL, false, false, NULL};
+  httpd_register_uri_handler(server_, &sd_down_uri);
+
+  const httpd_uri_t sd_del_uri = {
+      "/api/sd/delete", HTTP_POST, sdDeleteHandler, NULL, false, false, NULL};
+  httpd_register_uri_handler(server_, &sd_del_uri);
+
   // W6: Start periodic counter save timer (10 minutes)
   s_counter_save_timer =
       xTimerCreate("ctr_save",
@@ -1147,6 +1181,133 @@ void HttpServer::wsAsyncCompletionCb(esp_err_t err, int socket, void *arg) {
   }
 }
 
+esp_err_t HttpServer::sdInfoHandler(httpd_req_t *req) {
+  if (!g_sd.isMounted()) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD Card not mounted");
+    return ESP_FAIL;
+  }
+  
+  char json_buf[1024];
+  if (g_sd.listDirectory("logs", json_buf, sizeof(json_buf)) != ESP_OK) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to list logs");
+    return ESP_FAIL;
+  }
+  
+  cJSON *resp = cJSON_CreateObject();
+  cJSON_AddNumberToObject(resp, "free_bytes", (double)g_sd.getFreeSpaceBytes());
+  cJSON_AddNumberToObject(resp, "total_bytes", (double)g_sd.getTotalSpaceBytes());
+  
+  cJSON *files_arr = cJSON_Parse(json_buf);
+  if (files_arr) {
+    cJSON_AddItemToObject(resp, "files", files_arr);
+  }
+  
+  httpd_resp_set_type(req, "application/json");
+  wsSendJson(req, resp);
+  cJSON_Delete(resp);
+  return ESP_OK;
+}
+
+esp_err_t HttpServer::sdDownloadHandler(httpd_req_t *req) {
+  if (!g_sd.isMounted()) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD Card not mounted");
+    return ESP_FAIL;
+  }
+  
+  char query[128];
+  char path[128];
+  if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
+      httpd_query_key_value(query, "file", path, sizeof(path)) != ESP_OK) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing file param");
+    return ESP_FAIL;
+  }
+  
+  // Basic path traversal protection
+  if (strstr(path, "..")) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
+    return ESP_FAIL;
+  }
+  
+  if (!g_sd.fileExists(path)) {
+    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+    return ESP_FAIL;
+  }
+  
+  char full_path[256];
+  snprintf(full_path, sizeof(full_path), "/sdcard/%s", path);
+  
+  g_sd.lock();
+  FILE *f = fopen(full_path, "r");
+  if (!f) {
+    g_sd.unlock();
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
+    return ESP_FAIL;
+  }
+  
+  httpd_resp_set_type(req, "text/csv");
+  
+  // Extraer el nombre de archivo (basename) para Content-Disposition
+  const char *basename = strrchr(path, '/');
+  basename = basename ? (basename + 1) : path;
+  
+  char disp[256];
+  snprintf(disp, sizeof(disp), "attachment; filename=%s", basename);
+  httpd_resp_set_hdr(req, "Content-Disposition", disp);
+  
+  char chunk[1024];
+  size_t n;
+  while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0) {
+    if (httpd_resp_send_chunk(req, chunk, n) != ESP_OK) {
+      fclose(f);
+      g_sd.unlock();
+      return ESP_FAIL;
+    }
+  }
+  fclose(f);
+  g_sd.unlock();
+  httpd_resp_send_chunk(req, NULL, 0); // End
+  return ESP_OK;
+}
+
+esp_err_t HttpServer::sdDeleteHandler(httpd_req_t *req) {
+  if (!g_sd.isMounted()) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD Card not mounted");
+    return ESP_FAIL;
+  }
+  
+  char buf[128];
+  int ret = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf) - 1));
+  if (ret <= 0) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty request");
+    return ESP_FAIL;
+  }
+  buf[ret] = '\0';
+  
+  cJSON *root = cJSON_Parse(buf);
+  if (!root) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+    return ESP_FAIL;
+  }
+  
+  cJSON *file_j = cJSON_GetObjectItem(root, "file");
+  if (!cJSON_IsString(file_j) || strstr(file_j->valuestring, "..")) {
+    cJSON_Delete(root);
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid file param");
+    return ESP_FAIL;
+  }
+  
+  if (g_sd.deleteFile(file_j->valuestring) != ESP_OK) {
+    cJSON_Delete(root);
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to delete file");
+    return ESP_FAIL;
+  }
+  
+  cJSON_Delete(root);
+  httpd_resp_set_type(req, "application/json");
+  return httpd_resp_send(req, "{\"status\":\"ok\"}", -1);
+}
+
+// downloadLogHandler (legacy) remains for compatibility if needed, or we can leave it.
 esp_err_t HttpServer::downloadLogHandler(httpd_req_t *req) {
   if (!g_sd.isMounted()) {
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
@@ -1188,23 +1349,25 @@ esp_err_t HttpServer::downloadLogHandler(httpd_req_t *req) {
   return ESP_OK;
 }
 
-void HttpServer::broadcastEvent(const CrossingEvent &ev) {
+void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp, uint8_t active_tracks) {
   if (server_ == NULL)
     return;
 
   // W4-CSV: Persist to SD if available
   if (g_sd.isMounted()) {
+    char log_file[64];
+    getLogPathForToday(log_file, sizeof(log_file));
+    
     char line[128];
-    // Format: session,timestamp_ms,dir,count_in,count_out,temp,id
-    snprintf(line, sizeof(line), "%u,%" PRIu64 ",%s,%d,%d,%.2f,%u",
+    // Format: session,timestamp_ms,dir,count_in,count_out,track_temp,ambient_temp,active_tracks,id
+    snprintf(line, sizeof(line), "%u,%" PRIu64 ",%s,%d,%d,%.2f,%.2f,%u,%u",
              s_session_id, (uint64_t)ev.timestamp_ms, ev.is_in ? "IN" : "OUT",
-             ev.count_in, ev.count_out, ev.temperature, ev.id);
+             ev.count_in, ev.count_out, ev.temperature, ambient_temp, active_tracks, ev.id);
 
-    const char *log_file = "logs/counts.csv";
     if (!g_sd.fileExists(log_file)) {
       g_sd.appendLine(
           log_file,
-          "session,timestamp_ms,direction,count_in,count_out,temp_c,track_id");
+          "session,timestamp_ms,direction,count_in,count_out,track_temp,ambient_temp,active_tracks,track_id");
     }
     g_sd.appendLine(log_file, line);
   }

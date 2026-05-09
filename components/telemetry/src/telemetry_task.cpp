@@ -70,7 +70,7 @@ void TelemetryTask::run()
 
         // W4-CSV: Broadcast individual crossing events as JSON for precise logging
         for (int i = 0; i < packet.telemetry.num_events; i++) {
-            HttpServer::broadcastEvent(packet.telemetry.events[i]);
+            HttpServer::broadcastEvent(packet.telemetry.events[i], packet.telemetry.ambient_temp, packet.telemetry.num_tracks);
         }
 
         // WDT reset moved to top of loop

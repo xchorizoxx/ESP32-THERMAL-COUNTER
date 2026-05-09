@@ -36,6 +36,7 @@ public:
     bool   fileExists(const char* rel_path) const;
     size_t fileSize(const char* rel_path) const;
     esp_err_t deleteFile(const char* rel_path);
+    esp_err_t listDirectory(const char* rel_path, char* out_json, size_t json_size) const;
 
     void lock() const;
     void unlock() const;
