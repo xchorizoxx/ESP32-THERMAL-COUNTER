@@ -641,6 +641,14 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
         nvs_commit(h);
         nvs_close(h);
       }
+
+      // Update hardware RTC if available
+      if (g_rtc.isAvailable()) {
+          RTCDriver::DateTime dt = RTCDriver::DateTime::fromUnix((uint32_t)(s_time_ref_unix_ms / 1000));
+          if (g_rtc.setTime(dt) == ESP_OK) {
+              ESP_LOGI(TAG, "Hardware RTC synchronized with browser time");
+          }
+      }
     } else {
       ESP_LOGW(TAG, "SET_TIME: invalid or missing unix_ms");
     }
@@ -1152,8 +1160,10 @@ esp_err_t HttpServer::downloadLogHandler(httpd_req_t *req) {
     return ESP_FAIL;
   }
 
+  g_sd.lock();
   FILE *f = fopen("/sdcard/logs/counts.csv", "r");
   if (!f) {
+    g_sd.unlock();
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
                         "Failed to open log file");
     return ESP_FAIL;
@@ -1168,10 +1178,12 @@ esp_err_t HttpServer::downloadLogHandler(httpd_req_t *req) {
   while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0) {
     if (httpd_resp_send_chunk(req, chunk, n) != ESP_OK) {
       fclose(f);
+      g_sd.unlock();
       return ESP_FAIL;
     }
   }
   fclose(f);
+  g_sd.unlock();
   httpd_resp_send_chunk(req, NULL, 0); // End of stream
   return ESP_OK;
 }

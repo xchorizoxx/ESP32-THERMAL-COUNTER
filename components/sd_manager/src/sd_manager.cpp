@@ -12,7 +12,9 @@
 
 static const char* TAG = "SD_MANAGER";
 
-SDManager::SDManager() : card_(nullptr), mounted_(false) {}
+SDManager::SDManager() : card_(nullptr), mounted_(false), mutex_(nullptr) {
+    mutex_ = xSemaphoreCreateMutex();
+}
 
 SDManager::~SDManager() {
     if (mounted_) {
@@ -23,6 +25,14 @@ SDManager::~SDManager() {
 const char* SDManager::toFull(const char* rel_path) {
     snprintf(full_path_, sizeof(full_path_), "%s/%s", MOUNT_POINT, rel_path);
     return full_path_;
+}
+
+void SDManager::lock() const {
+    if (mutex_) xSemaphoreTake(mutex_, portMAX_DELAY);
+}
+
+void SDManager::unlock() const {
+    if (mutex_) xSemaphoreGive(mutex_);
 }
 
 esp_err_t SDManager::init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sck, gpio_num_t cs) {
@@ -96,35 +106,51 @@ uint64_t SDManager::getTotalSpaceBytes() const {
 
 esp_err_t SDManager::mkdir(const char* rel_path) {
     if (!mounted_) return ESP_ERR_INVALID_STATE;
+    lock();
     const char* fp = toFull(rel_path);
     struct stat st;
-    if (stat(fp, &st) == 0) return ESP_OK; // Already exists
+    if (stat(fp, &st) == 0) {
+        unlock();
+        return ESP_OK; // Already exists
+    }
     
     if (::mkdir(fp, 0755) != 0) {
         ESP_LOGE(TAG, "Failed to create directory: %s", fp);
+        unlock();
         return ESP_FAIL;
     }
+    unlock();
     return ESP_OK;
 }
 
 esp_err_t SDManager::writeFile(const char* rel_path, const uint8_t* data, size_t len, bool append) {
     if (!mounted_) return ESP_ERR_INVALID_STATE;
+    lock();
     FILE* f = fopen(toFull(rel_path), append ? "ab" : "wb");
-    if (!f) return ESP_FAIL;
+    if (!f) {
+        unlock();
+        return ESP_FAIL;
+    }
 
     size_t written = fwrite(data, 1, len, f);
     fclose(f);
     
+    unlock();
     return (written == len) ? ESP_OK : ESP_FAIL;
 }
 
 esp_err_t SDManager::appendLine(const char* rel_path, const char* line) {
     if (!mounted_) return ESP_ERR_INVALID_STATE;
+    lock();
     FILE* f = fopen(toFull(rel_path), "a");
-    if (!f) return ESP_FAIL;
+    if (!f) {
+        unlock();
+        return ESP_FAIL;
+    }
     
     fprintf(f, "%s\n", line);
     fclose(f);
+    unlock();
     return ESP_OK;
 }
 

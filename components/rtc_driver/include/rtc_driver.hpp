@@ -38,6 +38,21 @@ public:
             t.tm_sec  = second;
             return (uint32_t)mktime(&t);
         }
+
+        static DateTime fromUnix(uint32_t epoch) {
+            time_t t = (time_t)epoch;
+            struct tm *tm_info = gmtime(&t);
+            DateTime dt = {2000, 1, 1, 0, 0, 0};
+            if (tm_info) {
+                dt.year   = tm_info->tm_year + 1900;
+                dt.month  = tm_info->tm_mon + 1;
+                dt.day    = tm_info->tm_mday;
+                dt.hour   = tm_info->tm_hour;
+                dt.minute = tm_info->tm_min;
+                dt.second = tm_info->tm_sec;
+            }
+            return dt;
+        }
     };
 
     RTCDriver();

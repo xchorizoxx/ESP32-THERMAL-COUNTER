@@ -8,6 +8,8 @@
 #include "driver/gpio.h"
 #include <cstdint>
 #include <cstddef>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 class SDManager {
 public:
@@ -35,10 +37,14 @@ public:
     size_t fileSize(const char* rel_path) const;
     esp_err_t deleteFile(const char* rel_path);
 
+    void lock() const;
+    void unlock() const;
+
 private:
     sdmmc_card_t* card_;
     bool mounted_;
     char full_path_[256];
+    mutable SemaphoreHandle_t mutex_;
 
     const char* toFull(const char* rel_path);
 };
