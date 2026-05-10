@@ -71,8 +71,11 @@ void StatusLedManager::init() {
     // Use atomic store — consistent with the std::atomic<float> type
     m_masterBrightness.store(INITIAL_BRIGHTNESS, std::memory_order_relaxed);
 
-    xTaskCreatePinnedToCore(taskWrapper, "status_led", 3072, this,
-                            configMAX_PRIORITIES - 3, &m_taskHandle, 0);
+    m_taskHandle = xTaskCreateStaticPinnedToCore(
+        taskWrapper, "status_led",
+        TASK_STACK_BYTES, this,
+        configMAX_PRIORITIES - 3,
+        m_taskStack, &m_taskTcb, 0);
     m_initialized = true;
 }
 

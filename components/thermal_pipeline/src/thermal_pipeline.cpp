@@ -83,6 +83,7 @@ void ThermalPipeline::run()
 
     const TickType_t period = pdMS_TO_TICKS(1000 / ThermalConfig::PIPELINE_FREQ_HZ);
     TickType_t lastWakeTime = xTaskGetTickCount();
+    TickType_t last_error_dispatch = 0;
 
     while (true) {
         processConfigQueue();
@@ -112,16 +113,19 @@ void ThermalPipeline::run()
         if (sensor_ok) {
             uint8_t currentSubPage = sensor_.getLastSubPageID();
 
-            // --- A1 fix: Chess sub-frame accumulation ---
-            // Fuse both sub-frames into composed_frame_ to eliminate the visual chess artifact.
             frame_accumulator_.integrate(current_frame_, currentSubPage, composed_frame_);
 
             if (frame_accumulator_.isReady()) {
                 runVisionPipeline();
+                dispatchIpcPacket(true);
+            }
+        } else {
+            TickType_t now = xTaskGetTickCount();
+            if ((now - last_error_dispatch) >= pdMS_TO_TICKS(1000)) {
+                last_error_dispatch = now;
+                dispatchIpcPacket(false);
             }
         }
-
-        dispatchIpcPacket(sensor_ok);
 
         // --- Self-Monitoring: Profile Stack High Water Mark (approx every 5s @ 16Hz) ---
         /*

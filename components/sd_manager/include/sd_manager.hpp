@@ -49,4 +49,6 @@ private:
     mutable SemaphoreHandle_t mutex_;
 
     const char* toFull(const char* rel_path);
+
+    esp_err_t mkdirInternal(const char* rel_path);
 };

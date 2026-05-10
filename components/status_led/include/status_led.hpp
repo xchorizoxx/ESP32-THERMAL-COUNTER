@@ -66,6 +66,10 @@ private:
 
     std::atomic<float> m_masterBrightness{0.80f};  ///< Lock-free brightness
 
+    static constexpr uint32_t TASK_STACK_BYTES = 3072;
+    StaticTask_t              m_taskTcb;
+    uint8_t                   m_taskStack[TASK_STACK_BYTES];
+
     SemaphoreHandle_t m_mutex      = nullptr;
     TaskHandle_t      m_taskHandle = nullptr;
     bool              m_initialized = false;

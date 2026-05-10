@@ -90,10 +90,23 @@ esp_err_t SDManager::init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sck, gpio
     ESP_LOGI(TAG, "SD Card mounted successfully at %s", MOUNT_POINT);
     
     // Create base directories (still holding lock to prevent concurrent access)
-    mkdir("logs");
-    mkdir("clips");
+    mkdirInternal("logs");
+    mkdirInternal("clips");
 
     unlock();
+    return ESP_OK;
+}
+
+esp_err_t SDManager::mkdirInternal(const char* rel_path) {
+    const char* fp = toFull(rel_path);
+    struct stat st;
+    if (stat(fp, &st) == 0) {
+        return ESP_OK;
+    }
+    if (::mkdir(fp, 0755) != 0) {
+        ESP_LOGE(TAG, "Failed to create directory: %s", fp);
+        return ESP_FAIL;
+    }
     return ESP_OK;
 }
 
