@@ -31,6 +31,7 @@
 #include "driver/gpio.h"
 #include "rtc_driver.hpp"
 #include "sd_manager.hpp"
+#include "thermal_recorder.hpp"
 
 static const char* TAG = "MAIN";
 
@@ -146,6 +147,18 @@ extern "C" void app_main(void)
         }
     } else {
         ESP_LOGW(TAG, "RTC system UNAVAILABLE (Using relative system ticks)");
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 2.3: Thermal Clip Recorder (PSRAM ring buffer + writer task)
+    // -------------------------------------------------------------------------
+    {
+        esp_err_t r = ThermalRecorder::init();
+        if (r == ESP_OK) {
+            ESP_LOGI(TAG, "Thermal clip recorder initialized");
+        } else {
+            ESP_LOGW(TAG, "Thermal clip recorder disabled (%s)", esp_err_to_name(r));
+        }
     }
 
     // -------------------------------------------------------------------------

@@ -134,6 +134,22 @@ System must boot and run even with missing optional hardware:
 - No OV2640 → log warning, thermal-only clips
 - No PSRAM → `init()` returns `ESP_ERR_NO_MEM`, no crash
 
+## Implementation Workflow (OBLIGATORIO)
+
+Cada fase sigue este ciclo exacto — saltarse pasos causa errores:
+
+1. **Plan** → Presentar plan, esperar aprobación explícita del usuario
+2. **Implement** → Hacer cambios en archivos
+3. **Report** → Decir "listo, probar con build"
+4. **Wait** → USUARIO compila y reporta errores
+5. **Fix** → Corregir errores reportados UNO POR UNO
+6. **Repeat 4-5** → Hasta que compile sin errores
+7. **Confirm** → Esperar confirmación del usuario para pasar a SIGUIENTE fase
+
+**NUNCA ejecutar `idf.py build/flash/clean/monitor`.**  
+**NUNCA pasar a la siguiente fase sin confirmación explícita del usuario.**  
+**NUNCA implementar dos fases seguidas sin compilación intermedia.**
+
 ---
 
 ## References

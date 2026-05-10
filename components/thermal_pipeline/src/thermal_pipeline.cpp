@@ -1,4 +1,5 @@
 #include "thermal_pipeline.hpp"
+#include "thermal_recorder.hpp"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
@@ -117,6 +118,16 @@ void ThermalPipeline::run()
 
             if (frame_accumulator_.isReady()) {
                 runVisionPipeline();
+                // F1: Push frame to recorder (fast, non-blocking)
+                {
+                    int cross_dir = 0;
+                    if (num_current_events_ > 0) {
+                        cross_dir = current_events_[0].is_in ? 1 : -1;
+                    }
+                    ThermalRecorder::pushFrame(composed_frame_,
+                                               num_confirmed_tracks_,
+                                               cross_dir);
+                }
                 dispatchIpcPacket(true);
             }
         } else {
