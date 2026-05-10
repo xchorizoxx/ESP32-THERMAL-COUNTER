@@ -15,7 +15,7 @@ namespace FovCorrection {
     void init(float height_m) {
         // FOV: 110° H x 70° V (User specified 70 for V, usually 75 for MLX90640 but let's use 70 as requested)
         constexpr float H_FOV_HALF_RAD = 55.0f * (float)M_PI / 180.0f;
-        constexpr float V_FOV_HALF_RAD = 35.0f * (float)M_PI / 180.0f; // 70 / 2 = 35
+        constexpr float V_FOV_HALF_RAD = 37.5f * (float)M_PI / 180.0f; // 70 / 2 = 35
         constexpr int   COLS = ThermalConfig::MLX_COLS;
         constexpr int   ROWS = ThermalConfig::MLX_ROWS;
 

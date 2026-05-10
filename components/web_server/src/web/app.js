@@ -276,6 +276,11 @@ function connectWebSocket() {
                     recordEvent(obj.dir, obj.cnt_in, obj.cnt_out, obj.temp, lastActiveTracks);
                     updateEventsTable();
                     drawMiniChart();
+                } else if (obj.type === 'counts_reset' && obj.ok) {
+                    nvsBaseIn = 0; nvsBaseOut = 0;
+                    updateCounterDisplay(0, 0);
+                    setEl('lbl-nvs-counts', 'In:0 Out:0');
+                    logMsg('Contadores reseteados correctamente');
                 }
             } catch (_) { /* malformed JSON — ignore */ }
         } else if (e.data instanceof ArrayBuffer) {
@@ -1075,6 +1080,11 @@ function logMsg(txt, isErr = false) {
 // =============================================================================
 //  SD & NVS BACKUP (Fase 3)
 // =============================================================================
+function downloadNvsBackup() {
+    window.location.href = '/api/nvs/backup';
+    logMsg('Descargando backup NVS...');
+}
+
 function loadSdStatus() {
     fetch('/api/sd/info')
         .then(res => {
@@ -1189,14 +1199,14 @@ async function downloadAllLogsZip() {
             const req = await fetch(`/api/sd/download?file=logs/${f.name}`);
             if(req.ok) {
                 const text = await req.text();
-                const lines = text.trim().split('\\n');
+                const lines = text.trim().split('\n');
                 if(lines.length > 0) {
                     if(!headerAdded) {
-                        allData += lines[0] + '\\n';
+                        allData += lines[0] + '\n';
                         headerAdded = true;
                     }
                     if(lines.length > 1) {
-                        allData += lines.slice(1).join('\\n') + '\\n';
+                        allData += lines.slice(1).join('\n') + '\n';
                     }
                 }
             }
@@ -1223,11 +1233,6 @@ async function downloadAllLogsZip() {
 function resetAllCounters() {
     if(confirm("⚠️ PELIGRO ⚠️\\nEsto pondrá a CERO los contadores totales de la RAM y la memoria Flash interna.\\n\\nEl archivo de la SD de hoy comenzará desde cero en su próxima línea.\\n\\n¿Deseas continuar?")) {
         sendCmd({ cmd: 'RESET_COUNTS', reset_nvs: true });
-        setTimeout(() => {
-            document.getElementById('stat-in').textContent = "0";
-            document.getElementById('stat-out').textContent = "0";
-            document.getElementById('stat-net').textContent = "0";
-            alert("Contadores reseteados correctamente.");
-        }, 800);
+        logMsg('Contadores: enviado RESET_COUNTS, esperando confirmación...');
     }
 }

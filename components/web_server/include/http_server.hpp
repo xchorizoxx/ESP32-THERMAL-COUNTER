@@ -80,6 +80,9 @@ private:
     static esp_err_t sdDownloadHandler(httpd_req_t *req);
     static esp_err_t sdDeleteHandler(httpd_req_t *req);
 
+    // --- NVS Backup ---
+    static esp_err_t nvsBackupHandler(httpd_req_t *req);  ///< GET /api/nvs/backup
+
     // --- WebSocket ---
     static void wsAsyncCompletionCb(esp_err_t err, int socket, void *arg);
     static void handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_pkt);

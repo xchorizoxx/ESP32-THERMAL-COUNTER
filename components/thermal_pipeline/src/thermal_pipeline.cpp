@@ -190,6 +190,9 @@ void ThermalPipeline::processConfigQueue()
                     ESP_LOGI(TAG, "Sensor re-initialized manually");
                 }
                 break;
+            case ConfigCmdType::APPLY_CONFIG:
+                ESP_LOGD(TAG, "APPLY_CONFIG received — all params already live");
+                break;
             default: break;
         }
     }

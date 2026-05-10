@@ -239,6 +239,7 @@
                 <p class="text-muted-sm" style="margin-bottom: 12px;">Estado interno del microcontrolador. Inmune a
                     cortes de luz.</p>
                 <div style="display:flex; flex-direction:column; gap:10px;">
+                    <button class="btn-primary" onclick="downloadNvsBackup()">⬇ Descargar Backup NVS</button>
                     <button class="btn-primary" onclick="generateCSV()">📊 Descargar Estado Actual en Vivo</button>
                     <button class="btn-warn" onclick="saveNvsNow()">💾 Forzar Guardado en NVS Ahora</button>
                     <button class="btn-danger" onclick="resetAllCounters()">🔄 Resetear Aforo Global a 0</button>

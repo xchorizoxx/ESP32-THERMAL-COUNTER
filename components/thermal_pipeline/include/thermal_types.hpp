@@ -129,8 +129,8 @@ struct CrossingEvent {
 struct __attribute__((packed)) TelemetryPayload {
   uint32_t frame_id;
   float ambient_temp; ///< Ta read from MLX90640 sensor
-  int16_t count_in;
-  int16_t count_out;
+  uint16_t count_in;
+  uint16_t count_out;
   uint8_t num_tracks;
   TrackInfo tracks[ThermalConfig::MAX_TRACKS];
 

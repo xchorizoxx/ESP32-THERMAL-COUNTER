@@ -73,10 +73,9 @@ static int32_t s_session_baseline_in =
     0; ///< NVS total at last boot (never changes during session)
 static int32_t s_session_baseline_out = 0;
 
-// --- W4-FIX: Buffer Watchdog ---
+// --- H1-FIX: Buffer Watchdog ---
 static uint32_t s_ws_buffer_acquired_ticks[HttpServer::WS_BUFFER_COUNT] = {0};
-static constexpr uint32_t WS_BUFFER_MAX_AGE_TICKS =
-    pdMS_TO_TICKS(5000); // 5 seconds recovery timeout
+static constexpr uint32_t WS_BUFFER_MAX_AGE_MS = 2000; // 2 seconds recovery timeout
 
 // --- W6: Counter mirror updated from broadcastFrame, read by timer ---
 // int32_t reads/writes on Xtensa LX7 are atomic for naturally-aligned
@@ -176,8 +175,14 @@ static void saveCountersToNvs(int32_t session_count_in,
     ESP_LOGW(TAG, "NVS: cannot open for counter save");
     return;
   }
-  nvs_set_i32(h, "nvs_base_in", total_in);
-  nvs_set_i32(h, "nvs_base_out", total_out);
+  esp_err_t e1 = nvs_set_i32(h, "nvs_base_in", total_in);
+  esp_err_t e2 = nvs_set_i32(h, "nvs_base_out", total_out);
+  if (e1 != ESP_OK || e2 != ESP_OK) {
+    ESP_LOGW(TAG, "NVS: set failed (in=%s, out=%s)",
+             esp_err_to_name(e1), esp_err_to_name(e2));
+    nvs_close(h);
+    return;
+  }
   esp_err_t err = nvs_commit(h);
   nvs_close(h);
 
@@ -335,10 +340,16 @@ static esp_err_t saveConfigToNvs(void) {
   nvs_set_i32(h, "view_mode", (int32_t)ThermalConfig::VIEW_MODE);
 
   // Serialize counting line segments to JSON string
+  // C3-FIX: Take snapshot under spinlock, then read from it
+  ThermalConfig::DoorLineConfig dl_snap;
+  portENTER_CRITICAL(&ThermalConfig::door_lines_mux);
+  dl_snap = ThermalConfig::door_lines;
+  portEXIT_CRITICAL(&ThermalConfig::door_lines_mux);
+
   cJSON *lines_arr = cJSON_CreateArray();
   if (lines_arr) {
-    for (int i = 0; i < ThermalConfig::door_lines.num_lines; i++) {
-      const CountingSegment &s = ThermalConfig::door_lines.lines[i];
+    for (int i = 0; i < dl_snap.num_lines; i++) {
+      const CountingSegment &s = dl_snap.lines[i];
       cJSON *l = cJSON_CreateObject();
       if (l) {
         cJSON_AddNumberToObject(l, "x1", s.x1);
@@ -355,7 +366,7 @@ static esp_err_t saveConfigToNvs(void) {
     }
     cJSON_Delete(lines_arr);
   }
-  nvs_set_i8(h, "use_segments", ThermalConfig::door_lines.use_segments ? 1 : 0);
+  nvs_set_i8(h, "use_segments", dl_snap.use_segments ? 1 : 0);
 
   err = nvs_commit(h);
   nvs_close(h);
@@ -511,6 +522,7 @@ esp_err_t HttpServer::saveNvsHandler(httpd_req_t *req) {
   int32_t ci = s_latest_count_in;
   int32_t co = s_latest_count_out;
   saveCountersToNvs(ci, co);
+  saveConfigToNvs();
 
   // Build JSON response
   char resp[128];
@@ -518,7 +530,8 @@ esp_err_t HttpServer::saveNvsHandler(httpd_req_t *req) {
   int32_t total_out = s_session_baseline_out + co;
   snprintf(resp, sizeof(resp),
            "{\"ok\":true,\"saved_in\":%ld,\"saved_out\":%ld}", (long)total_in,
-           (long)total_out);
+            (long)total_out);
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_type(req, "application/json");
   httpd_resp_sendstr(req, resp);
   return ESP_OK;
@@ -530,8 +543,11 @@ esp_err_t HttpServer::saveNvsHandler(httpd_req_t *req) {
 
 void HttpServer::handleWebSocketMessage(httpd_req_t *req,
                                         httpd_ws_frame_t *ws_pkt) {
-  if (ws_pkt->type != HTTPD_WS_TYPE_TEXT)
+  if (ws_pkt->type != HTTPD_WS_TYPE_TEXT) {
+    ESP_LOGW(TAG, "WS: non-text frame (type=%u len=%zu) dropped",
+             ws_pkt->type, ws_pkt->len);
     return;
+  }
 
   cJSON *root = cJSON_Parse((const char *)ws_pkt->payload);
   if (!root) {
@@ -777,6 +793,7 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
       }
       ESP_LOGI(TAG, "SET_COUNTING_LINES: %d segments",
                ThermalConfig::door_lines.num_lines);
+      saveConfigToNvs(); // M3-FIX: auto-persist lines to NVS
     }
   }
 
@@ -818,6 +835,15 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
     } else {
       ESP_LOGI(TAG, "RESET_COUNTS: RAM wiped (NVS baselines preserved)");
     }
+
+    // M6-FIX: Confirm reset to the requesting client
+    cJSON *reset_resp = cJSON_CreateObject();
+    if (reset_resp) {
+      cJSON_AddStringToObject(reset_resp, "type", "counts_reset");
+      cJSON_AddBoolToObject(reset_resp, "ok", true);
+      wsSendJson(req, reset_resp);
+      cJSON_Delete(reset_resp);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -850,6 +876,9 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
 //  WEBSOCKET URI HANDLER
 // =============================================================================
 
+// C1-FIX: Static buffer for WS receives — avoids heap allocation per message
+static uint8_t s_ws_rx_buf[1024];
+
 esp_err_t HttpServer::wsHandler(httpd_req_t *req) {
   if (req->method == HTTP_GET) {
     ESP_LOGI(TAG, "New WebSocket connection from fd=%d",
@@ -875,16 +904,14 @@ esp_err_t HttpServer::wsHandler(httpd_req_t *req) {
     return ESP_ERR_INVALID_SIZE;
   }
 
-  uint8_t *buf = (uint8_t *)calloc(1, ws_pkt.len + 1);
-  if (!buf)
-    return ESP_ERR_NO_MEM;
-  ws_pkt.payload = buf;
+  // C1-FIX: Use static buffer. Frame size limited to 1024 above.
+  memset(s_ws_rx_buf, 0, sizeof(s_ws_rx_buf));
+  ws_pkt.payload = s_ws_rx_buf;
 
   ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
   if (ret == ESP_OK) {
     handleWebSocketMessage(req, &ws_pkt);
   }
-  free(buf);
   return ret;
 }
 
@@ -974,6 +1001,10 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
       "/api/sd/delete", HTTP_POST, sdDeleteHandler, NULL, false, false, NULL};
   httpd_register_uri_handler(server_, &sd_del_uri);
 
+  const httpd_uri_t nvs_backup_uri = {
+      "/api/nvs/backup", HTTP_GET, nvsBackupHandler, NULL, false, false, NULL};
+  httpd_register_uri_handler(server_, &nvs_backup_uri);
+
   // W6: Start periodic counter save timer (10 minutes)
   s_counter_save_timer =
       xTimerCreate("ctr_save",
@@ -1028,7 +1059,7 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
   portENTER_CRITICAL(&s_ws_mux);
   for (int i = 0; i < (int)WS_BUFFER_COUNT; i++) {
     if (ws_buffer_ref_counts_[i] > 0 || ws_buffer_ref_counts_[i] == -1) {
-      if (now - s_ws_buffer_acquired_ticks[i] > 2000) {
+      if (now - s_ws_buffer_acquired_ticks[i] > WS_BUFFER_MAX_AGE_MS) {
         ws_buffer_ref_counts_[i] = 0; // Force free
         stuck_idx = i;
         stuck_time = now - s_ws_buffer_acquired_ticks[i];
@@ -1093,8 +1124,8 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
   WS_WRITE_BYTE(WS_FRAME_MAGIC);            // [0]  magic 0x12
   WS_WRITE_BYTE(sensor_ok ? 1u : 0u);       // [1]  sensor_ok
   WS_WRITE_BYTES(&tel.ambient_temp, 4);     // [2-5] ambient_temp float32 LE
-  WS_WRITE_U16_LE((uint16_t)tel.count_in);  // [6-7]  count_in
-  WS_WRITE_U16_LE((uint16_t)tel.count_out); // [8-9]  count_out
+  WS_WRITE_U16_LE(tel.count_in);   // [6-7]  count_in
+  WS_WRITE_U16_LE(tel.count_out);  // [8-9]  count_out
   WS_WRITE_BYTE(n_tracks);                  // [10]   num_tracks
   WS_WRITE_U16_LE(s_session_id);            // [11-12] session_id  (W3)
   WS_WRITE_BYTE(s_time_quality);            // [13]   time_quality (W3)
@@ -1255,9 +1286,16 @@ esp_err_t HttpServer::sdInfoHandler(httpd_req_t *req) {
     cJSON_AddItemToObject(resp, "files", files_arr);
   }
 
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_type(req, "application/json");
-  wsSendJson(req, resp);
+  char *json_str = cJSON_PrintUnformatted(resp);
   cJSON_Delete(resp);
+  if (json_str) {
+      httpd_resp_sendstr(req, json_str);
+      free(json_str);
+  } else {
+      httpd_resp_send_500(req);
+  }
   return ESP_OK;
 }
 
@@ -1360,8 +1398,73 @@ esp_err_t HttpServer::sdDeleteHandler(httpd_req_t *req) {
   }
 
   cJSON_Delete(root);
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_type(req, "application/json");
   return httpd_resp_send(req, "{\"status\":\"ok\"}", -1);
+}
+
+// =============================================================================
+//  HTTP HANDLER — NVS BACKUP DOWNLOAD (/api/nvs/backup)
+// =============================================================================
+
+esp_err_t HttpServer::nvsBackupHandler(httpd_req_t *req) {
+  nvs_handle_t h;
+  esp_err_t err = nvs_open(NVS_NS, NVS_READONLY, &h);
+  if (err != ESP_OK) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "NVS open failed");
+    return ESP_FAIL;
+  }
+
+  cJSON *root = cJSON_CreateObject();
+  if (!root) { nvs_close(h); return ESP_ERR_NO_MEM; }
+
+  auto readInt = [&](const char *key, const char *json_key) {
+    int32_t v = 0;
+    if (nvs_get_i32(h, key, &v) == ESP_OK)
+      cJSON_AddNumberToObject(root, json_key, (double)v);
+  };
+
+  readInt("nvs_base_in",   "baseline_in");
+  readInt("nvs_base_out",  "baseline_out");
+  readInt("temp_bio",      "temp_bio_raw");
+  readInt("delta_t",       "delta_t_raw");
+  readInt("alpha_ema",     "alpha_ema_raw");
+  readInt("line_entry",    "line_entry");
+  readInt("line_exit",     "line_exit");
+  readInt("dead_left",     "dead_left");
+  readInt("dead_right",    "dead_right");
+  readInt("sensor_h",      "sensor_h_raw");
+  readInt("person_d",      "person_d_raw");
+  readInt("view_mode",     "view_mode");
+
+  int8_t use_seg = 0;
+  if (nvs_get_i8(h, "use_segments", &use_seg) == ESP_OK)
+    cJSON_AddBoolToObject(root, "use_segments", use_seg != 0);
+
+  char seg_lines[512];
+  size_t slen = sizeof(seg_lines);
+  if (nvs_get_str(h, "seg_lines", seg_lines, &slen) == ESP_OK)
+    cJSON_AddStringToObject(root, "seg_lines", seg_lines);
+
+  int32_t sid = 0;
+  if (nvs_get_i32(h, "session_id", &sid) == ESP_OK)
+    cJSON_AddNumberToObject(root, "session_id", (double)sid);
+
+  nvs_close(h);
+
+  char *json_str = cJSON_Print(root);
+  cJSON_Delete(root);
+
+  if (!json_str) return ESP_ERR_NO_MEM;
+
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Content-Disposition",
+                     "attachment; filename=nvs_backup.json");
+  httpd_resp_sendstr(req, json_str);
+  free(json_str);
+  return ESP_OK;
 }
 
 // downloadLogHandler (legacy) remains for compatibility if needed, or we can
@@ -1373,14 +1476,18 @@ esp_err_t HttpServer::downloadLogHandler(httpd_req_t *req) {
     return ESP_FAIL;
   }
 
-  const char *path = "logs/counts.csv";
+  // H4-FIX: Use date-aware log path
+  char path[64];
+  getLogPathForToday(path, sizeof(path));
   if (!g_sd.fileExists(path)) {
     httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Log file not found");
     return ESP_FAIL;
   }
 
   g_sd.lock();
-  FILE *f = fopen("/sdcard/logs/counts.csv", "r");
+  char full_path[80];
+  snprintf(full_path, sizeof(full_path), "/sdcard/%s", path);
+  FILE *f = fopen(full_path, "r");
   if (!f) {
     g_sd.unlock();
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
@@ -1441,7 +1548,7 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
   portENTER_CRITICAL(&s_event_mux);
   for (int i = 0; i < WS_EVENT_BUFFER_COUNT; i++) {
     if (s_event_ref_counts[i] > 0 || s_event_ref_counts[i] == -1) {
-      if (now - s_event_acquired_ticks[i] > 2000) {
+      if (now - s_event_acquired_ticks[i] > WS_BUFFER_MAX_AGE_MS) {
         s_event_ref_counts[i] = 0;
         ESP_LOGW(TAG, "event buf %d stuck for %lu ms, forced free", i,
                  now - s_event_acquired_ticks[i]);
