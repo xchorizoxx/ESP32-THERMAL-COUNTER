@@ -457,6 +457,92 @@
             <div style="height:150px;"></div>
         </section>
 
+        <!-- ============== CLIPS VIEW (Grabaciones) ============== -->
+        <section id="view-clips" class="view-section">
+
+            <!-- Clip list header -->
+            <div class="card">
+                <div class="chart-header">
+                    <h3>🎬 Grabaciones Térmicas</h3>
+                    <button class="btn-pill" onclick="loadClips()">↻ Recargar</button>
+                </div>
+                <p class="text-muted-sm" style="margin-bottom:12px;">
+                    Clips guardados en la SD durante detección de actividad.
+                </p>
+                <div id="clips-list">
+                    <p class="text-muted-sm" style="text-align:center;padding:20px 0;">
+                        Cargando lista de clips...
+                    </p>
+                </div>
+            </div>
+
+            <!-- Recorder config summary -->
+            <div class="card form-card">
+                <h3>⚙ Configuración de Grabación</h3>
+                <div class="form-group">
+                    <label>Pre-roll: <span id="val-clip-preroll" class="val-badge">1000</span> ms</label>
+                    <input type="range" id="cfg-clip-preroll" min="250" max="3000" step="50" value="1000">
+                </div>
+                <div class="form-group">
+                    <label>Cooldown: <span id="val-clip-cooldown" class="val-badge">500</span> ms</label>
+                    <input type="range" id="cfg-clip-cooldown" min="200" max="5000" step="50" value="500">
+                </div>
+                <div class="form-group">
+                    <label>Duración Máx.: <span id="val-clip-maxdur" class="val-badge">30</span> s</label>
+                    <input type="range" id="cfg-clip-maxdur" min="5" max="120" step="5" value="30">
+                </div>
+                <div class="form-group">
+                    <label>Duración Mín.: <span id="val-clip-mindur" class="val-badge">1.0</span> s</label>
+                    <input type="range" id="cfg-clip-mindur" min="0.5" max="10" step="0.1" value="1.0">
+                </div>
+            </div>
+
+            <div style="height:20px;"></div>
+        </section>
+
+        <!-- ============== PLAYER MODAL ============== -->
+        <div id="player-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="player-title">Reproductor Térmico</h3>
+                    <button class="btn-pill" onclick="closePlayer()" style="padding:4px 10px;">✕</button>
+                </div>
+
+                <div class="player-info-row">
+                    <span id="player-clip-name" class="val-badge">clip_00001.thv</span>
+                    <span id="player-clip-dir" class="dir-in">IN</span>
+                    <span id="player-clip-time" class="text-muted-sm">--:--:--</span>
+                </div>
+
+                <div class="player-canvas-wrap">
+                    <canvas id="playerCanvas" width="320" height="240"></canvas>
+                </div>
+
+                <div class="player-timeline-row">
+                    <span class="text-muted-sm" id="player-frame-cur">0</span>
+                    <input type="range" id="player-timeline" min="0" max="100" value="0"
+                           oninput="seekTo(parseInt(this.value))">
+                    <span class="text-muted-sm" id="player-frame-total">0</span>
+                </div>
+
+                <div class="player-controls">
+                    <button class="btn-pill" onclick="togglePlay()" id="btn-play">▶</button>
+                    <div class="player-speed-group">
+                        <button class="btn-pill speed-btn active" data-speed="1" onclick="setPlaySpeed(1)">1x</button>
+                        <button class="btn-pill speed-btn" data-speed="2" onclick="setPlaySpeed(2)">2x</button>
+                        <button class="btn-pill speed-btn" data-speed="4" onclick="setPlaySpeed(4)">4x</button>
+                    </div>
+                    <span class="text-muted-sm" id="player-temp-range">--°C / --°C</span>
+                </div>
+
+                <div class="scale-bar" style="margin-top:8px;">
+                    <span id="player-scale-min">--°C</span>
+                    <canvas id="playerScaleCanvas" width="200" height="10"></canvas>
+                    <span id="player-scale-max">--°C</span>
+                </div>
+            </div>
+        </div>
+
         <!-- ============== DEBUG DRAWER ============== -->
         <div id="debug-drawer" class="drawer hidden">
             <div class="drawer-header" onclick="toggleDebug()">
@@ -487,6 +573,15 @@
                         <path d="M18 20V10M12 20V4M6 20v-6" />
                     </svg>
                     <span>Estadísticas</span>
+                </button>
+            </li>
+            <li>
+                <button class="nav-item" onclick="switchMainView('clips', this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="4" width="20" height="16" rx="2" />
+                        <polygon points="10,8 16,12 10,16" fill="currentColor" />
+                    </svg>
+                    <span>Grabaciones</span>
                 </button>
             </li>
             <li>

@@ -1236,3 +1236,254 @@ function resetAllCounters() {
         logMsg('Contadores: enviado RESET_COUNTS, esperando confirmación...');
     }
 }
+
+// =============================================================================
+//  F4: THERMAL CLIP BROWSER & PLAYER
+// =============================================================================
+
+let _clipData   = null;  // ArrayBuffer of currently loaded .thv
+let _clipHeader = null;  // { frame_count, fps, width, height, trigger_dir }
+let _clipFrame  = 0;     // current frame index
+let _clipPlaying= false;
+let _clipSpeed  = 1;     // 1x, 2x, 4x
+let _clipTimer  = null;
+
+// ---------------------------------------------------------------------------
+// renderThermalToCanvas — render a 32x24 int16 frame on any canvas
+// ---------------------------------------------------------------------------
+function renderThermalToCanvas(canvasId, dv, pixOfs, scaleMinId, scaleMaxId) {
+    const cvs = document.getElementById(canvasId);
+    if (!cvs) return;
+    const c = cvs.getContext('2d');
+    const W = cvs.width;
+    const H = cvs.height;
+    const upW = 64, upH = 48;
+
+    let fMin = 999.0, fMax = -999.0;
+    for (let i = 0; i < TOTAL_PIX; i++) {
+        const t = dv.getInt16(pixOfs + i*2, true) / 100.0;
+        if (t < fMin) fMin = t;
+        if (t > fMax) fMax = t;
+    }
+
+    let lo = autoMin, hi = autoMax;
+    lo = lo * 0.9 + fMin * 0.1;
+    hi = hi * 0.9 + fMax * 0.1;
+    if (hi - lo < 8.0) { const m = (hi+lo)/2; lo=m-4; hi=m+4; }
+
+    const range = hi - lo;
+    const imgData = c.createImageData(upW, upH);
+    const d = imgData.data;
+
+    for (let y = 0; y < upH; y++) {
+        const gy  = (y / (upH-1)) * (SENSOR_H-1);
+        const gyi = Math.min(Math.floor(gy), SENSOR_H-2);
+        const fy  = gy - gyi;
+        for (let x = 0; x < upW; x++) {
+            const gx   = (x / (upW-1)) * (SENSOR_W-1);
+            const gxi  = Math.min(Math.floor(gx), SENSOR_W-2);
+            const fx   = gx - gxi;
+            const b    = pixOfs;
+            const c00  = dv.getInt16(b+(gyi*SENSOR_W+gxi)*2,    true)/100.0;
+            const c10  = dv.getInt16(b+(gyi*SENSOR_W+gxi+1)*2,  true)/100.0;
+            const c01  = dv.getInt16(b+((gyi+1)*SENSOR_W+gxi)*2,true)/100.0;
+            const c11  = dv.getInt16(b+((gyi+1)*SENSOR_W+gxi+1)*2,true)/100.0;
+            let v = (c00*(1-fx)+c10*fx)*(1-fy)+(c01*(1-fx)+c11*fx)*fy;
+            v = Math.max(lo, Math.min(hi, v));
+            const li = Math.floor(((v-lo)/range)*255)*3;
+            const pi = (y*upW+x)*4;
+            d[pi]=LUT[li]; d[pi+1]=LUT[li+1]; d[pi+2]=LUT[li+2]; d[pi+3]=255;
+        }
+    }
+
+    c.imageSmoothingEnabled = false;
+    c.clearRect(0, 0, W, H);
+    // Draw upscaled to full canvas
+    const offC = document.createElement('canvas');
+    offC.width = upW; offC.height = upH;
+    offC.getContext('2d').putImageData(imgData, 0, 0);
+    c.drawImage(offC, 0, 0, W, H);
+
+    if (scaleMinId) setEl(scaleMinId, `${lo.toFixed(1)}°C`);
+    if (scaleMaxId) setEl(scaleMaxId, `${hi.toFixed(1)}°C`);
+}
+
+// ---------------------------------------------------------------------------
+// loadClips — fetch /api/clips and render list
+// ---------------------------------------------------------------------------
+async function loadClips() {
+    const el = document.getElementById('clips-list');
+    if (!el) return;
+    el.innerHTML = '<p class="text-muted-sm" style="text-align:center;padding:20px 0;">Cargando...</p>';
+
+    try {
+        const resp = await fetch('/api/clips');
+        if (!resp.ok) { el.innerHTML = '<p class="text-muted-sm" style="text-align:center;padding:20px 0;color:var(--accent-red);">Error al cargar clips</p>'; return; }
+        const data = await resp.json();
+        const clips = data.clips || [];
+
+        if (clips.length === 0) {
+            el.innerHTML = '<p class="text-muted-sm" style="text-align:center;padding:20px 0;">No hay clips grabados aún</p>';
+            return;
+        }
+
+        let html = '';
+        for (const c of clips) {
+            const kb = Math.round(c.size_bytes / 1024);
+            const dirLabel = c.trigger_dir === 1 ? 'IN' : (c.trigger_dir === 2 ? 'OUT' : '--');
+            const dirClass = c.trigger_dir === 1 ? 'dir-in' : (c.trigger_dir === 2 ? 'dir-out' : '');
+            html += `<div class="clip-item">
+                <div class="clip-icon">▶</div>
+                <div class="clip-info">
+                    <div class="clip-name" title="${c.name}">${c.name}</div>
+                    <div class="clip-meta">
+                        <span>${c.frame_count} frames</span>
+                        <span>${kb} KB</span>
+                        <span>${c.fps} Hz</span>
+                    </div>
+                </div>
+                <div class="clip-crossings ${dirClass}">${dirLabel}</div>
+                <div class="clip-actions">
+                    <button class="btn-icon play" onclick="playClip('${c.name}')" title="Reproducir">▶</button>
+                    <button class="btn-icon download" onclick="window.location.href='/api/sd/download?file=clips/${c.name}'" title="Descargar">⬇</button>
+                    <button class="btn-icon delete" onclick="deleteClip('${c.name}')" title="Borrar">✕</button>
+                </div>
+            </div>`;
+        }
+        el.innerHTML = html;
+    } catch (e) {
+        el.innerHTML = '<p class="text-muted-sm" style="text-align:center;padding:20px 0;color:var(--accent-red);">Error de red</p>';
+        logMsg('loadClips error: ' + e.message, true);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// deleteClip — POST /api/sd/delete
+// ---------------------------------------------------------------------------
+async function deleteClip(file) {
+    if (!confirm(`¿Borrar ${file}?`)) return;
+    try {
+        const resp = await fetch('/api/sd/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file: 'clips/' + file })
+        });
+        const result = await resp.json();
+        logMsg(`Clip ${file}: ${result.status}`);
+        loadClips();
+    } catch (e) {
+        logMsg('deleteClip error: ' + e.message, true);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// playClip — load .thv, show modal, start playback
+// ---------------------------------------------------------------------------
+async function playClip(file) {
+    try {
+        const resp = await fetch('/api/sd/download?file=clips/' + file);
+        if (!resp.ok) { logMsg('Error descargando clip', true); return; }
+        const buf = await resp.arrayBuffer();
+        if (buf.byteLength < 16) { logMsg('Clip muy pequeño', true); return; }
+
+        const dv = new DataView(buf);
+
+        // Parse header
+        const magic = dv.getUint32(0, true);
+        if (magic !== 0x00564854) { logMsg('Formato .thv inválido', true); return; }
+        _clipHeader = {
+            frame_count: dv.getUint16(6, true),
+            fps:         dv.getUint8(10),
+            width:       dv.getUint8(8),
+            height:      dv.getUint8(9),
+            trigger_dir: dv.getUint8(11)
+        };
+        _clipData  = buf;
+        _clipFrame = 0;
+        _clipPlaying = false;
+        _clipSpeed = 1;
+
+        // Update modal
+        const dirLabel = _clipHeader.trigger_dir === 1 ? 'IN' : (_clipHeader.trigger_dir === 2 ? 'OUT' : '--');
+        document.getElementById('player-clip-name').textContent = file;
+        document.getElementById('player-clip-dir').textContent = dirLabel;
+        document.getElementById('player-clip-dir').className = _clipHeader.trigger_dir === 1 ? 'dir-in' : (_clipHeader.trigger_dir === 2 ? 'dir-out' : 'text-muted-sm');
+        document.getElementById('player-frame-total').textContent = _clipHeader.frame_count;
+        document.getElementById('player-timeline').max = _clipHeader.frame_count - 1;
+        document.getElementById('player-timeline').value = 0;
+        document.getElementById('btn-play').textContent = '▶';
+
+        // Show modal
+        document.getElementById('player-modal').style.display = 'flex';
+        document.getElementById('player-title').textContent = 'Reproductor Térmico';
+
+        renderPlayerFrame();
+
+        // Reset speed buttons
+        document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector('.speed-btn[data-speed="1"]').classList.add('active');
+
+        logMsg(`Clip cargado: ${_clipHeader.frame_count} frames`);
+    } catch (e) {
+        logMsg('playClip error: ' + e.message, true);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// renderPlayerFrame — draw current frame on player canvas
+// ---------------------------------------------------------------------------
+function renderPlayerFrame() {
+    if (!_clipData) return;
+    const frameOfs = 16 + _clipFrame * 1536;
+    if (frameOfs + 1536 > _clipData.byteLength) return;
+    const dv = new DataView(_clipData);
+    renderThermalToCanvas('playerCanvas', dv, frameOfs, 'player-scale-min', 'player-scale-max');
+    document.getElementById('player-frame-cur').textContent = _clipFrame;
+    document.getElementById('player-timeline').value = _clipFrame;
+}
+
+// ---------------------------------------------------------------------------
+//  Playback controls
+// ---------------------------------------------------------------------------
+function togglePlay() {
+    if (!_clipData) return;
+    _clipPlaying = !_clipPlaying;
+    document.getElementById('btn-play').textContent = _clipPlaying ? '⏸' : '▶';
+    if (_clipPlaying) {
+        if (_clipFrame >= _clipHeader.frame_count - 1) _clipFrame = 0;
+        scheduleNextFrame();
+    } else {
+        if (_clipTimer) { clearTimeout(_clipTimer); _clipTimer = null; }
+    }
+}
+
+function scheduleNextFrame() {
+    if (!_clipPlaying) return;
+    _clipFrame++;
+    if (_clipFrame >= _clipHeader.frame_count) {
+        _clipFrame = 0;
+    }
+    renderPlayerFrame();
+    const delay = Math.round(1000 / (32 * _clipSpeed));
+    _clipTimer = setTimeout(scheduleNextFrame, delay);
+}
+
+function setPlaySpeed(speed) {
+    _clipSpeed = speed;
+    document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.speed-btn[data-speed="${speed}"]`).classList.add('active');
+}
+
+function seekTo(frame) {
+    if (!_clipData) return;
+    _clipFrame = Math.max(0, Math.min(parseInt(frame) || 0, _clipHeader.frame_count - 1));
+    renderPlayerFrame();
+}
+
+function closePlayer() {
+    _clipPlaying = false;
+    if (_clipTimer) { clearTimeout(_clipTimer); _clipTimer = null; }
+    document.getElementById('player-modal').style.display = 'none';
+    _clipData = null;
+    _clipHeader = null;
+}

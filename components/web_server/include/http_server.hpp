@@ -83,6 +83,9 @@ private:
     // --- NVS Backup ---
     static esp_err_t nvsBackupHandler(httpd_req_t *req);  ///< GET /api/nvs/backup
 
+    // --- Clip API ---
+    static esp_err_t clipListHandler(httpd_req_t *req);   ///< GET /api/clips
+
     // --- WebSocket ---
     static void wsAsyncCompletionCb(esp_err_t err, int socket, void *arg);
     static void handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_pkt);
