@@ -605,8 +605,17 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
     cJSON_AddNumberToObject(resp, "nvs_base_out",
                             (double)s_session_baseline_out);
 
+    // W-C1: Hardware health indicators for boot sync
     cJSON_AddBoolToObject(resp, "rtc_ok", g_rtc.isAvailable());
     cJSON_AddBoolToObject(resp, "sd_ok", g_sd.isMounted());
+    if (g_rtc.isAvailable()) {
+        RTCDriver::DateTime dt;
+        if (g_rtc.getTime(dt) == ESP_OK) {
+            char iso[32];
+            dt.toISO(iso, sizeof(iso));
+            cJSON_AddStringToObject(resp, "rtc_time", iso);
+        }
+    }
 
     // Counting line segments
     ThermalConfig::DoorLineConfig dl_snap;
