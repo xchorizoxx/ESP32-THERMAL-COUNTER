@@ -3,6 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include <atomic>
 #include "stdint.h"
 #include <cstdio>
 
@@ -34,6 +35,7 @@ public:
 
     // --- Called from Core 1 — just pings the cooldown timer (optional) ---
     static bool clipRecordingNow();          // true if currently recording
+    static const char* getCurrentClipId();    // "CLIP_00005.thv" or ""
 
     // --- Writer task (Core 0) ---
     static void writerTask(void* pv);

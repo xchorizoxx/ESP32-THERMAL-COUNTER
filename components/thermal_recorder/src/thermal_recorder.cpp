@@ -113,6 +113,15 @@ bool ThermalRecorder::clipRecordingNow() {
     return s_state_ == RECORDING || s_state_ == COOLDOWN;
 }
 
+const char* ThermalRecorder::getCurrentClipId() {
+    if (s_clip_file_ && (s_state_ == RECORDING || s_state_ == COOLDOWN)) {
+        // Extract basename from path (/sdcard/clips/CLIP_00005.thv → CLIP_00005.thv)
+        const char* slash = strrchr(s_clip_path_, '/');
+        return slash ? slash + 1 : s_clip_path_;
+    }
+    return "";
+}
+
 // ---------------------------------------------------------------------------
 //  Writer Task  (Core 0 — state machine + SD I/O)
 // ---------------------------------------------------------------------------

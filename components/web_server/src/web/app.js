@@ -273,7 +273,7 @@ function connectWebSocket() {
                     logMsg(`Flash: ${obj.ok ? 'guardado OK' : 'ERROR'}`);
                 else if (obj.type === 'crossing') {
                     // W4-CSV: Recorded precisely from ESP32 FSM trigger with snapshot counts
-                    recordEvent(obj.dir, obj.cnt_in, obj.cnt_out, obj.temp, lastActiveTracks);
+                    recordEvent(obj.dir, obj.cnt_in, obj.cnt_out, obj.temp, lastActiveTracks, obj.clip);
                     updateEventsTable();
                     drawMiniChart();
                 } else if (obj.type === 'counts_reset' && obj.ok) {
@@ -492,12 +492,13 @@ function updateFPS() {
 //  W5: EVENT LOGGING
 // =============================================================================
 
-function recordEvent(dir, cntIn, cntOut, trackTemp, nTracks) {
+function recordEvent(dir, cntIn, cntOut, trackTemp, nTracks, clipId) {
     crossingEvents.push({
         session_id:    sessionId,
         timestamp_ms:  Date.now(),
         time_quality:  timeQuality,
         direction:     dir,
+        clip_id:       clipId || '',
         count_in:      cntIn,
         count_out:     cntOut,
         ambient_temp_c: lastAmbientTemp,
@@ -578,7 +579,7 @@ function updateEventsTable() {
     if (!tbody) return;
     const recent = crossingEvents.slice(-50).reverse();
     if (recent.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="no-events">Sin eventos en esta sesión</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="no-events">Sin eventos en esta sesión</td></tr>';
         return;
     }
     let html = '';
@@ -591,6 +592,9 @@ function updateEventsTable() {
             tsStr = `+${elapsedS}s`;
         }
         const cls = e.direction === 'IN' ? 'dir-in' : 'dir-out';
+        const clipBtn = (e.clip_id && e.clip_id.length > 0)
+            ? `<button class="btn-icon play" onclick="playClip('${e.clip_id}')" title="${e.clip_id}" style="font-size:10px;">▶</button>`
+            : '';
         html += `<tr>
             <td>${tsStr}</td>
             <td class="${cls}">${e.direction}</td>
@@ -599,6 +603,7 @@ function updateEventsTable() {
             <td class="track-temp-cell">${e.track_temp_c.toFixed(1)}°</td>
             <td>${e.ambient_temp_c.toFixed(1)}°</td>
             <td>${e.active_tracks}</td>
+            <td>${clipBtn}</td>
         </tr>`;
     });
     tbody.innerHTML = html;
@@ -613,7 +618,7 @@ function generateCSV() {
         return;
     }
     const TQ = ['none','browser','rtc'];
-    const rows = ['session_id,timestamp_iso,time_quality,direction,' +
+    const rows = ['session_id,timestamp_iso,time_quality,direction,clip_id,' +
                   'count_in_total,count_out_total,track_temp_c,ambient_temp_c,active_tracks'];
     crossingEvents.forEach(e => {
         const tsISO = (e.timestamp_ms > 0)
@@ -623,6 +628,7 @@ function generateCSV() {
             tsISO,
             TQ[e.time_quality] ?? 'none',
             e.direction,
+            e.clip_id || '',
             nvsBaseIn  + e.count_in,
             nvsBaseOut + e.count_out,
             e.track_temp_c.toFixed(2),

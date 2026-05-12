@@ -605,6 +605,9 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
     cJSON_AddNumberToObject(resp, "nvs_base_out",
                             (double)s_session_baseline_out);
 
+    cJSON_AddBoolToObject(resp, "rtc_ok", g_rtc.isAvailable());
+    cJSON_AddBoolToObject(resp, "sd_ok", g_sd.isMounted());
+
     // Counting line segments
     ThermalConfig::DoorLineConfig dl_snap;
     portENTER_CRITICAL(&ThermalConfig::door_lines_mux);
@@ -1611,23 +1614,28 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
   if (server_ == NULL)
     return;
 
+  const char* clip_id = ThermalRecorder::getCurrentClipId();
+
   // W4-CSV: Persist to SD if available
   if (g_sd.isMounted()) {
     char log_file[64];
     getLogPathForToday(log_file, sizeof(log_file));
 
-    char line[128];
+    char line[160];
     // Format:
-    // session,timestamp_ms,dir,count_in,count_out,track_temp,ambient_temp,active_tracks,id
-    snprintf(line, sizeof(line), "%u,%" PRIu64 ",%s,%d,%d,%.2f,%.2f,%u,%u",
-             s_session_id, (uint64_t)ev.timestamp_ms, ev.is_in ? "IN" : "OUT",
+    // session,timestamp_ms,clip_id,dir,count_in,count_out,track_temp,ambient_temp,active_tracks,track_id
+    snprintf(line, sizeof(line),
+             "%u,%" PRIu64 ",%s,%s,%d,%d,%.2f,%.2f,%u,%u",
+             s_session_id, (uint64_t)ev.timestamp_ms, clip_id,
+             ev.is_in ? "IN" : "OUT",
              ev.count_in, ev.count_out, ev.temperature, ambient_temp,
              active_tracks, ev.id);
 
     if (!g_sd.fileExists(log_file)) {
       g_sd.appendLine(log_file,
-                      "session,timestamp_ms,direction,count_in,count_out,track_"
-                      "temp,ambient_temp,active_tracks,track_id");
+                      "session,timestamp_ms,clip_id,direction,count_in,"
+                      "count_out,track_temp,ambient_temp,active_tracks,"
+                      "track_id");
     }
     g_sd.appendLine(log_file, line);
   }
@@ -1669,9 +1677,11 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
   int written =
       snprintf((char *)s_event_buffers[buf_idx], WS_EVENT_BUFFER_SIZE,
                "{\"type\":\"crossing\",\"dir\":\"%s\",\"cnt_in\":%d,\"cnt_"
-               "out\":%d,\"temp\":%.2f,\"id\":%u,\"ts\":%" PRIu64 "}",
+               "out\":%d,\"temp\":%.2f,\"id\":%u,\"ts\":%" PRIu64
+               ",\"clip\":\"%s\"}",
                ev.is_in ? "IN" : "OUT", ev.count_in, ev.count_out,
-               ev.temperature, ev.id, (uint64_t)ev.timestamp_ms);
+               ev.temperature, ev.id, (uint64_t)ev.timestamp_ms,
+               (clip_id[0] ? clip_id : ""));
 
   if (written <= 0 || written >= WS_EVENT_BUFFER_SIZE) {
     ESP_LOGW(TAG, "broadcastEvent: JSON truncated or error");
