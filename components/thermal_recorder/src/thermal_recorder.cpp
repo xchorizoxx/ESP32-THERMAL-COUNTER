@@ -14,7 +14,7 @@ static const char* TAG = "RECORDER";
 // ---------------------------------------------------------------------------
 ThermalRecorder::FrameSlot* ThermalRecorder::s_ring_buf_   = nullptr;
 int                         ThermalRecorder::s_N_           = 0;
-volatile int                ThermalRecorder::s_write_idx_   = 0;
+std::atomic<int>            ThermalRecorder::s_write_idx_   = 0;
 int                         ThermalRecorder::s_read_idx_    = 0;
 
 ThermalRecorder::State     ThermalRecorder::s_state_       = IDLE;
@@ -93,7 +93,8 @@ void IRAM_ATTR ThermalRecorder::pushFrame(const float* pixels_degC,
                                           int cross_dir) {
     if (!s_ring_buf_) return;
 
-    int idx = s_write_idx_ % s_N_;
+    int w = s_write_idx_.load(std::memory_order_relaxed);
+    int idx = w % s_N_;
     for (int i = 0; i < TOTAL_PIXELS; i++) {
         float v = pixels_degC[i] * 100.0f;
         if      (v > 32767.0f)  s_ring_buf_[idx].pixels[i] = 32767;
@@ -104,9 +105,8 @@ void IRAM_ATTR ThermalRecorder::pushFrame(const float* pixels_degC,
     s_ring_buf_[idx].track_count  = (int8_t)(num_tracks > 127 ? 127 : num_tracks);
     s_ring_buf_[idx].cross_dir    = (int8_t)(cross_dir > 1 ? 1 : (cross_dir < -1 ? -1 : cross_dir));
 
-    // Atomic write increment (only Core 1 writes this)
-    int new_wr = s_write_idx_ + 1;
-    s_write_idx_ = new_wr;
+    // Release the frame to Core 0 writer with cross-core visibility
+    s_write_idx_.store(w + 1, std::memory_order_release);
 }
 
 bool ThermalRecorder::clipRecordingNow() {
@@ -130,7 +130,7 @@ void ThermalRecorder::writerTask(void* pv) {
     ESP_LOGI(TAG, "Writer task started");
 
     while (true) {
-        int avail = s_write_idx_ - s_read_idx_;
+        int avail = s_write_idx_.load(std::memory_order_acquire) - s_read_idx_;
         if (avail <= 0) {
             vTaskDelay(pdMS_TO_TICKS(5));
             continue;
@@ -184,6 +184,9 @@ void ThermalRecorder::writerTask(void* pv) {
             // Track came back → resume recording
             if (slot.track_count > 0) {
                 s_state_ = RECORDING;
+                if (slot.cross_dir != 0) {
+                    s_clip_crossings_++;
+                }
                 s_last_track_ms_ = now;
             }
             // Still no tracks — check if cooldown expired
@@ -199,15 +202,18 @@ void ThermalRecorder::writerTask(void* pv) {
             break;
         }
 
-        // Write frame to SD during RECORDING or COOLDOWN
+        // Write pixel data to SD if recording
         if (s_clip_file_ && (s_state_ == RECORDING || s_state_ == COOLDOWN)) {
             if (fwrite(slot.pixels, 2, TOTAL_PIXELS, s_clip_file_) != TOTAL_PIXELS) {
-                ESP_LOGW(TAG, "SD write error — closing clip early");
+                ESP_LOGW(TAG, "SD write error in clip — closing early");
                 fclose(s_clip_file_);
                 s_clip_file_ = nullptr;
                 s_state_ = CLOSING;
             }
         }
+
+        // Yield to other tasks between frames
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
@@ -266,7 +272,7 @@ void ThermalRecorder::closeClip() {
     }
 
     uint32_t dur_ms = nowMs() - s_clip_start_ms_;
-    bool keep = (dur_ms >= min_duration_ms) && (s_clip_crossings_ > 0);
+    bool keep = (dur_ms >= min_duration_ms);
 
     if (!keep) {
         fclose(s_clip_file_);

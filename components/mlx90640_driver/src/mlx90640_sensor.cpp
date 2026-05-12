@@ -101,7 +101,14 @@ esp_err_t Mlx90640Sensor::readFrame(float* outBuffer)
 
     float ta = MLX90640_GetTa(frameData_, &params_);
     float tr = ta - 8.0f;
-    ambientTemp_ = ta;
+
+    constexpr float TA_EMA_ALPHA = 0.1f;
+    if (first_ta_read_) {
+        ambientTemp_ = ta;
+        first_ta_read_ = false;
+    } else {
+        ambientTemp_ = TA_EMA_ALPHA * ta + (1.0f - TA_EMA_ALPHA) * ambientTemp_;
+    }
 
     MLX90640_CalculateTo(frameData_, &params_, 0.95f, tr, outBuffer);
 

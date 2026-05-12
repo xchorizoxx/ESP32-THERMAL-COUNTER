@@ -43,7 +43,7 @@ public:
 private:
     static FrameSlot*      s_ring_buf_;        // PSRAM allocation
     static int             s_N_;
-    static volatile int    s_write_idx_;        // Core 1 writes
+    static std::atomic<int>   s_write_idx_;        // Core 1 writes
     static int             s_read_idx_;         // Core 0 reads
 
     enum State : uint8_t { IDLE, RECORDING, COOLDOWN, CLOSING };
