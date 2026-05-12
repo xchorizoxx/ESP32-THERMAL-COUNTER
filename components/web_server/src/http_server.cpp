@@ -1321,14 +1321,16 @@ esp_err_t HttpServer::sdInfoHandler(httpd_req_t *req) {
     return ESP_FAIL;
   }
 
+  double free_bytes = (double)g_sd.getFreeSpaceBytes();
+  double total_bytes = (double)g_sd.getTotalSpaceBytes();
+
   cJSON *resp = cJSON_CreateObject();
-  cJSON_AddNumberToObject(resp, "free_bytes", (double)g_sd.getFreeSpaceBytes());
-  cJSON_AddNumberToObject(resp, "total_bytes",
-                          (double)g_sd.getTotalSpaceBytes());
+  cJSON_AddNumberToObject(resp, "free_bytes", free_bytes);
+  cJSON_AddNumberToObject(resp, "total_bytes", total_bytes);
 
   // Merge files from logs/ and clips/ into single array
   cJSON *all_files = cJSON_CreateArray();
-  char json_buf[1024];
+  char json_buf[2048];
 
   auto mergeDir = [&](const char* dir) {
     if (g_sd.listDirectory(dir, json_buf, sizeof(json_buf)) == ESP_OK) {
@@ -1347,6 +1349,10 @@ esp_err_t HttpServer::sdInfoHandler(httpd_req_t *req) {
   mergeDir("logs");
   mergeDir("clips");
   cJSON_AddItemToObject(resp, "files", all_files);
+
+  int file_count = cJSON_GetArraySize(all_files);
+  ESP_LOG_COLOR(LOG_COLOR_CYAN, TAG, "SD info: free=%.0f/%.0f MB  files=%d",
+                free_bytes / 1048576.0, total_bytes / 1048576.0, file_count);
 
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_type(req, "application/json");
@@ -1606,6 +1612,7 @@ esp_err_t HttpServer::clipListHandler(httpd_req_t *req) {
 
   char list_json[2048];
   if (g_sd.listDirectory("clips", list_json, sizeof(list_json)) != ESP_OK) {
+    ESP_LOGW(TAG, "clipList: listDirectory('clips') FAILED");
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
                         "Failed to list clips");
     return ESP_FAIL;
@@ -1619,6 +1626,10 @@ esp_err_t HttpServer::clipListHandler(httpd_req_t *req) {
     return ESP_FAIL;
   }
 
+  int total_files = cJSON_GetArraySize(files);
+  int thv_count = 0;
+  int magic_ok = 0;
+
   cJSON *resp = cJSON_CreateObject();
   cJSON *items = cJSON_CreateArray();
 
@@ -1631,18 +1642,28 @@ esp_err_t HttpServer::clipListHandler(httpd_req_t *req) {
     // Only .thv files
     const char *dot = strrchr(name, '.');
     if (!dot || strcmp(dot, ".thv") != 0) continue;
+    thv_count++;
 
     // Read ThvHeader from file
     char full_path[96];
     snprintf(full_path, sizeof(full_path), "/sdcard/clips/%s", name);
     FILE *fp = fopen(full_path, "rb");
-    if (!fp) continue;
+    if (!fp) {
+      ESP_LOGW(TAG, "clipList: cannot open %s", name);
+      continue;
+    }
 
     ThvHeader hdr;
     memset(&hdr, 0, sizeof(hdr));
     size_t nread = fread(&hdr, 1, sizeof(hdr), fp);
     fclose(fp);
-    if (nread != sizeof(hdr) || hdr.magic != THV_MAGIC) continue;
+    if (nread != sizeof(hdr) || hdr.magic != THV_MAGIC) {
+      ESP_LOGD(TAG, "clipList: %s magic=0x%08X (expected 0x%08X) nread=%u",
+               name, (unsigned)hdr.magic, (unsigned)THV_MAGIC,
+               (unsigned)nread);
+      continue;
+    }
+    magic_ok++;
 
     // Build item JSON
     cJSON *item = cJSON_CreateObject();
@@ -1661,6 +1682,9 @@ esp_err_t HttpServer::clipListHandler(httpd_req_t *req) {
 
     cJSON_AddItemToArray(items, item);
   }
+
+  ESP_LOG_COLOR(LOG_COLOR_CYAN, TAG, "Clips: %d files in dir, %d .thv, %d magic OK → %d in response",
+                total_files, thv_count, magic_ok, magic_ok);
 
   cJSON_AddItemToObject(resp, "clips", items);
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");

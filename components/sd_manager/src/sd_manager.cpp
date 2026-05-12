@@ -13,6 +13,13 @@
 
 static const char* TAG = "SD_MANAGER";
 
+// Colored log macros for debug visibility
+#define LOG_CYAN    "\033[0;36m"
+#define LOG_RESET   "\033[0m"
+#define LOG_COLOR(color, tag, format, ...) \
+    printf(color "I (%lu) %s: " format LOG_RESET "\n", \
+           (unsigned long)esp_log_timestamp(), tag, ##__VA_ARGS__)
+
 SDManager::SDManager() : card_(nullptr), mounted_(false), mutex_(nullptr) {
     mutex_ = xSemaphoreCreateMutex();
 }
@@ -116,15 +123,32 @@ esp_err_t SDManager::mkdirInternal(const char* rel_path) {
 uint64_t SDManager::getFreeSpaceBytes() const {
     if (!mounted_.load(std::memory_order_relaxed)) return 0;
     struct statvfs vfs;
-    if (statvfs(MOUNT_POINT, &vfs) != 0) return 0;
-    return (uint64_t)vfs.f_bfree * vfs.f_bsize;
+    if (statvfs(MOUNT_POINT, &vfs) != 0) {
+        LOG_COLOR(LOG_CYAN, TAG, "statvfs free failed: errno=%d (%s)",
+                  errno, strerror(errno));
+        return 0;
+    }
+    uint64_t bytes = (uint64_t)vfs.f_bfree * vfs.f_bsize;
+    LOG_COLOR(LOG_CYAN, TAG, "statvfs: bsize=%lu frsize=%lu blocks=%lu bfree=%lu → free=%llu",
+              (unsigned long)vfs.f_bsize, (unsigned long)vfs.f_frsize,
+              (unsigned long)vfs.f_blocks, (unsigned long)vfs.f_bfree,
+              (unsigned long long)bytes);
+    return bytes;
 }
 
 uint64_t SDManager::getTotalSpaceBytes() const {
     if (!mounted_.load(std::memory_order_relaxed)) return 0;
     struct statvfs vfs;
-    if (statvfs(MOUNT_POINT, &vfs) != 0) return 0;
-    return (uint64_t)vfs.f_blocks * vfs.f_bsize;
+    if (statvfs(MOUNT_POINT, &vfs) != 0) {
+        LOG_COLOR(LOG_CYAN, TAG, "statvfs total failed: errno=%d (%s)",
+                  errno, strerror(errno));
+        return 0;
+    }
+    uint64_t bytes = (uint64_t)vfs.f_blocks * vfs.f_bsize;
+    LOG_COLOR(LOG_CYAN, TAG, "statvfs total: blocks=%lu bsize=%lu → total=%llu",
+              (unsigned long)vfs.f_blocks, (unsigned long)vfs.f_bsize,
+              (unsigned long long)bytes);
+    return bytes;
 }
 
 esp_err_t SDManager::mkdir(const char* rel_path) {

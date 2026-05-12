@@ -163,6 +163,7 @@ function switchMainView(viewId, btn) {
     document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     if (viewId === 'stats') { drawMiniChart(); updateEventsTable(); loadSdStatus(); }
+    if (viewId === 'clips') { loadClips(); }
 }
 
 // W2-3 FIX: receives event explicitly — no implicit global `event`
