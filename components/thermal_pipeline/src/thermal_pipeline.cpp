@@ -1,4 +1,5 @@
 #include "thermal_pipeline.hpp"
+#include "thermal_recorder.hpp"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
@@ -84,6 +85,7 @@ void ThermalPipeline::run()
     const TickType_t period = pdMS_TO_TICKS(1000 / ThermalConfig::PIPELINE_FREQ_HZ);
     TickType_t lastWakeTime = xTaskGetTickCount();
     TickType_t last_error_dispatch = 0;
+    int consecutive_failures = 0;
 
     while (true) {
         processConfigQueue();
@@ -91,21 +93,30 @@ void ThermalPipeline::run()
         bool sensor_ok = false;
         if (sensor_initialized_ && (sensor_.readFrame(current_frame_) == ESP_OK)) {
             sensor_ok = true;
+            consecutive_failures = 0;
             StatusLedManager::getInstance().setState(StatusLedManager::State::TRACKING);
         } else {
-            sensor_initialized_ = false;
-            StatusLedManager::getInstance().setState(StatusLedManager::State::FATAL_ERROR);
-            
-            // Auto-reconnect logic every 5 seconds
-            uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
-            if (now - last_reconnect_ms_ > 5000) {
-                last_reconnect_ms_ = now;
-                ESP_LOGW(TAG, "Sensor disconnected. Attempting auto-reconnect...");
-                if (sensor_.init() == ESP_OK) {
-                    sensor_initialized_ = true;
-                    resetVisionState();
-                    ESP_LOGI(TAG, "Sensor auto-reconnected successfully!");
-                    StatusLedManager::getInstance().setState(StatusLedManager::State::TRACKING);
+            consecutive_failures++;
+
+            if (consecutive_failures < 3) {
+                ESP_LOGD(TAG, "Transient read failure (%d/3) — frame skipped, sensor alive",
+                         consecutive_failures);
+            } else {
+                sensor_initialized_ = false;
+                StatusLedManager::getInstance().setState(StatusLedManager::State::FATAL_ERROR);
+
+                uint32_t now = (uint32_t)(esp_timer_get_time() / 1000ULL);
+                if (now - last_reconnect_ms_ > 5000) {
+                    last_reconnect_ms_ = now;
+                    ESP_LOGW(TAG, "Sensor disconnected (%d consecutive failures). "
+                             "Attempting auto-reconnect...", consecutive_failures);
+                    if (sensor_.init() == ESP_OK) {
+                        sensor_initialized_ = true;
+                        consecutive_failures = 0;
+                        resetVisionState();
+                        ESP_LOGI(TAG, "Sensor auto-reconnected successfully!");
+                        StatusLedManager::getInstance().setState(StatusLedManager::State::TRACKING);
+                    }
                 }
             }
         }
@@ -117,6 +128,16 @@ void ThermalPipeline::run()
 
             if (frame_accumulator_.isReady()) {
                 runVisionPipeline();
+                // F1: Push frame to recorder (fast, non-blocking)
+                {
+                    int cross_dir = 0;
+                    if (num_current_events_ > 0) {
+                        cross_dir = current_events_[0].is_in ? 1 : -1;
+                    }
+                    ThermalRecorder::pushFrame(composed_frame_,
+                                               num_confirmed_tracks_,
+                                               cross_dir);
+                }
                 dispatchIpcPacket(true);
             }
         } else {

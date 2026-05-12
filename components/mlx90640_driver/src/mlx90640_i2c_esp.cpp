@@ -53,7 +53,7 @@ extern "C" int MLX90640_I2CInit(void)
     bus_cfg.clk_source = I2C_CLK_SRC_DEFAULT;
     bus_cfg.glitch_ignore_cnt = 7;
     bus_cfg.intr_priority = 0;
-    bus_cfg.flags.enable_internal_pullup = true;
+    bus_cfg.flags.enable_internal_pullup = false;
 
     esp_err_t err = i2c_new_master_bus(&bus_cfg, &s_bus_handle);
     if (err != ESP_OK) {

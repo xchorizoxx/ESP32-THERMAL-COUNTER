@@ -31,6 +31,7 @@
 #include "driver/gpio.h"
 #include "rtc_driver.hpp"
 #include "sd_manager.hpp"
+#include "thermal_recorder.hpp"
 
 static const char* TAG = "MAIN";
 
@@ -119,7 +120,7 @@ extern "C" void app_main(void)
     // -------------------------------------------------------------------------
     // Step 2.2: Real Time Clock (DS3231 on I2C1)
     // -------------------------------------------------------------------------
-    // Set up GPIO Powering for RTC (VCC=6, GND=7)
+    // Set up GPIO Powering for RTC (VCC=15, GND=16)
     gpio_config_t rtc_pwr_conf = {};
     rtc_pwr_conf.intr_type = GPIO_INTR_DISABLE;
     rtc_pwr_conf.mode = GPIO_MODE_OUTPUT;
@@ -127,13 +128,17 @@ extern "C" void app_main(void)
     rtc_pwr_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
     rtc_pwr_conf.pull_up_en = GPIO_PULLUP_DISABLE;
     ESP_ERROR_CHECK(gpio_config(&rtc_pwr_conf));
-    
-    // Turn on power to the RTC
-    ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 1)); // VCC = HIGH
+
+    // Cycle power to RTC for a clean DS3231 oscillator restart
+    ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 0)); // VCC = LOW
     ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_GND_PIN, 0)); // GND = LOW
-    
-    // Give the RTC chip 150ms to fully boot up and stabilize after power
-    vTaskDelay(pdMS_TO_TICKS(150));
+    vTaskDelay(pdMS_TO_TICKS(10));  // Ensure power cap fully discharges
+
+    ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 1)); // VCC = HIGH 3.3V
+    // GND stays LOW
+
+    // Give the RTC chip 300ms to fully boot up and stabilize after power
+    vTaskDelay(pdMS_TO_TICKS(300));
 
     ret = g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
                      (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
@@ -146,6 +151,18 @@ extern "C" void app_main(void)
         }
     } else {
         ESP_LOGW(TAG, "RTC system UNAVAILABLE (Using relative system ticks)");
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 2.3: Thermal Clip Recorder (PSRAM ring buffer + writer task)
+    // -------------------------------------------------------------------------
+    {
+        esp_err_t r = ThermalRecorder::init();
+        if (r == ESP_OK) {
+            ESP_LOGI(TAG, "Thermal clip recorder initialized");
+        } else {
+            ESP_LOGW(TAG, "Thermal clip recorder disabled (%s)", esp_err_to_name(r));
+        }
     }
 
     // -------------------------------------------------------------------------

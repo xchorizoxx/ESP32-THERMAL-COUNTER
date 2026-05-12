@@ -29,9 +29,11 @@
 #include "rtc_driver.hpp"
 #include "sd_manager.hpp"
 #include "thermal_config.hpp"
+#include "thermal_recorder.hpp"
 #include <inttypes.h> // [NEW] Required for PRIu64 format macro
 #include <string.h>
 #include <sys/param.h>
+#include <sys/stat.h>
 #include <time.h>
 
 static const char *TAG = "HTTP_SERVER";
@@ -603,6 +605,18 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
     cJSON_AddNumberToObject(resp, "nvs_base_out",
                             (double)s_session_baseline_out);
 
+    // W-C1: Hardware health indicators for boot sync
+    cJSON_AddBoolToObject(resp, "rtc_ok", g_rtc.isAvailable());
+    cJSON_AddBoolToObject(resp, "sd_ok", g_sd.isMounted());
+    if (g_rtc.isAvailable()) {
+        RTCDriver::DateTime dt;
+        if (g_rtc.getTime(dt) == ESP_OK) {
+            char iso[32];
+            dt.toISO(iso, sizeof(iso));
+            cJSON_AddStringToObject(resp, "rtc_time", iso);
+        }
+    }
+
     // Counting line segments
     ThermalConfig::DoorLineConfig dl_snap;
     portENTER_CRITICAL(&ThermalConfig::door_lines_mux);
@@ -1005,6 +1019,10 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
       "/api/nvs/backup", HTTP_GET, nvsBackupHandler, NULL, false, false, NULL};
   httpd_register_uri_handler(server_, &nvs_backup_uri);
 
+  const httpd_uri_t clips_uri = {
+      "/api/clips", HTTP_GET, clipListHandler, NULL, false, false, NULL};
+  httpd_register_uri_handler(server_, &clips_uri);
+
   // W6: Start periodic counter save timer (10 minutes)
   s_counter_save_timer =
       xTimerCreate("ctr_save",
@@ -1337,7 +1355,11 @@ esp_err_t HttpServer::sdDownloadHandler(httpd_req_t *req) {
     return ESP_FAIL;
   }
 
-  httpd_resp_set_type(req, "text/csv");
+  if (strstr(path, ".thv")) {
+    httpd_resp_set_type(req, "application/octet-stream");
+  } else {
+    httpd_resp_set_type(req, "text/csv");
+  }
 
   // Extraer el nombre de archivo (basename) para Content-Disposition
   const char *basename = strrchr(path, '/');
@@ -1467,6 +1489,88 @@ esp_err_t HttpServer::nvsBackupHandler(httpd_req_t *req) {
   return ESP_OK;
 }
 
+// =============================================================================
+//  HTTP HANDLER — CLIP LIST (/api/clips)
+// =============================================================================
+
+esp_err_t HttpServer::clipListHandler(httpd_req_t *req) {
+  if (!g_sd.isMounted()) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "SD Card not mounted");
+    return ESP_FAIL;
+  }
+
+  char list_json[2048];
+  if (g_sd.listDirectory("clips", list_json, sizeof(list_json)) != ESP_OK) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "Failed to list clips");
+    return ESP_FAIL;
+  }
+
+  cJSON *files = cJSON_Parse(list_json);
+  if (!files || !cJSON_IsArray(files)) {
+    if (files) cJSON_Delete(files);
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "Parse error");
+    return ESP_FAIL;
+  }
+
+  cJSON *resp = cJSON_CreateObject();
+  cJSON *items = cJSON_CreateArray();
+
+  cJSON *f;
+  cJSON_ArrayForEach(f, files) {
+    cJSON *name_j = cJSON_GetObjectItem(f, "name");
+    if (!cJSON_IsString(name_j)) continue;
+    const char *name = name_j->valuestring;
+
+    // Only .thv files
+    const char *dot = strrchr(name, '.');
+    if (!dot || strcmp(dot, ".thv") != 0) continue;
+
+    // Read ThvHeader from file
+    char full_path[96];
+    snprintf(full_path, sizeof(full_path), "/sdcard/clips/%s", name);
+    FILE *fp = fopen(full_path, "rb");
+    if (!fp) continue;
+
+    ThvHeader hdr;
+    memset(&hdr, 0, sizeof(hdr));
+    size_t nread = fread(&hdr, 1, sizeof(hdr), fp);
+    fclose(fp);
+    if (nread != sizeof(hdr) || hdr.magic != THV_MAGIC) continue;
+
+    // Build item JSON
+    cJSON *item = cJSON_CreateObject();
+    cJSON_AddStringToObject(item, "name", name);
+    cJSON_AddNumberToObject(item, "frame_count", hdr.frame_count);
+    cJSON_AddNumberToObject(item, "fps", hdr.fps);
+    cJSON_AddNumberToObject(item, "width", hdr.width);
+    cJSON_AddNumberToObject(item, "height", hdr.height);
+    cJSON_AddNumberToObject(item, "trigger_dir", hdr.trigger_dir);
+
+    // File size
+    struct stat st;
+    if (stat(full_path, &st) == 0) {
+      cJSON_AddNumberToObject(item, "size_bytes", (double)st.st_size);
+    }
+
+    cJSON_AddItemToArray(items, item);
+  }
+
+  cJSON_AddItemToObject(resp, "clips", items);
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_type(req, "application/json");
+
+  char *json_str = cJSON_Print(resp);
+  cJSON_Delete(resp);
+  if (!json_str) return ESP_ERR_NO_MEM;
+
+  httpd_resp_sendstr(req, json_str);
+  free(json_str);
+  return ESP_OK;
+}
+
 // downloadLogHandler (legacy) remains for compatibility if needed, or we can
 // leave it.
 esp_err_t HttpServer::downloadLogHandler(httpd_req_t *req) {
@@ -1519,23 +1623,28 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
   if (server_ == NULL)
     return;
 
+  const char* clip_id = ThermalRecorder::getCurrentClipId();
+
   // W4-CSV: Persist to SD if available
   if (g_sd.isMounted()) {
     char log_file[64];
     getLogPathForToday(log_file, sizeof(log_file));
 
-    char line[128];
+    char line[160];
     // Format:
-    // session,timestamp_ms,dir,count_in,count_out,track_temp,ambient_temp,active_tracks,id
-    snprintf(line, sizeof(line), "%u,%" PRIu64 ",%s,%d,%d,%.2f,%.2f,%u,%u",
-             s_session_id, (uint64_t)ev.timestamp_ms, ev.is_in ? "IN" : "OUT",
+    // session,timestamp_ms,clip_id,dir,count_in,count_out,track_temp,ambient_temp,active_tracks,track_id
+    snprintf(line, sizeof(line),
+             "%u,%" PRIu64 ",%s,%s,%d,%d,%.2f,%.2f,%u,%u",
+             s_session_id, (uint64_t)ev.timestamp_ms, clip_id,
+             ev.is_in ? "IN" : "OUT",
              ev.count_in, ev.count_out, ev.temperature, ambient_temp,
              active_tracks, ev.id);
 
     if (!g_sd.fileExists(log_file)) {
       g_sd.appendLine(log_file,
-                      "session,timestamp_ms,direction,count_in,count_out,track_"
-                      "temp,ambient_temp,active_tracks,track_id");
+                      "session,timestamp_ms,clip_id,direction,count_in,"
+                      "count_out,track_temp,ambient_temp,active_tracks,"
+                      "track_id");
     }
     g_sd.appendLine(log_file, line);
   }
@@ -1577,9 +1686,11 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
   int written =
       snprintf((char *)s_event_buffers[buf_idx], WS_EVENT_BUFFER_SIZE,
                "{\"type\":\"crossing\",\"dir\":\"%s\",\"cnt_in\":%d,\"cnt_"
-               "out\":%d,\"temp\":%.2f,\"id\":%u,\"ts\":%" PRIu64 "}",
+               "out\":%d,\"temp\":%.2f,\"id\":%u,\"ts\":%" PRIu64
+               ",\"clip\":\"%s\"}",
                ev.is_in ? "IN" : "OUT", ev.count_in, ev.count_out,
-               ev.temperature, ev.id, (uint64_t)ev.timestamp_ms);
+               ev.temperature, ev.id, (uint64_t)ev.timestamp_ms,
+               (clip_id[0] ? clip_id : ""));
 
   if (written <= 0 || written >= WS_EVENT_BUFFER_SIZE) {
     ESP_LOGW(TAG, "broadcastEvent: JSON truncated or error");
