@@ -881,6 +881,33 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
               (gpio_num_t)ThermalConfig::SD_SCK_PIN,
               (gpio_num_t)ThermalConfig::SD_CS_PIN);
     ESP_LOGI(TAG, "RETRY_SD requested");
+
+  // -------------------------------------------------------------------------
+  //  ERASE_NVS — Full NVS wipe + reboot
+  // -------------------------------------------------------------------------
+  } else if (strcmp(cmdStr, "ERASE_NVS") == 0) {
+    ESP_LOGW(TAG, "ERASE_NVS: wiping NVS and rebooting...");
+
+    // Save counters one last time before erasing
+    saveCountersToNvs(s_latest_count_in, s_latest_count_out);
+
+    esp_err_t err = nvs_flash_erase();
+    if (err == ESP_OK) {
+      ESP_LOGI(TAG, "NVS erased successfully — restarting");
+    } else {
+      ESP_LOGE(TAG, "NVS erase failed: %s", esp_err_to_name(err));
+    }
+
+    cJSON *resp = cJSON_CreateObject();
+    if (resp) {
+      cJSON_AddStringToObject(resp, "type", "nvs_erased");
+      cJSON_AddBoolToObject(resp, "ok", err == ESP_OK);
+      wsSendJson(req, resp);
+      cJSON_Delete(resp);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
   }
 
   cJSON_Delete(root);
@@ -1015,6 +1042,10 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
       "/api/sd/delete", HTTP_POST, sdDeleteHandler, NULL, false, false, NULL};
   httpd_register_uri_handler(server_, &sd_del_uri);
 
+  const httpd_uri_t sd_erase_all_uri = {
+      "/api/sd/erase_all", HTTP_POST, sdEraseAllHandler, NULL, false, false, NULL};
+  httpd_register_uri_handler(server_, &sd_erase_all_uri);
+
   const httpd_uri_t nvs_backup_uri = {
       "/api/nvs/backup", HTTP_GET, nvsBackupHandler, NULL, false, false, NULL};
   httpd_register_uri_handler(server_, &nvs_backup_uri);
@@ -1037,6 +1068,9 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
         TAG,
         "Counter save timer creation failed — counters will NOT be persisted");
   }
+
+  // Register clip event callback from ThermalRecorder
+  ThermalRecorder::s_on_clip_event = &HttpServer::onClipEvent;
 
   ESP_LOGI(TAG, "HTTP server started (session=%u, base_in=%d, base_out=%d)",
            s_session_id, s_session_baseline_in, s_session_baseline_out);
@@ -1287,22 +1321,32 @@ esp_err_t HttpServer::sdInfoHandler(httpd_req_t *req) {
     return ESP_FAIL;
   }
 
-  char json_buf[1024];
-  if (g_sd.listDirectory("logs", json_buf, sizeof(json_buf)) != ESP_OK) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                        "Failed to list logs");
-    return ESP_FAIL;
-  }
-
   cJSON *resp = cJSON_CreateObject();
   cJSON_AddNumberToObject(resp, "free_bytes", (double)g_sd.getFreeSpaceBytes());
   cJSON_AddNumberToObject(resp, "total_bytes",
                           (double)g_sd.getTotalSpaceBytes());
 
-  cJSON *files_arr = cJSON_Parse(json_buf);
-  if (files_arr) {
-    cJSON_AddItemToObject(resp, "files", files_arr);
-  }
+  // Merge files from logs/ and clips/ into single array
+  cJSON *all_files = cJSON_CreateArray();
+  char json_buf[1024];
+
+  auto mergeDir = [&](const char* dir) {
+    if (g_sd.listDirectory(dir, json_buf, sizeof(json_buf)) == ESP_OK) {
+      cJSON *arr = cJSON_Parse(json_buf);
+      if (arr && cJSON_IsArray(arr)) {
+        int n = cJSON_GetArraySize(arr);
+        for (int i = 0; i < n; i++) {
+          cJSON *item = cJSON_Duplicate(cJSON_GetArrayItem(arr, i), true);
+          if (item) cJSON_AddItemToArray(all_files, item);
+        }
+      }
+      if (arr) cJSON_Delete(arr);
+    }
+  };
+
+  mergeDir("logs");
+  mergeDir("clips");
+  cJSON_AddItemToObject(resp, "files", all_files);
 
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_type(req, "application/json");
@@ -1423,6 +1467,66 @@ esp_err_t HttpServer::sdDeleteHandler(httpd_req_t *req) {
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_type(req, "application/json");
   return httpd_resp_send(req, "{\"status\":\"ok\"}", -1);
+}
+
+// =============================================================================
+//  HTTP HANDLER — SD ERASE ALL (/api/sd/erase_all)
+// =============================================================================
+
+esp_err_t HttpServer::sdEraseAllHandler(httpd_req_t *req) {
+  if (!g_sd.isMounted()) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "SD Card not mounted");
+    return ESP_FAIL;
+  }
+
+  auto eraseDir = [&](const char* dir) -> bool {
+    char json_buf[1024];
+    if (g_sd.listDirectory(dir, json_buf, sizeof(json_buf)) != ESP_OK) {
+      return true; // dir doesn't exist — not an error
+    }
+    cJSON *arr = cJSON_Parse(json_buf);
+    if (!arr || !cJSON_IsArray(arr)) {
+      if (arr) cJSON_Delete(arr);
+      return true;
+    }
+    int n = cJSON_GetArraySize(arr);
+    bool ok = true;
+    for (int i = 0; i < n; i++) {
+      cJSON *item = cJSON_GetArrayItem(arr, i);
+      cJSON *name_j = cJSON_GetObjectItem(item, "name");
+      if (cJSON_IsString(name_j)) {
+        char file_path[128];
+        snprintf(file_path, sizeof(file_path), "%s/%s", dir, name_j->valuestring);
+        if (g_sd.deleteFile(file_path) != ESP_OK) {
+          ok = false;
+        }
+      }
+    }
+    cJSON_Delete(arr);
+    return ok;
+  };
+
+  bool logs_ok = eraseDir("logs");
+  bool clips_ok = eraseDir("clips");
+
+  // Recreate the base directories
+  g_sd.mkdir("logs");
+  g_sd.mkdir("clips");
+
+  cJSON *resp = cJSON_CreateObject();
+  cJSON_AddBoolToObject(resp, "ok", true);
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_type(req, "application/json");
+  char *json_str = cJSON_PrintUnformatted(resp);
+  cJSON_Delete(resp);
+  if (json_str) {
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+  } else {
+    httpd_resp_send_500(req);
+  }
+  return ESP_OK;
 }
 
 // =============================================================================
@@ -1630,11 +1734,11 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
     char log_file[64];
     getLogPathForToday(log_file, sizeof(log_file));
 
-    char line[160];
+    char line[192];
     // Format:
-    // session,timestamp_ms,clip_id,dir,count_in,count_out,track_temp,ambient_temp,active_tracks,track_id
+    // event_type,session,timestamp_ms,clip_id,dir,count_in,count_out,track_temp,ambient_temp,active_tracks,track_id,duration_ms,frame_count,crossings,saved
     snprintf(line, sizeof(line),
-             "%u,%" PRIu64 ",%s,%s,%d,%d,%.2f,%.2f,%u,%u",
+             "CROSSING,%u,%" PRIu64 ",%s,%s,%d,%d,%.2f,%.2f,%u,%u,,,,,",
              s_session_id, (uint64_t)ev.timestamp_ms, clip_id,
              ev.is_in ? "IN" : "OUT",
              ev.count_in, ev.count_out, ev.temperature, ambient_temp,
@@ -1642,9 +1746,9 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
 
     if (!g_sd.fileExists(log_file)) {
       g_sd.appendLine(log_file,
-                      "session,timestamp_ms,clip_id,direction,count_in,"
+                      "event_type,session,timestamp_ms,clip_id,direction,count_in,"
                       "count_out,track_temp,ambient_temp,active_tracks,"
-                      "track_id");
+                      "track_id,duration_ms,frame_count,crossings,saved");
     }
     g_sd.appendLine(log_file, line);
   }
@@ -1750,4 +1854,43 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
     }
     portEXIT_CRITICAL(&s_event_mux);
   }
+}
+
+// ---------------------------------------------------------------------------
+//  onClipEvent  — called from ThermalRecorder writer task via callback
+//                 Appends CLIP_START / CLIP_END rows to the daily CSV log
+// ---------------------------------------------------------------------------
+void HttpServer::onClipEvent(const char *event_type, const char *clip_id,
+                             uint32_t timestamp_ms, uint32_t dur_ms,
+                             uint32_t frame_count, uint32_t crossings,
+                             bool saved) {
+  if (server_ == NULL || !g_sd.isMounted())
+    return;
+
+  // Extract basename from full path (/sdcard/clips/CLIP_00005.thv → CLIP_00005.thv)
+  const char *basename = strrchr(clip_id, '/');
+  if (basename)
+    basename++;
+  else
+    basename = clip_id;
+
+  char log_file[64];
+  getLogPathForToday(log_file, sizeof(log_file));
+
+  // Always ensure header exists (harmless no-op if already present)
+  if (!g_sd.fileExists(log_file)) {
+    g_sd.appendLine(log_file,
+                    "event_type,session,timestamp_ms,clip_id,direction,count_in,"
+                    "count_out,track_temp,ambient_temp,active_tracks,"
+                    "track_id,duration_ms,frame_count,crossings,saved");
+  }
+
+  char line[192];
+  snprintf(line, sizeof(line),
+           "%s,%u,%" PRIu64 ",%s,,,,,,,%lu,%lu,%lu,%u",
+           event_type, s_session_id, (uint64_t)timestamp_ms, basename,
+           (unsigned long)dur_ms, (unsigned long)frame_count,
+           (unsigned long)crossings, (unsigned int)(saved ? 1 : 0));
+
+  g_sd.appendLine(log_file, line);
 }

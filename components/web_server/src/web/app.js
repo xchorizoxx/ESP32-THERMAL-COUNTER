@@ -1165,21 +1165,15 @@ async function deleteSdFile(name) {
 async function formatSdCard() {
     if(!confirm("⚠️ ADVERTENCIA ⚠️\nEsto borrará TODO el historial en la SD.\n¿Estás seguro?")) return;
     try {
-        const res = await fetch('/api/sd/info');
-        if(!res.ok) return;
-        const data = await res.json();
-        if(data.files) {
-            for(let f of data.files) {
-                await fetch('/api/sd/delete', {
-                    method: 'POST',
-                    body: JSON.stringify({ file: `logs/${f.name}` })
-                });
-            }
+        const res = await fetch('/api/sd/erase_all', { method: 'POST' });
+        if (!res.ok) {
+            alert("Error al formatear SD: " + res.status);
+            return;
         }
         loadSdStatus();
-        alert("SD formateada correctamente");
+        alert("SD limpiada correctamente");
     } catch(e) {
-        alert("Error durante el formato");
+        alert("Error de conexión durante el formato");
     }
 }
 
@@ -1240,6 +1234,13 @@ function resetAllCounters() {
     if(confirm("⚠️ PELIGRO ⚠️\\nEsto pondrá a CERO los contadores totales de la RAM y la memoria Flash interna.\\n\\nEl archivo de la SD de hoy comenzará desde cero en su próxima línea.\\n\\n¿Deseas continuar?")) {
         sendCmd({ cmd: 'RESET_COUNTS', reset_nvs: true });
         logMsg('Contadores: enviado RESET_COUNTS, esperando confirmación...');
+    }
+}
+
+function eraseNvs() {
+    if(confirm("⚠️ VACIAR NVS ⚠️\\n\\nEsto BORRARÁ TODA la configuración guardada\\n(parámetros, líneas de conteo, contadores)\\ny REINICIARÁ el ESP32.\\n\\nLos archivos en la SD NO se borrarán.\\n\\n¿Estás completamente seguro?")) {
+        sendCmd({ cmd: 'ERASE_NVS' });
+        logMsg('NVS: enviado ERASE_NVS, reiniciando...');
     }
 }
 

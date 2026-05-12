@@ -25,6 +25,17 @@ public:
     static uint32_t cooldown_ms;             // default 500  (cooldown = post_roll)
     static uint32_t max_duration_ms;         // default 30000
     static uint32_t min_duration_ms;         // default 1000
+    static constexpr int MAX_TRACKS_FOR_RECORDING = 18; // cap: skip recording when scene is too crowded
+
+    // --- Clip event callback (registered by HttpServer on Core 0) ---
+    using ClipEventCallback = void (*)(const char* event_type,
+                                       const char* clip_id,
+                                       uint32_t timestamp_ms,
+                                       uint32_t dur_ms,
+                                       uint32_t frame_count,
+                                       uint32_t crossings,
+                                       bool saved);
+    static ClipEventCallback s_on_clip_event;
 
     // --- Lifecycle ---
     static esp_err_t init();

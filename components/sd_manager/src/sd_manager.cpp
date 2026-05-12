@@ -49,7 +49,8 @@ esp_err_t SDManager::init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sck, gpio
              mosi, miso, sck, cs);
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    host.slot = SPI2_HOST; 
+    host.slot = SPI2_HOST;
+    host.max_freq_khz = 10000; 
 
     spi_bus_config_t bus_cfg = {};
     bus_cfg.mosi_io_num     = mosi;
@@ -69,6 +70,8 @@ esp_err_t SDManager::init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sck, gpio
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = cs;
     slot_config.host_id = (spi_host_device_t)host.slot;
+
+    gpio_set_pull_mode(cs, GPIO_PULLUP_ONLY);
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,

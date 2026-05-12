@@ -9,9 +9,20 @@
 
 static const char* TAG = "RECORDER";
 
+// Colored log macros (defined locally to avoid circular dependency with thermal_types.hpp)
+#define LOG_CYAN    "\033[0;36m"
+#define LOG_GREEN   "\033[0;32m"
+#define LOG_YELLOW  "\033[0;33m"
+#define LOG_RED     "\033[0;31m"
+#define LOG_RESET   "\033[0m"
+#define LOG_COLOR(color, tag, format, ...) \
+    printf(color "I (%lu) %s: " format LOG_RESET "\n", \
+           (unsigned long)esp_log_timestamp(), tag, ##__VA_ARGS__)
+
 // ---------------------------------------------------------------------------
 // Static members
 // ---------------------------------------------------------------------------
+ThermalRecorder::ClipEventCallback ThermalRecorder::s_on_clip_event = nullptr;
 ThermalRecorder::FrameSlot* ThermalRecorder::s_ring_buf_   = nullptr;
 int                         ThermalRecorder::s_N_           = 0;
 std::atomic<int>            ThermalRecorder::s_write_idx_   = 0;
@@ -92,6 +103,12 @@ void IRAM_ATTR ThermalRecorder::pushFrame(const float* pixels_degC,
                                           int num_tracks,
                                           int cross_dir) {
     if (!s_ring_buf_) return;
+
+    // Cap: skip recording when scene is too crowded (unreliable data)
+    if (num_tracks > MAX_TRACKS_FOR_RECORDING) {
+        num_tracks = 0;
+        cross_dir = 0;
+    }
 
     int w = s_write_idx_.load(std::memory_order_relaxed);
     int idx = w % s_N_;
@@ -227,7 +244,8 @@ void ThermalRecorder::startClip(uint32_t now_ms) {
 
     s_clip_file_ = fopen(s_clip_path_, "wb");
     if (!s_clip_file_) {
-        ESP_LOGW(TAG, "Cannot create %s: %s", s_clip_path_, strerror(errno));
+        LOG_COLOR(LOG_RED, TAG, "FAILED to create %s: %s",
+                  s_clip_path_, strerror(errno));
         s_clip_path_[0] = '\0';
         return;
     }
@@ -259,7 +277,13 @@ void ThermalRecorder::startClip(uint32_t now_ms) {
     s_clip_crossings_    = 0;
     s_state_             = RECORDING;
 
-    ESP_LOGI(TAG, "Clip %s START (%d pre-roll frames)", s_clip_path_, pre_count);
+    LOG_COLOR(LOG_CYAN, TAG, "Clip %s START (%d pre-roll frames)",
+              s_clip_path_, pre_count);
+
+    if (s_on_clip_event) {
+        s_on_clip_event("CLIP_START", s_clip_path_, now_ms,
+                        0, pre_count, 0, true);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -277,9 +301,14 @@ void ThermalRecorder::closeClip() {
     if (!keep) {
         fclose(s_clip_file_);
         remove(s_clip_path_);
-        ESP_LOGI(TAG, "Clip %s DISCARDED (%lu ms, %lu crossings)",
-                 s_clip_path_, (unsigned long)dur_ms,
-                 (unsigned long)s_clip_crossings_);
+        LOG_COLOR(LOG_YELLOW, TAG, "Clip %s DISCARDED (%lu ms, %lu crossings)",
+                  s_clip_path_, (unsigned long)dur_ms,
+                  (unsigned long)s_clip_crossings_);
+        if (s_on_clip_event) {
+            s_on_clip_event("CLIP_END", s_clip_path_, nowMs(),
+                            dur_ms, s_clip_frame_count_,
+                            s_clip_crossings_, false);
+        }
     } else {
         // Write .thv header at offset 0 (overwrites the 16-byte reservation)
         fseek(s_clip_file_, 0, SEEK_SET);
@@ -304,10 +333,15 @@ void ThermalRecorder::closeClip() {
             nvs_close(h);
         }
 
-        ESP_LOGI(TAG, "Clip %s SAVED (%lu ms, %lu frames, %lu crossings)",
-                 s_clip_path_, (unsigned long)dur_ms,
-                 (unsigned long)s_clip_frame_count_,
-                 (unsigned long)s_clip_crossings_);
+        LOG_COLOR(LOG_GREEN, TAG, "Clip %s SAVED (%lu ms, %lu frames, %lu crossings)",
+                  s_clip_path_, (unsigned long)dur_ms,
+                  (unsigned long)s_clip_frame_count_,
+                  (unsigned long)s_clip_crossings_);
+        if (s_on_clip_event) {
+            s_on_clip_event("CLIP_END", s_clip_path_, nowMs(),
+                            dur_ms, s_clip_frame_count_,
+                            s_clip_crossings_, true);
+        }
     }
 
     s_clip_file_    = nullptr;
