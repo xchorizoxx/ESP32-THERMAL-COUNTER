@@ -135,7 +135,7 @@ void ThermalPipeline::run()
                         cross_dir = current_events_[0].is_in ? 1 : -1;
                     }
                     ThermalRecorder::pushFrame(composed_frame_,
-                                               num_confirmed_tracks_,
+                                               num_active_tracks_,
                                                cross_dir);
                 }
                 dispatchIpcPacket(true);
@@ -264,6 +264,21 @@ void ThermalPipeline::runVisionPipeline()
                                             current_events_, TelemetryPayload::MAX_EVENTS_PER_FRAME);
 
     tracker_.fillTrackArray(track_array_, &num_confirmed_tracks_);
+
+    // Count all active tracks (confirmed + unconfirmed) for the recorder
+    num_active_tracks_ = 0;
+    const Tracklet* trk_list = tracker_.getTracks();
+    for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
+        if (trk_list[i].active) num_active_tracks_++;
+    }
+
+    // Pipeline diagnostic (every ~32 frames = 1s at 32 Hz)
+    // if (frame_id_ % 32 == 0) {
+    //     ESP_LOG_COLOR(LOG_COLOR_CYAN, "PIPELINE",
+    //                   "diagnostic: frame=%lu active=%d confirmed=%d events=%d",
+    //                   (unsigned long)frame_id_, num_active_tracks_,
+    //                   num_confirmed_tracks_, num_current_events_);
+    // }
 
     // --- Step 5: Masking ---
     MaskGenerator::generate(track_array_, num_confirmed_tracks_,

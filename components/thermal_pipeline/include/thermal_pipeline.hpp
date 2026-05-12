@@ -65,6 +65,7 @@ private:
     TrackletFSM     door_fsm_;                               // A3: Unified Bitmap FSM Count
     Track           track_array_[ThermalConfig::MAX_TRACKS]; // A2: filled by fillTrackArray()
     int             num_confirmed_tracks_ = 0;               // A2: count of confirmed tracks
+    int             num_active_tracks_    = 0;               // B4: all active tracks (including unconfirmed)
 
     // A1: chess corrector + noise filter
     FrameAccumulator frame_accumulator_;

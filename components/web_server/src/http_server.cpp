@@ -79,6 +79,11 @@ static int32_t s_session_baseline_out = 0;
 static uint32_t s_ws_buffer_acquired_ticks[HttpServer::WS_BUFFER_COUNT] = {0};
 static constexpr uint32_t WS_BUFFER_MAX_AGE_MS = 2000; // 2 seconds recovery timeout
 
+// --- H2-FIX: Cooldown + Auto-disconnect for stuck WS clients ---
+static uint32_t s_cooldown_until_ms = 0;
+static constexpr uint32_t WS_COOLDOWN_MS = 5000;          // pause broadcasts for 5s
+static constexpr int WS_STUCK_COOLDOWN_THRESHOLD = 2;     // 2+ stuck → cooldown
+
 // --- W6: Counter mirror updated from broadcastFrame, read by timer ---
 // int32_t reads/writes on Xtensa LX7 are atomic for naturally-aligned
 // addresses.
@@ -1098,31 +1103,66 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
   if (!server_)
     return;
 
+  uint32_t now = pdTICKS_TO_MS(xTaskGetTickCount());
+
+  // --- H2: Cooldown check — skip frame during cooldown ---
+  if (s_cooldown_until_ms != 0) {
+    if (now < s_cooldown_until_ms)
+      return; // Still in cooldown
+    s_cooldown_until_ms = 0; // Cooldown expired, resume normal
+  }
+
   // W6: Update counter mirror for the NVS save timer
   // int32_t write to aligned address is atomic on Xtensa LX7
   s_latest_count_in = (int32_t)tel.count_in;
   s_latest_count_out = (int32_t)tel.count_out;
 
-  // Release buffers that have been stuck for > 2 seconds
-  uint32_t now = pdTICKS_TO_MS(xTaskGetTickCount());
-  int stuck_idx = -1;
-  uint32_t stuck_time = 0;
+  // --- H2: Watchdog + Auto-disconnect dead clients ---
+  int stuck_count = 0;
 
   portENTER_CRITICAL(&s_ws_mux);
   for (int i = 0; i < (int)WS_BUFFER_COUNT; i++) {
     if (ws_buffer_ref_counts_[i] > 0 || ws_buffer_ref_counts_[i] == -1) {
       if (now - s_ws_buffer_acquired_ticks[i] > WS_BUFFER_MAX_AGE_MS) {
         ws_buffer_ref_counts_[i] = 0; // Force free
-        stuck_idx = i;
-        stuck_time = now - s_ws_buffer_acquired_ticks[i];
+        stuck_count++;
       }
     }
   }
   portEXIT_CRITICAL(&s_ws_mux);
 
-  if (stuck_idx != -1) {
-    ESP_LOGW(TAG, "Buffer %d stuck for %lu ms, forcing release", stuck_idx,
-             stuck_time);
+  if (stuck_count > 0) {
+    ESP_LOGW(TAG, "%d buffer(s) stuck for >%lu ms, forcing release",
+             stuck_count, (unsigned long)WS_BUFFER_MAX_AGE_MS);
+  }
+
+  // H2: If too many buffers stuck → dead client suspected → cooldown + disconnect all
+  if (stuck_count >= WS_STUCK_COOLDOWN_THRESHOLD) {
+    ESP_LOGW(TAG, "Cooldown %lu ms — disconnecting all WS clients",
+             (unsigned long)WS_COOLDOWN_MS);
+    s_cooldown_until_ms = now + WS_COOLDOWN_MS;
+
+    // Disconnect all WebSocket clients to force a clean slate
+    int client_fds[7];
+    size_t clients = sizeof(client_fds) / sizeof(client_fds[0]);
+    if (httpd_get_client_list(server_, &clients, client_fds) == ESP_OK) {
+      for (size_t i = 0; i < clients; i++) {
+        if (httpd_ws_get_fd_info(server_, client_fds[i]) ==
+            HTTPD_WS_CLIENT_WEBSOCKET) {
+          httpd_sess_trigger_close(server_, client_fds[i]);
+          ESP_LOGI(TAG, "Closed stale WS client fd=%d", client_fds[i]);
+        }
+      }
+    }
+
+    // Reset all buffer ref-counts to guarantee clean state
+    portENTER_CRITICAL(&s_ws_mux);
+    for (int i = 0; i < (int)WS_BUFFER_COUNT; i++) {
+      ws_buffer_ref_counts_[i] = 0;
+    }
+    portEXIT_CRITICAL(&s_ws_mux);
+
+    return; // Skip this frame — entering cooldown
   }
 
   // ---- Find a free buffer ----

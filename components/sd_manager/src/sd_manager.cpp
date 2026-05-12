@@ -3,7 +3,6 @@
 #include "driver/sdspi_host.h"
 #include "esp_log.h"
 #include <sys/stat.h>
-#include <sys/statvfs.h>
 #include <unistd.h>
 #include <cstring>
 #include <cstdio>
@@ -122,31 +121,30 @@ esp_err_t SDManager::mkdirInternal(const char* rel_path) {
 
 uint64_t SDManager::getFreeSpaceBytes() const {
     if (!mounted_.load(std::memory_order_relaxed)) return 0;
-    struct statvfs vfs;
-    if (statvfs(MOUNT_POINT, &vfs) != 0) {
-        LOG_COLOR(LOG_CYAN, TAG, "statvfs free failed: errno=%d (%s)",
-                  errno, strerror(errno));
+
+    FATFS* fs;
+    DWORD free_clust;
+    FRESULT res = f_getfree("0:", &free_clust, &fs);
+    if (res != FR_OK || !fs) {
+        LOG_COLOR(LOG_CYAN, TAG, "f_getfree failed: res=%d", (int)res);
         return 0;
     }
-    uint64_t bytes = (uint64_t)vfs.f_bfree * vfs.f_bsize;
-    LOG_COLOR(LOG_CYAN, TAG, "statvfs: bsize=%lu frsize=%lu blocks=%lu bfree=%lu → free=%llu",
-              (unsigned long)vfs.f_bsize, (unsigned long)vfs.f_frsize,
-              (unsigned long)vfs.f_blocks, (unsigned long)vfs.f_bfree,
-              (unsigned long long)bytes);
+
+    uint64_t bytes = (uint64_t)free_clust * fs->csize * fs->ssize;
+    LOG_COLOR(LOG_CYAN, TAG, "f_getfree: free_clust=%lu csize=%u ssize=%u → free=%llu",
+              (unsigned long)free_clust, (unsigned)fs->csize,
+              (unsigned)fs->ssize, (unsigned long long)bytes);
     return bytes;
 }
 
 uint64_t SDManager::getTotalSpaceBytes() const {
-    if (!mounted_.load(std::memory_order_relaxed)) return 0;
-    struct statvfs vfs;
-    if (statvfs(MOUNT_POINT, &vfs) != 0) {
-        LOG_COLOR(LOG_CYAN, TAG, "statvfs total failed: errno=%d (%s)",
-                  errno, strerror(errno));
-        return 0;
-    }
-    uint64_t bytes = (uint64_t)vfs.f_blocks * vfs.f_bsize;
-    LOG_COLOR(LOG_CYAN, TAG, "statvfs total: blocks=%lu bsize=%lu → total=%llu",
-              (unsigned long)vfs.f_blocks, (unsigned long)vfs.f_bsize,
+    if (!mounted_.load(std::memory_order_relaxed) || !card_) return 0;
+
+    // CSD capacity: for SDHC/SDXC it is in 512-byte blocks
+    uint64_t bytes = (uint64_t)card_->csd.capacity * 512ULL;
+    LOG_COLOR(LOG_CYAN, TAG, "CSD total: capacity=%lu sector_size=%u → total=%llu",
+              (unsigned long)card_->csd.capacity,
+              (unsigned)card_->csd.sector_size,
               (unsigned long long)bytes);
     return bytes;
 }

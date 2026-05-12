@@ -43,6 +43,7 @@ uint32_t ThermalRecorder::s_clip_crossings_ = 0;
 uint32_t ThermalRecorder::s_clip_counter_  = 0;
 char     ThermalRecorder::s_clip_path_[64] = {};
 FILE*    ThermalRecorder::s_clip_file_     = nullptr;
+uint32_t ThermalRecorder::s_last_fopen_fail_ms_ = 0;
 
 // ---------------------------------------------------------------------------
 //  Helpers
@@ -104,6 +105,15 @@ void IRAM_ATTR ThermalRecorder::pushFrame(const float* pixels_degC,
                                           int cross_dir) {
     if (!s_ring_buf_) return;
 
+    // Diagnostic: log every ~32 frames (1s at 32 Hz)
+    static uint32_t s_push_count = 0;
+    s_push_count++;
+    if ((s_push_count & 0x1F) == 0) {
+        int fill = s_write_idx_.load(std::memory_order_relaxed) - s_read_idx_;
+        LOG_COLOR(LOG_CYAN, TAG, "pushFrame: tracks=%d cross=%d fill=%d/%d",
+                  num_tracks, cross_dir, fill, s_N_);
+    }
+
     // Cap: skip recording when scene is too crowded (unreliable data)
     if (num_tracks > MAX_TRACKS_FOR_RECORDING) {
         num_tracks = 0;
@@ -153,9 +163,28 @@ void ThermalRecorder::writerTask(void* pv) {
             continue;
         }
 
+        // Ring buffer overflow: writer fell behind → skip ahead
+        if (avail > s_N_) {
+            int skipped = avail - s_N_;
+            s_read_idx_ = s_write_idx_.load(std::memory_order_acquire) - s_N_;
+            avail = s_N_;
+            LOG_COLOR(LOG_CYAN, TAG, "Ring buffer overflow: skipped %d frames", skipped);
+        }
+
         int idx = s_read_idx_ % s_N_;
         const FrameSlot& slot = s_ring_buf_[idx];
         s_read_idx_++;
+
+        // Writer diagnostic: log every ~32 frames
+        static uint32_t s_writer_count = 0;
+        s_writer_count++;
+        if ((s_writer_count & 0x1F) == 0) {
+            static const char* state_names[] = {"IDLE","RECORDING","COOLDOWN","CLOSING"};
+            int fill = s_write_idx_.load(std::memory_order_acquire) - s_read_idx_;
+            LOG_COLOR(LOG_CYAN, TAG, "writer: state=%s tracks=%d cross=%d fill=%d/%d",
+                      state_names[s_state_], (int)slot.track_count,
+                      (int)slot.cross_dir, fill, s_N_);
+        }
 
         uint32_t now = slot.timestamp_ms;
 
@@ -238,6 +267,11 @@ void ThermalRecorder::writerTask(void* pv) {
 //  startClip  — open file, reserve header space, write pre-roll frames
 // ---------------------------------------------------------------------------
 void ThermalRecorder::startClip(uint32_t now_ms) {
+    // Backoff: cooldown after previous fopen failure to avoid frantic retry
+    if (now_ms - s_last_fopen_fail_ms_ < FOPEN_BACKOFF_MS) {
+        return;
+    }
+
     s_clip_counter_++;
     snprintf(s_clip_path_, sizeof(s_clip_path_),
              "/sdcard/clips/CLIP_%05lu.thv", (unsigned long)s_clip_counter_);
@@ -246,6 +280,7 @@ void ThermalRecorder::startClip(uint32_t now_ms) {
     if (!s_clip_file_) {
         LOG_COLOR(LOG_RED, TAG, "FAILED to create %s: %s",
                   s_clip_path_, strerror(errno));
+        s_last_fopen_fail_ms_ = now_ms;
         s_clip_path_[0] = '\0';
         return;
     }

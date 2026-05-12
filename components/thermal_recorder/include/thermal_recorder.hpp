@@ -26,6 +26,7 @@ public:
     static uint32_t max_duration_ms;         // default 30000
     static uint32_t min_duration_ms;         // default 1000
     static constexpr int MAX_TRACKS_FOR_RECORDING = 18; // cap: skip recording when scene is too crowded
+    static constexpr uint32_t FOPEN_BACKOFF_MS = 10000; // wait 10s before retrying after fopen failure
 
     // --- Clip event callback (registered by HttpServer on Core 0) ---
     using ClipEventCallback = void (*)(const char* event_type,
@@ -70,6 +71,7 @@ private:
     static uint32_t        s_clip_counter_;
     static char            s_clip_path_[64];
     static FILE*           s_clip_file_;
+    static uint32_t        s_last_fopen_fail_ms_;
 
     // Helpers
     static void startClip(uint32_t now_ms);
