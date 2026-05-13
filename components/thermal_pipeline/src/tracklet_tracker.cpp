@@ -83,12 +83,20 @@ Tracklet* TrackletTracker::allocateTrack()
     for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
         if (!tracks_[i].active) return &tracks_[i];
     }
-    // Second pass: recycle the oldest unconfirmed track
+    // Second pass: recycle the LEAST confirmed unconfirmed track
+    // (tracks one frame from confirmation are protected)
+    int worst_idx = -1;
+    uint8_t worst_confirmed = UINT8_MAX;
     for (int i = 0; i < ThermalConfig::MAX_TRACKS; i++) {
         if (tracks_[i].active && !tracks_[i].isConfirmed()) {
-            return &tracks_[i];
+            if (tracks_[i].confirmed < worst_confirmed) {
+                worst_confirmed = tracks_[i].confirmed;
+                worst_idx = i;
+            }
         }
     }
+    if (worst_idx >= 0) return &tracks_[worst_idx];
+
     // All slots occupied by confirmed tracks — cannot allocate
     return nullptr;
 }
@@ -294,10 +302,11 @@ void TrackletTracker::fillTrackArray(Track* out, int* out_count) const
         // Más robusta que el diff de 1 frame — elimina jitter del vector en el HUD.
         if (tracks_[i].history.count >= 2) {
             const int samples = (tracks_[i].history.count < 4) ? tracks_[i].history.count : 4;
+            const int steps   = samples - 1;  // frame transitions between oldest and newest entry
             const int h       = tracks_[i].history.head;
-            const int prev    = (h - samples + TrackHistory::CAPACITY) % TrackHistory::CAPACITY;
-            t.v_x = (tracks_[i].history.entries[h].x - tracks_[i].history.entries[prev].x) / (float)samples;
-            t.v_y = (tracks_[i].history.entries[h].y - tracks_[i].history.entries[prev].y) / (float)samples;
+            const int prev    = (h - steps + TrackHistory::CAPACITY) % TrackHistory::CAPACITY;
+            t.v_x = (tracks_[i].history.entries[h].x - tracks_[i].history.entries[prev].x) / (float)steps;
+            t.v_y = (tracks_[i].history.entries[h].y - tracks_[i].history.entries[prev].y) / (float)steps;
         } else {
             t.v_x = 0.0f;
             t.v_y = 0.0f;

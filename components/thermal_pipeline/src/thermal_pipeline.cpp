@@ -272,13 +272,13 @@ void ThermalPipeline::runVisionPipeline()
         if (trk_list[i].active) num_active_tracks_++;
     }
 
-    // Pipeline diagnostic (every ~32 frames = 1s at 32 Hz)
-    // if (frame_id_ % 32 == 0) {
-    //     ESP_LOG_COLOR(LOG_COLOR_CYAN, "PIPELINE",
-    //                   "diagnostic: frame=%lu active=%d confirmed=%d events=%d",
-    //                   (unsigned long)frame_id_, num_active_tracks_,
-    //                   num_confirmed_tracks_, num_current_events_);
-    // }
+    // Pipeline diagnostic (every ~512 frames = ~16s at 32 Hz)
+    if (frame_id_ % 512 == 0) {
+        ESP_LOG_COLOR(LOG_COLOR_CYAN, "PIPELINE",
+                      "diagnostic: frame=%lu active=%d confirmed=%d events=%d",
+                      (unsigned long)frame_id_, num_active_tracks_,
+                      num_confirmed_tracks_, num_current_events_);
+    }
 
     // --- Step 5: Masking ---
     MaskGenerator::generate(track_array_, num_confirmed_tracks_,
@@ -344,7 +344,7 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
     }
     packet.image.frame_id = packet.telemetry.frame_id;
 
-    if (xQueueSend(ipcQueue_, &packet, pdMS_TO_TICKS(5)) != pdTRUE) {
+    if (xQueueSend(ipcQueue_, &packet, pdMS_TO_TICKS(31)) != pdTRUE) {
         static uint32_t s_last_drop_frame = 0;
         if (frame_id_ - s_last_drop_frame >= 16) {
             ESP_LOGW(TAG, "IPC queue full — frame %lu dropped (last logged at %lu)",

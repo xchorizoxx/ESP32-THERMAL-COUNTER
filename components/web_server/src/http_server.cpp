@@ -82,7 +82,7 @@ static constexpr uint32_t WS_BUFFER_MAX_AGE_MS = 2000; // 2 seconds recovery tim
 // --- H2-FIX: Cooldown + Auto-disconnect for stuck WS clients ---
 static uint32_t s_cooldown_until_ms = 0;
 static constexpr uint32_t WS_COOLDOWN_MS = 5000;          // pause broadcasts for 5s
-static constexpr int WS_STUCK_COOLDOWN_THRESHOLD = 2;     // 2+ stuck → cooldown
+static constexpr int WS_STUCK_COOLDOWN_THRESHOLD = 1;     // 1+ stuck → cooldown
 
 // --- W6: Counter mirror updated from broadcastFrame, read by timer ---
 // int32_t reads/writes on Xtensa LX7 are atomic for naturally-aligned
@@ -1684,11 +1684,13 @@ esp_err_t HttpServer::clipListHandler(httpd_req_t *req) {
     if (!dot || strcmp(dot, ".thv") != 0) continue;
     thv_count++;
 
-    // Read ThvHeader from file
+    // Read ThvHeader from file (with SD lock)
     char full_path[96];
     snprintf(full_path, sizeof(full_path), "/sdcard/clips/%s", name);
+    g_sd.lock();
     FILE *fp = fopen(full_path, "rb");
     if (!fp) {
+      g_sd.unlock();
       ESP_LOGW(TAG, "clipList: cannot open %s", name);
       continue;
     }
@@ -1697,6 +1699,12 @@ esp_err_t HttpServer::clipListHandler(httpd_req_t *req) {
     memset(&hdr, 0, sizeof(hdr));
     size_t nread = fread(&hdr, 1, sizeof(hdr), fp);
     fclose(fp);
+
+    // File size while SD lock is still held
+    struct stat st;
+    bool st_ok = (stat(full_path, &st) == 0);
+    g_sd.unlock();
+
     if (nread != sizeof(hdr) || hdr.magic != THV_MAGIC) {
       ESP_LOGD(TAG, "clipList: %s magic=0x%08X (expected 0x%08X) nread=%u",
                name, (unsigned)hdr.magic, (unsigned)THV_MAGIC,
@@ -1713,10 +1721,7 @@ esp_err_t HttpServer::clipListHandler(httpd_req_t *req) {
     cJSON_AddNumberToObject(item, "width", hdr.width);
     cJSON_AddNumberToObject(item, "height", hdr.height);
     cJSON_AddNumberToObject(item, "trigger_dir", hdr.trigger_dir);
-
-    // File size
-    struct stat st;
-    if (stat(full_path, &st) == 0) {
+    if (st_ok) {
       cJSON_AddNumberToObject(item, "size_bytes", (double)st.st_size);
     }
 

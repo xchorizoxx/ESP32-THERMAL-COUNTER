@@ -42,7 +42,7 @@ private:
     struct FsmMemory {
         uint8_t  id;             // Tracklet ID
         FsmState state;          // Logical FSM state
-        int8_t   cross_streak;   // +N = N frames cruzando en sentido +1, -N en sentido -1
+        int8_t   line_streak[MAX_COUNTING_LINES]; // Per-line cooldown (positive = wait N frames)
         int      last_line_idx;  // Índice de la última línea cruzada (para no contar 2 veces)
     };
     

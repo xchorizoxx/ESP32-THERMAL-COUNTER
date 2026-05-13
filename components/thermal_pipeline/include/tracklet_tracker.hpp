@@ -73,11 +73,12 @@ struct TrackHistory {
             return;
         }
         const int samples  = (count < 4) ? count : 4;
-        const int prev_idx = (head - samples + CAPACITY) % CAPACITY;
+        const int steps    = samples - 1;  // number of frame transitions between oldest and newest
+        const int prev_idx = (head - steps + CAPACITY) % CAPACITY;
         const float dx = entries[head].x - entries[prev_idx].x;
         const float dy = entries[head].y - entries[prev_idx].y;
-        *out_x = entries[head].x + dx / (float)samples;
-        *out_y = entries[head].y + dy / (float)samples;
+        *out_x = entries[head].x + dx / (float)steps;
+        *out_y = entries[head].y + dy / (float)steps;
     }
 
     float latestX() const { return entries[head].x; }

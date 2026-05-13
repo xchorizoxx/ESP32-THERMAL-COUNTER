@@ -82,10 +82,10 @@ esp_err_t ThermalRecorder::init() {
     s_read_idx_ = 0;
 
     static StaticTask_t s_task_buf;
-    static StackType_t  s_task_stack[2048 / sizeof(StackType_t)];
+    static StackType_t  s_task_stack[4096 / sizeof(StackType_t)];
     TaskHandle_t hdl = xTaskCreateStaticPinnedToCore(
         writerTask, "Recorder",
-        2048 / sizeof(StackType_t), nullptr,
+        4096 / sizeof(StackType_t), nullptr,
         tskIDLE_PRIORITY + 1, s_task_stack, &s_task_buf, 0);
     if (!hdl) {
         ESP_LOGE(TAG, "Failed to create writer task");
@@ -108,15 +108,16 @@ void IRAM_ATTR ThermalRecorder::pushFrame(const float* pixels_degC,
     // Diagnostic: log every ~32 frames (1s at 32 Hz)
     static uint32_t s_push_count = 0;
     s_push_count++;
-    if ((s_push_count & 0x1F) == 0) {
+    if ((s_push_count & 0x1FF) == 0) {
         int fill = s_write_idx_.load(std::memory_order_relaxed) - s_read_idx_;
         LOG_COLOR(LOG_CYAN, TAG, "pushFrame: tracks=%d cross=%d fill=%d/%d",
                   num_tracks, cross_dir, fill, s_N_);
     }
 
-    // Cap: skip recording when scene is too crowded (unreliable data)
+    // Cap: suppress directional info when scene is too crowded (unreliable data)
+    // Keep track_count nonzero so active clips continue recording.
     if (num_tracks > MAX_TRACKS_FOR_RECORDING) {
-        num_tracks = 0;
+        num_tracks = MAX_TRACKS_FOR_RECORDING;
         cross_dir = 0;
     }
 
@@ -124,9 +125,11 @@ void IRAM_ATTR ThermalRecorder::pushFrame(const float* pixels_degC,
     int idx = w % s_N_;
     for (int i = 0; i < TOTAL_PIXELS; i++) {
         float v = pixels_degC[i] * 100.0f;
-        if      (v > 32767.0f)  s_ring_buf_[idx].pixels[i] = 32767;
-        else if (v < -32768.0f) s_ring_buf_[idx].pixels[i] = -32768;
-        else                    s_ring_buf_[idx].pixels[i] = (int16_t)v;
+        if (!(v >= -32768.0f && v <= 32767.0f)) {
+            s_ring_buf_[idx].pixels[i] = 0;
+        } else {
+            s_ring_buf_[idx].pixels[i] = (int16_t)v;
+        }
     }
     s_ring_buf_[idx].timestamp_ms = nowMs();
     s_ring_buf_[idx].track_count  = (int8_t)(num_tracks > 127 ? 127 : num_tracks);
@@ -175,10 +178,10 @@ void ThermalRecorder::writerTask(void* pv) {
         const FrameSlot& slot = s_ring_buf_[idx];
         s_read_idx_++;
 
-        // Writer diagnostic: log every ~32 frames
+        // Writer diagnostic: log every ~512 frames (~16s at 32 Hz)
         static uint32_t s_writer_count = 0;
         s_writer_count++;
-        if ((s_writer_count & 0x1F) == 0) {
+        if ((s_writer_count & 0x1FF) == 0) {
             static const char* state_names[] = {"IDLE","RECORDING","COOLDOWN","CLOSING"};
             int fill = s_write_idx_.load(std::memory_order_acquire) - s_read_idx_;
             LOG_COLOR(LOG_CYAN, TAG, "writer: state=%s tracks=%d cross=%d fill=%d/%d",
@@ -253,6 +256,8 @@ void ThermalRecorder::writerTask(void* pv) {
             if (fwrite(slot.pixels, 2, TOTAL_PIXELS, s_clip_file_) != TOTAL_PIXELS) {
                 ESP_LOGW(TAG, "SD write error in clip — closing early");
                 fclose(s_clip_file_);
+                remove(s_clip_path_);
+                s_clip_path_[0] = '\0';
                 s_clip_file_ = nullptr;
                 s_state_ = CLOSING;
             }
@@ -268,7 +273,7 @@ void ThermalRecorder::writerTask(void* pv) {
 // ---------------------------------------------------------------------------
 void ThermalRecorder::startClip(uint32_t now_ms) {
     // Backoff: cooldown after previous fopen failure to avoid frantic retry
-    if (now_ms - s_last_fopen_fail_ms_ < FOPEN_BACKOFF_MS) {
+    if (s_last_fopen_fail_ms_ != 0 && now_ms - s_last_fopen_fail_ms_ < FOPEN_BACKOFF_MS) {
         return;
     }
 

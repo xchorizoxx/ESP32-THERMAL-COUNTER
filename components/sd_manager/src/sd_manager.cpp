@@ -238,11 +238,16 @@ esp_err_t SDManager::listDirectory(const char* rel_path, char* out_json, size_t 
     pos += snprintf(out_json + pos, json_size - pos, "[");
     bool first = true;
     struct dirent* entry;
+    // Reserve 128 bytes for the closing bracket + worst-case last entry name
+    const size_t reserve = 128;
     
     while ((entry = readdir(dir)) != nullptr) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
 
-        if (!first && pos < json_size) {
+        // Stop before buffer exhaustion — guarantee valid closing bracket fits
+        if (pos + reserve >= json_size) break;
+
+        if (!first) {
             pos += snprintf(out_json + pos, json_size - pos, ",");
         }
         first = false;
@@ -256,18 +261,12 @@ esp_err_t SDManager::listDirectory(const char* rel_path, char* out_json, size_t 
             size = st.st_size;
         }
 
-        if (pos < json_size) {
-            pos += snprintf(out_json + pos, json_size - pos, "{\"name\":\"%s\",\"size\":%lu}", entry->d_name, (unsigned long)size);
-        }
+        pos += snprintf(out_json + pos, json_size - pos, "{\"name\":\"%s\",\"size\":%lu}", entry->d_name, (unsigned long)size);
     }
     closedir(dir);
     
-    if (pos < json_size) {
-        pos += snprintf(out_json + pos, json_size - pos, "]");
-    } else {
-        out_json[json_size - 1] = '\0';
-        if (json_size > 2) out_json[json_size - 2] = ']';
-    }
+    // Always enough room for the closing bracket (reserved above)
+    pos += snprintf(out_json + pos, json_size - pos, "]");
     
     unlock();
     return ESP_OK;
