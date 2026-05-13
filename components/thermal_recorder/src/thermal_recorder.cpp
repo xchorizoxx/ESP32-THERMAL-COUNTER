@@ -23,10 +23,11 @@ static const char* TAG = "RECORDER";
 // Static members
 // ---------------------------------------------------------------------------
 ThermalRecorder::ClipEventCallback ThermalRecorder::s_on_clip_event = nullptr;
-ThermalRecorder::FrameSlot* ThermalRecorder::s_ring_buf_   = nullptr;
-int                         ThermalRecorder::s_N_           = 0;
-std::atomic<int>            ThermalRecorder::s_write_idx_   = 0;
-int                         ThermalRecorder::s_read_idx_    = 0;
+ThermalRecorder::FrameSlot* ThermalRecorder::s_ring_buf_       = nullptr;
+int16_t*                    ThermalRecorder::s_pre_roll_buf_   = nullptr;
+int                         ThermalRecorder::s_N_               = 0;
+std::atomic<int>            ThermalRecorder::s_write_idx_       = 0;
+std::atomic<int>            ThermalRecorder::s_read_idx_        = 0;
 
 ThermalRecorder::State     ThermalRecorder::s_state_       = IDLE;
 
@@ -41,6 +42,7 @@ uint32_t ThermalRecorder::s_clip_frame_count_ = 0;
 uint32_t ThermalRecorder::s_clip_crossings_ = 0;
 
 uint32_t ThermalRecorder::s_clip_counter_  = 0;
+uint8_t  ThermalRecorder::s_nvs_batch_     = 0;
 char     ThermalRecorder::s_clip_path_[64] = {};
 FILE*    ThermalRecorder::s_clip_file_     = nullptr;
 uint32_t ThermalRecorder::s_last_fopen_fail_ms_ = 0;
@@ -67,6 +69,17 @@ esp_err_t ThermalRecorder::init() {
     ESP_LOGI(TAG, "Ring buffer: %d slots x %zu B = %zu KB in PSRAM",
              s_N_, sizeof(FrameSlot), buf_size / 1024);
 
+    // Pre-roll cache: avoids synchronous SD read in startClip
+    size_t pre_size = PRE_ROLL_MAX_FRAMES * TOTAL_PIXELS * sizeof(int16_t);
+    s_pre_roll_buf_ = (int16_t*)heap_caps_malloc(pre_size, MALLOC_CAP_SPIRAM);
+    if (!s_pre_roll_buf_) {
+        ESP_LOGW(TAG, "Pre-roll PSRAM cache not available — pre-roll disabled");
+    } else {
+        memset(s_pre_roll_buf_, 0, pre_size);
+        ESP_LOGI(TAG, "Pre-roll cache: %d frames x %d px = %zu KB in PSRAM",
+                 PRE_ROLL_MAX_FRAMES, TOTAL_PIXELS, pre_size / 1024);
+    }
+
     // Load clip counter from NVS
     nvs_handle_t h;
     if (nvs_open("thermal_registry", NVS_READONLY, &h) == ESP_OK) {
@@ -78,8 +91,8 @@ esp_err_t ThermalRecorder::init() {
     ESP_LOGI(TAG, "Clip counter starts at %lu", (unsigned long)s_clip_counter_);
 
     s_state_ = IDLE;
-    s_write_idx_ = 0;
-    s_read_idx_ = 0;
+    s_write_idx_.store(0, std::memory_order_relaxed);
+    s_read_idx_.store(0, std::memory_order_relaxed);
 
     static StaticTask_t s_task_buf;
     static StackType_t  s_task_stack[4096 / sizeof(StackType_t)];
@@ -109,7 +122,7 @@ void IRAM_ATTR ThermalRecorder::pushFrame(const float* pixels_degC,
     static uint32_t s_push_count = 0;
     s_push_count++;
     if ((s_push_count & 0x1FF) == 0) {
-        int fill = s_write_idx_.load(std::memory_order_relaxed) - s_read_idx_;
+        int fill = s_write_idx_.load(std::memory_order_relaxed) - s_read_idx_.load(std::memory_order_relaxed);
         LOG_COLOR(LOG_CYAN, TAG, "pushFrame: tracks=%d cross=%d fill=%d/%d",
                   num_tracks, cross_dir, fill, s_N_);
     }
@@ -160,7 +173,7 @@ void ThermalRecorder::writerTask(void* pv) {
     ESP_LOGI(TAG, "Writer task started");
 
     while (true) {
-        int avail = s_write_idx_.load(std::memory_order_acquire) - s_read_idx_;
+        int avail = s_write_idx_.load(std::memory_order_acquire) - s_read_idx_.load(std::memory_order_relaxed);
         if (avail <= 0) {
             vTaskDelay(pdMS_TO_TICKS(5));
             continue;
@@ -169,21 +182,21 @@ void ThermalRecorder::writerTask(void* pv) {
         // Ring buffer overflow: writer fell behind → skip ahead
         if (avail > s_N_) {
             int skipped = avail - s_N_;
-            s_read_idx_ = s_write_idx_.load(std::memory_order_acquire) - s_N_;
+            s_read_idx_.store(s_write_idx_.load(std::memory_order_acquire) - s_N_, std::memory_order_relaxed);
             avail = s_N_;
             LOG_COLOR(LOG_CYAN, TAG, "Ring buffer overflow: skipped %d frames", skipped);
         }
 
-        int idx = s_read_idx_ % s_N_;
+        int idx = s_read_idx_.load(std::memory_order_relaxed) % s_N_;
         const FrameSlot& slot = s_ring_buf_[idx];
-        s_read_idx_++;
+        s_read_idx_.fetch_add(1, std::memory_order_release);
 
         // Writer diagnostic: log every ~512 frames (~16s at 32 Hz)
         static uint32_t s_writer_count = 0;
         s_writer_count++;
         if ((s_writer_count & 0x1FF) == 0) {
             static const char* state_names[] = {"IDLE","RECORDING","COOLDOWN","CLOSING"};
-            int fill = s_write_idx_.load(std::memory_order_acquire) - s_read_idx_;
+            int fill = s_write_idx_.load(std::memory_order_acquire) - s_read_idx_.load(std::memory_order_relaxed);
             LOG_COLOR(LOG_CYAN, TAG, "writer: state=%s tracks=%d cross=%d fill=%d/%d",
                       state_names[s_state_], (int)slot.track_count,
                       (int)slot.cross_dir, fill, s_N_);
@@ -281,6 +294,29 @@ void ThermalRecorder::startClip(uint32_t now_ms) {
     snprintf(s_clip_path_, sizeof(s_clip_path_),
              "/sdcard/clips/CLIP_%05lu.thv", (unsigned long)s_clip_counter_);
 
+    // Step 1: Copy pre-roll frames from ring buffer to PSRAM cache
+    // (before fopen — avoids blocking the writer during SD I/O)
+    int trigger_idx = s_read_idx_.load(std::memory_order_relaxed) - 1;
+    int max_pre = (pre_roll_ms * 32 / 1000);
+    if (max_pre > s_N_ - 4) max_pre = s_N_ - 4;
+    if (max_pre > PRE_ROLL_MAX_FRAMES) max_pre = PRE_ROLL_MAX_FRAMES;
+
+    int pre_count = 0;
+    if (s_pre_roll_buf_) {
+        int pre_start = trigger_idx - max_pre;
+        if (pre_start < 0) pre_start = 0;
+        int count = trigger_idx - pre_start;
+        if (count > PRE_ROLL_MAX_FRAMES) count = PRE_ROLL_MAX_FRAMES;
+        for (int i = 0; i < count; i++) {
+            int ring_idx = (pre_start + i) % s_N_;
+            memcpy(&s_pre_roll_buf_[i * TOTAL_PIXELS],
+                   s_ring_buf_[ring_idx].pixels,
+                   TOTAL_PIXELS * sizeof(int16_t));
+        }
+        pre_count = count;
+    }
+
+    // Step 2: Open file (SD I/O — brief, but writer does not block on ring buffer reads)
     s_clip_file_ = fopen(s_clip_path_, "wb");
     if (!s_clip_file_) {
         LOG_COLOR(LOG_RED, TAG, "FAILED to create %s: %s",
@@ -290,25 +326,14 @@ void ThermalRecorder::startClip(uint32_t now_ms) {
         return;
     }
 
-    // Reserve 16 bytes for the .thv header (written at closeClip)
+    // Step 3: Reserve header + write pre-roll from cache
     ThvHeader tmp;
     memset(&tmp, 0, sizeof(tmp));
     fwrite(&tmp, sizeof(tmp), 1, s_clip_file_);
 
-    // Write pre-roll frames directly from ring buffer (before the trigger frame)
-    // The trigger frame is at position s_read_idx_ - 1
-    int trigger_idx = s_read_idx_ - 1;
-    int max_pre = (pre_roll_ms * 32 / 1000);
-    if (max_pre > s_N_ - 4) max_pre = s_N_ - 4;
-
-    int pre_count = 0;
-    int pre_start = trigger_idx - max_pre;
-    if (pre_start < 0) pre_start = 0;
-    for (int i = pre_start; i < trigger_idx; i++) {
-        const FrameSlot& pre = s_ring_buf_[i % s_N_];
-        if (fwrite(pre.pixels, 2, TOTAL_PIXELS, s_clip_file_) == TOTAL_PIXELS) {
-            pre_count++;
-        }
+    if (s_pre_roll_buf_ && pre_count > 0) {
+        size_t wrote = fwrite(s_pre_roll_buf_, 2, pre_count * TOTAL_PIXELS, s_clip_file_);
+        pre_count = (int)(wrote / TOTAL_PIXELS);
     }
 
     s_clip_start_ms_     = now_ms;
@@ -364,13 +389,17 @@ void ThermalRecorder::closeClip() {
         fwrite(&hdr, sizeof(hdr), 1, s_clip_file_);
         fclose(s_clip_file_);
 
-        // Persist clip counter
-        nvs_handle_t h;
-        if (nvs_open("thermal_registry", NVS_READWRITE, &h) == ESP_OK) {
-            int32_t v = (int32_t)s_clip_counter_;
-            nvs_set_i32(h, "clip_num", v);
-            nvs_commit(h);
-            nvs_close(h);
+        // Persist clip counter (batch: every 10 clips to reduce NVS flash wear)
+        s_nvs_batch_++;
+        if (s_nvs_batch_ >= 10) {
+            s_nvs_batch_ = 0;
+            nvs_handle_t h;
+            if (nvs_open("thermal_registry", NVS_READWRITE, &h) == ESP_OK) {
+                int32_t v = (int32_t)s_clip_counter_;
+                nvs_set_i32(h, "clip_num", v);
+                nvs_commit(h);
+                nvs_close(h);
+            }
         }
 
         LOG_COLOR(LOG_GREEN, TAG, "Clip %s SAVED (%lu ms, %lu frames, %lu crossings)",

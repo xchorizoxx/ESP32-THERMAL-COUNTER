@@ -23,8 +23,12 @@
 #include "mlx90640_sensor.hpp"
 #include "thermal_pipeline.hpp"
 #include "wifi_softap.hpp"
-#include "udp_transmitter.hpp"
+// UDP transmitter disabled. The Web UI uses WebSocket for all data.
+// UDP broadcasts to 255.255.255.255 saturated the TinyUSB NCM driver
+// and broke critical network traffic. Keep the source but do not build.
+// #include "udp_transmitter.hpp"
 #include "telemetry_task.hpp"
+#include "log_writer.hpp"
 #include "http_server.hpp" // [NEW]
 
 #include "status_led.hpp"
@@ -257,20 +261,19 @@ extern "C" void app_main(void)
     }
 
     // -------------------------------------------------------------------------
-    // Step 6: UDP Transmitter
+    // Step 6: UDP Transmitter (DISABLED)
     // -------------------------------------------------------------------------
-    static UdpTransmitter udp(
-        ThermalConfig::UDP_BROADCAST_IP,
-        ThermalConfig::UDP_PORT
-    );
-    ret = udp.init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "FAILED to initialize UDP Transmitter — aborting");
-        return;
-    } else {
-        // [MAGENTA] Network-related log (Full line)
-        ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "UDP Transmitter initialized");
-    }
+    // UDP broadcast is disabled to avoid saturating the TinyUSB NCM driver.
+    // All data goes through WebSocket instead.
+    // Source code kept for reference in components/telemetry/src/udp_transmitter.cpp
+    // static UdpTransmitter udp(ThermalConfig::UDP_BROADCAST_IP, ThermalConfig::UDP_PORT);
+    // ret = udp.init();
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "FAILED to initialize UDP Transmitter — aborting");
+    //     return;
+    // } else {
+    //     ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "UDP Transmitter initialized");
+    // }
 
     // -------------------------------------------------------------------------
     // Step 7: Thermal Vision Pipeline (Core 1 - APP_CPU)
@@ -306,9 +309,16 @@ extern "C" void app_main(void)
     }
 
     // -------------------------------------------------------------------------
+    // Step 7.6: Async Log Writer (dispatches blocking SD writes off IPC path)
+    // -------------------------------------------------------------------------
+    LogWriter::init();
+
+    // -------------------------------------------------------------------------
     // Step 8: Telemetry (Core 0 - PRO_CPU)
     // -------------------------------------------------------------------------
-    static TelemetryTask telemetry(ipcQueue, udp);
+    // UDP transmitter removed — telemetry uses WebSocket only
+    // static UdpTransmitter udp(...) was above
+    static TelemetryTask telemetry(ipcQueue);
     telemetry.init();
 
     static StaticTask_t telemetryTaskBuffer;

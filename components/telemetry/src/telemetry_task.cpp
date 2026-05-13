@@ -14,9 +14,8 @@
 
 static const char* TAG = "TELEMETRY";
 
-TelemetryTask::TelemetryTask(QueueHandle_t ipcQueue, UdpTransmitter& udp)
+TelemetryTask::TelemetryTask(QueueHandle_t ipcQueue)
     : ipcQueue_(ipcQueue)
-    , udp_(udp)
 {
 }
 

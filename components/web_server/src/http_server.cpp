@@ -30,6 +30,7 @@
 #include "sd_manager.hpp"
 #include "thermal_config.hpp"
 #include "thermal_recorder.hpp"
+#include "log_writer.hpp"
 #include <inttypes.h> // [NEW] Required for PRIu64 format macro
 #include <string.h>
 #include <sys/param.h>
@@ -1798,28 +1799,16 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
 
   const char* clip_id = ThermalRecorder::getCurrentClipId();
 
-  // W4-CSV: Persist to SD if available
-  if (g_sd.isMounted()) {
-    char log_file[64];
-    getLogPathForToday(log_file, sizeof(log_file));
-
+  // W4-CSV: Enqueue to LogWriter (async SD write — non-blocking)
+  {
     char line[192];
-    // Format:
-    // event_type,session,timestamp_ms,clip_id,dir,count_in,count_out,track_temp,ambient_temp,active_tracks,track_id,duration_ms,frame_count,crossings,saved
     snprintf(line, sizeof(line),
              "CROSSING,%u,%" PRIu64 ",%s,%s,%d,%d,%.2f,%.2f,%u,%u,,,,,",
              s_session_id, (uint64_t)ev.timestamp_ms, clip_id,
              ev.is_in ? "IN" : "OUT",
              ev.count_in, ev.count_out, ev.temperature, ambient_temp,
              active_tracks, ev.id);
-
-    if (!g_sd.fileExists(log_file)) {
-      g_sd.appendLine(log_file,
-                      "event_type,session,timestamp_ms,clip_id,direction,count_in,"
-                      "count_out,track_temp,ambient_temp,active_tracks,"
-                      "track_id,duration_ms,frame_count,crossings,saved");
-    }
-    g_sd.appendLine(log_file, line);
+    LogWriter::enqueue(line);
   }
 
   // FIX-3: Async pool with ref-counting (mirrors broadcastFrame pattern)
@@ -1933,7 +1922,7 @@ void HttpServer::onClipEvent(const char *event_type, const char *clip_id,
                              uint32_t timestamp_ms, uint32_t dur_ms,
                              uint32_t frame_count, uint32_t crossings,
                              bool saved) {
-  if (server_ == NULL || !g_sd.isMounted())
+  if (server_ == NULL)
     return;
 
   // Extract basename from full path (/sdcard/clips/CLIP_00005.thv → CLIP_00005.thv)
@@ -1943,17 +1932,6 @@ void HttpServer::onClipEvent(const char *event_type, const char *clip_id,
   else
     basename = clip_id;
 
-  char log_file[64];
-  getLogPathForToday(log_file, sizeof(log_file));
-
-  // Always ensure header exists (harmless no-op if already present)
-  if (!g_sd.fileExists(log_file)) {
-    g_sd.appendLine(log_file,
-                    "event_type,session,timestamp_ms,clip_id,direction,count_in,"
-                    "count_out,track_temp,ambient_temp,active_tracks,"
-                    "track_id,duration_ms,frame_count,crossings,saved");
-  }
-
   char line[192];
   snprintf(line, sizeof(line),
            "%s,%u,%" PRIu64 ",%s,,,,,,,%lu,%lu,%lu,%u",
@@ -1961,5 +1939,5 @@ void HttpServer::onClipEvent(const char *event_type, const char *clip_id,
            (unsigned long)dur_ms, (unsigned long)frame_count,
            (unsigned long)crossings, (unsigned int)(saved ? 1 : 0));
 
-  g_sd.appendLine(log_file, line);
+  LogWriter::enqueue(line);
 }

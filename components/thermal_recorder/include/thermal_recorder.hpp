@@ -12,6 +12,7 @@ public:
     // --- Ring buffer size ---
     static constexpr int RING_BUF_SLOTS   = 64;    // ~2s pre-roll at 32Hz
     static constexpr int TOTAL_PIXELS     = 768;   // 32x24
+    static constexpr int PRE_ROLL_MAX_FRAMES = 32; // 1s pre-roll at 32Hz (PSRAM buffer)
 
     struct FrameSlot {
         int16_t  pixels[TOTAL_PIXELS];
@@ -53,10 +54,11 @@ public:
     static void writerTask(void* pv);
 
 private:
-    static FrameSlot*      s_ring_buf_;        // PSRAM allocation
+    static FrameSlot*      s_ring_buf_;         // PSRAM allocation
+    static int16_t*        s_pre_roll_buf_;     // PSRAM pre-roll cache
     static int             s_N_;
-    static std::atomic<int>   s_write_idx_;        // Core 1 writes
-    static int             s_read_idx_;         // Core 0 reads
+    static std::atomic<int>   s_write_idx_;      // Core 1 writes
+    static std::atomic<int>   s_read_idx_;       // Core 0 reads (atomic for diagnostic from Core 1)
 
     enum State : uint8_t { IDLE, RECORDING, COOLDOWN, CLOSING };
     static State           s_state_;
@@ -69,6 +71,7 @@ private:
 
     // Clip file
     static uint32_t        s_clip_counter_;
+    static uint8_t         s_nvs_batch_;          // NVS write batch counter (every 10 clips)
     static char            s_clip_path_[64];
     static FILE*           s_clip_file_;
     static uint32_t        s_last_fopen_fail_ms_;
