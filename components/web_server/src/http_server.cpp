@@ -30,6 +30,7 @@
 #include "sd_manager.hpp"
 #include "thermal_config.hpp"
 #include "thermal_recorder.hpp"
+#include "log_writer.hpp"
 #include <inttypes.h> // [NEW] Required for PRIu64 format macro
 #include <string.h>
 #include <sys/param.h>
@@ -71,6 +72,7 @@ static uint8_t s_time_quality = HttpServer::TIME_QUALITY_NONE;
 
 // --- W3/W6: Session tracking ---
 static uint16_t s_session_id = 0;
+static char s_session_folder[48] = {}; // "session_075" or "session_075_20260513"
 static int32_t s_session_baseline_in =
     0; ///< NVS total at last boot (never changes during session)
 static int32_t s_session_baseline_out = 0;
@@ -78,6 +80,11 @@ static int32_t s_session_baseline_out = 0;
 // --- H1-FIX: Buffer Watchdog ---
 static uint32_t s_ws_buffer_acquired_ticks[HttpServer::WS_BUFFER_COUNT] = {0};
 static constexpr uint32_t WS_BUFFER_MAX_AGE_MS = 2000; // 2 seconds recovery timeout
+
+// --- H2-FIX: Cooldown + Auto-disconnect for stuck WS clients ---
+static uint32_t s_cooldown_until_ms = 0;
+static constexpr uint32_t WS_COOLDOWN_MS = 5000;          // pause broadcasts for 5s
+static constexpr int WS_STUCK_COOLDOWN_THRESHOLD = 1;     // 1+ stuck → cooldown
 
 // --- W6: Counter mirror updated from broadcastFrame, read by timer ---
 // int32_t reads/writes on Xtensa LX7 are atomic for naturally-aligned
@@ -600,6 +607,7 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
 
     // W3/W6: Session and persistence info
     cJSON_AddNumberToObject(resp, "session_id", (double)s_session_id);
+    cJSON_AddStringToObject(resp, "session_folder", s_session_folder[0] ? s_session_folder : "");
     cJSON_AddNumberToObject(resp, "time_quality", (double)s_time_quality);
     cJSON_AddNumberToObject(resp, "nvs_base_in", (double)s_session_baseline_in);
     cJSON_AddNumberToObject(resp, "nvs_base_out",
@@ -652,6 +660,7 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
     cJSON_AddBoolToObject(resp, "rtc_ok", g_rtc.isAvailable());
     cJSON_AddBoolToObject(resp, "sd_ok", g_sd.isMounted());
     cJSON_AddNumberToObject(resp, "session_id", (double)s_session_id);
+    cJSON_AddStringToObject(resp, "session_folder", s_session_folder[0] ? s_session_folder : "");
     cJSON_AddNumberToObject(resp, "time_quality", (double)s_time_quality);
     cJSON_AddNumberToObject(resp, "nvs_base_in", (double)s_session_baseline_in);
     cJSON_AddNumberToObject(resp, "nvs_base_out",
@@ -881,6 +890,33 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
               (gpio_num_t)ThermalConfig::SD_SCK_PIN,
               (gpio_num_t)ThermalConfig::SD_CS_PIN);
     ESP_LOGI(TAG, "RETRY_SD requested");
+
+  // -------------------------------------------------------------------------
+  //  ERASE_NVS — Full NVS wipe + reboot
+  // -------------------------------------------------------------------------
+  } else if (strcmp(cmdStr, "ERASE_NVS") == 0) {
+    ESP_LOGW(TAG, "ERASE_NVS: wiping NVS and rebooting...");
+
+    // Save counters one last time before erasing
+    saveCountersToNvs(s_latest_count_in, s_latest_count_out);
+
+    esp_err_t err = nvs_flash_erase();
+    if (err == ESP_OK) {
+      ESP_LOGI(TAG, "NVS erased successfully — restarting");
+    } else {
+      ESP_LOGE(TAG, "NVS erase failed: %s", esp_err_to_name(err));
+    }
+
+    cJSON *resp = cJSON_CreateObject();
+    if (resp) {
+      cJSON_AddStringToObject(resp, "type", "nvs_erased");
+      cJSON_AddBoolToObject(resp, "ok", err == ESP_OK);
+      wsSendJson(req, resp);
+      cJSON_Delete(resp);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
   }
 
   cJSON_Delete(root);
@@ -957,6 +993,121 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
     ESP_LOGI(TAG, "Session ID: %u", s_session_id);
   }
 
+  // Build session folder name (with date if RTC available)
+  {
+    RTCDriver::DateTime dt;
+    if (g_rtc.isAvailable() && g_rtc.getTime(dt) == ESP_OK) {
+      snprintf(s_session_folder, sizeof(s_session_folder),
+               "session_%03u_%04d%02d%02d",
+               s_session_id, dt.year, dt.month, dt.day);
+    } else {
+      snprintf(s_session_folder, sizeof(s_session_folder),
+               "session_%03u", s_session_id);
+    }
+    ESP_LOGI(TAG, "Session folder: %s", s_session_folder);
+
+    // Create directory hierarchy if needed
+    char buf[64];
+    snprintf(buf, sizeof(buf), "logs/%s", s_session_folder);
+    g_sd.mkdir(buf);
+    snprintf(buf, sizeof(buf), "clips/%s", s_session_folder);
+    g_sd.mkdir(buf);
+    g_sd.mkdir("config");
+  }
+
+  // Export config snapshot to SD
+  {
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "session_id", (double)s_session_id);
+    cJSON_AddStringToObject(root, "session_folder", s_session_folder);
+    cJSON_AddNumberToObject(root, "lines_hash", (double)computeLinesHash());
+
+    // Thresholds
+    cJSON *th = cJSON_CreateObject();
+    cJSON_AddNumberToObject(th, "temp_bio_c", (double)ThermalConfig::BIOLOGICAL_TEMP_MIN);
+    cJSON_AddNumberToObject(th, "delta_t_c", (double)ThermalConfig::BACKGROUND_DELTA_T);
+    cJSON_AddNumberToObject(th, "ema_alpha", (double)ThermalConfig::EMA_ALPHA);
+    cJSON_AddItemToObject(root, "thresholds", th);
+
+    // Zones
+    cJSON *zn = cJSON_CreateObject();
+    cJSON_AddNumberToObject(zn, "entry_y", (double)ThermalConfig::DEFAULT_LINE_ENTRY_Y);
+    cJSON_AddNumberToObject(zn, "exit_y", (double)ThermalConfig::DEFAULT_LINE_EXIT_Y);
+    cJSON_AddNumberToObject(zn, "dead_left", (double)ThermalConfig::DEFAULT_DEAD_ZONE_LEFT);
+    cJSON_AddNumberToObject(zn, "dead_right", (double)ThermalConfig::DEFAULT_DEAD_ZONE_RIGHT);
+    cJSON_AddItemToObject(root, "zones", zn);
+
+    // Sensor geometry
+    cJSON *sg = cJSON_CreateObject();
+    cJSON_AddNumberToObject(sg, "height_m", (double)ThermalConfig::SENSOR_HEIGHT_M);
+    cJSON_AddNumberToObject(sg, "person_diameter_m", (double)ThermalConfig::PERSON_DIAMETER_M);
+    cJSON_AddItemToObject(root, "sensor", sg);
+
+    cJSON_AddNumberToObject(root, "view_mode", (double)ThermalConfig::VIEW_MODE);
+
+    // Recorder config
+    cJSON *rc = cJSON_CreateObject();
+    cJSON_AddNumberToObject(rc, "pre_roll_ms", (double)ThermalRecorder::pre_roll_ms);
+    cJSON_AddNumberToObject(rc, "cooldown_ms", (double)ThermalRecorder::cooldown_ms);
+    cJSON_AddNumberToObject(rc, "max_dur_ms", (double)ThermalRecorder::max_duration_ms);
+    cJSON_AddNumberToObject(rc, "min_dur_ms", (double)ThermalRecorder::min_duration_ms);
+    cJSON_AddItemToObject(root, "recorder", rc);
+
+    // Counting segments
+    ThermalConfig::DoorLineConfig dl_snap;
+    portENTER_CRITICAL(&ThermalConfig::door_lines_mux);
+    dl_snap = ThermalConfig::door_lines;
+    portEXIT_CRITICAL(&ThermalConfig::door_lines_mux);
+    cJSON_AddBoolToObject(root, "use_segments", dl_snap.use_segments);
+    cJSON *lines_arr = cJSON_CreateArray();
+    for (int i = 0; i < dl_snap.num_lines; i++) {
+      const CountingSegment &s = dl_snap.lines[i];
+      cJSON *l = cJSON_CreateObject();
+      cJSON_AddNumberToObject(l, "x1", s.x1);
+      cJSON_AddNumberToObject(l, "y1", s.y1);
+      cJSON_AddNumberToObject(l, "x2", s.x2);
+      cJSON_AddNumberToObject(l, "y2", s.y2);
+      cJSON_AddNumberToObject(l, "id", s.id);
+      cJSON_AddStringToObject(l, "name", s.name);
+      cJSON_AddItemToArray(lines_arr, l);
+    }
+    cJSON_AddItemToObject(root, "door_lines", lines_arr);
+
+    char *json_str = cJSON_Print(root);
+    cJSON_Delete(root);
+
+    // Write via SD manager
+    char config_path[96];
+    snprintf(config_path, sizeof(config_path), "/sdcard/config/%s.json", s_session_folder);
+    g_sd.lock();
+    FILE *fp = fopen(config_path, "w");
+    if (fp) {
+      fputs(json_str, fp);
+      fclose(fp);
+      ESP_LOGI(TAG, "Config exported: %s", config_path);
+    } else {
+      ESP_LOGW(TAG, "Failed to export config: %s", config_path);
+    }
+    g_sd.unlock();
+    free(json_str);
+  }
+
+  // Enqueue CSV headers for this session
+  {
+    char fpath[96];
+    snprintf(fpath, sizeof(fpath), "logs/%s/crossings.csv", s_session_folder);
+    g_sd.appendLine(fpath,
+        "session_id,timestamp_ms,clip_id,cfg_hash,direction,count_in,count_out,"
+        "track_temp_c,ambient_temp_c,active_tracks,track_id");
+    snprintf(fpath, sizeof(fpath), "logs/%s/clips.csv", s_session_folder);
+    g_sd.appendLine(fpath,
+        "session_id,clip_id,cfg_hash,timestamp_start_ms,timestamp_end_ms,"
+        "dur_ms,frame_count,crossings,saved");
+  }
+
+  // Tell recorder the session folder for clip path generation
+  ThermalRecorder::setSessionFolder(s_session_folder);
+
   // Reinitialize FOV LUT with the height loaded from NVS (Bug-01 fix)
   FovCorrection::init(ThermalConfig::SENSOR_HEIGHT_M);
 
@@ -1015,6 +1166,10 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
       "/api/sd/delete", HTTP_POST, sdDeleteHandler, NULL, false, false, NULL};
   httpd_register_uri_handler(server_, &sd_del_uri);
 
+  const httpd_uri_t sd_erase_all_uri = {
+      "/api/sd/erase_all", HTTP_POST, sdEraseAllHandler, NULL, false, false, NULL};
+  httpd_register_uri_handler(server_, &sd_erase_all_uri);
+
   const httpd_uri_t nvs_backup_uri = {
       "/api/nvs/backup", HTTP_GET, nvsBackupHandler, NULL, false, false, NULL};
   httpd_register_uri_handler(server_, &nvs_backup_uri);
@@ -1022,6 +1177,10 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
   const httpd_uri_t clips_uri = {
       "/api/clips", HTTP_GET, clipListHandler, NULL, false, false, NULL};
   httpd_register_uri_handler(server_, &clips_uri);
+
+  const httpd_uri_t del_all_uri = {"/api/clips/delete_all", HTTP_POST,
+      deleteAllClipsHandler, NULL, false, false, NULL};
+  httpd_register_uri_handler(server_, &del_all_uri);
 
   // W6: Start periodic counter save timer (10 minutes)
   s_counter_save_timer =
@@ -1037,6 +1196,9 @@ esp_err_t HttpServer::start(QueueHandle_t configQueue) {
         TAG,
         "Counter save timer creation failed — counters will NOT be persisted");
   }
+
+  // Register clip event callback from ThermalRecorder
+  ThermalRecorder::s_on_clip_event = &HttpServer::onClipEvent;
 
   ESP_LOGI(TAG, "HTTP server started (session=%u, base_in=%d, base_out=%d)",
            s_session_id, s_session_baseline_in, s_session_baseline_out);
@@ -1064,31 +1226,66 @@ void HttpServer::broadcastFrame(const ImagePayload &img,
   if (!server_)
     return;
 
+  uint32_t now = pdTICKS_TO_MS(xTaskGetTickCount());
+
+  // --- H2: Cooldown check — skip frame during cooldown ---
+  if (s_cooldown_until_ms != 0) {
+    if (now < s_cooldown_until_ms)
+      return; // Still in cooldown
+    s_cooldown_until_ms = 0; // Cooldown expired, resume normal
+  }
+
   // W6: Update counter mirror for the NVS save timer
   // int32_t write to aligned address is atomic on Xtensa LX7
   s_latest_count_in = (int32_t)tel.count_in;
   s_latest_count_out = (int32_t)tel.count_out;
 
-  // Release buffers that have been stuck for > 2 seconds
-  uint32_t now = pdTICKS_TO_MS(xTaskGetTickCount());
-  int stuck_idx = -1;
-  uint32_t stuck_time = 0;
+  // --- H2: Watchdog + Auto-disconnect dead clients ---
+  int stuck_count = 0;
 
   portENTER_CRITICAL(&s_ws_mux);
   for (int i = 0; i < (int)WS_BUFFER_COUNT; i++) {
     if (ws_buffer_ref_counts_[i] > 0 || ws_buffer_ref_counts_[i] == -1) {
       if (now - s_ws_buffer_acquired_ticks[i] > WS_BUFFER_MAX_AGE_MS) {
         ws_buffer_ref_counts_[i] = 0; // Force free
-        stuck_idx = i;
-        stuck_time = now - s_ws_buffer_acquired_ticks[i];
+        stuck_count++;
       }
     }
   }
   portEXIT_CRITICAL(&s_ws_mux);
 
-  if (stuck_idx != -1) {
-    ESP_LOGW(TAG, "Buffer %d stuck for %lu ms, forcing release", stuck_idx,
-             stuck_time);
+  if (stuck_count > 0) {
+    ESP_LOGW(TAG, "%d buffer(s) stuck for >%lu ms, forcing release",
+             stuck_count, (unsigned long)WS_BUFFER_MAX_AGE_MS);
+  }
+
+  // H2: If too many buffers stuck → dead client suspected → cooldown + disconnect all
+  if (stuck_count >= WS_STUCK_COOLDOWN_THRESHOLD) {
+    ESP_LOGW(TAG, "Cooldown %lu ms — disconnecting all WS clients",
+             (unsigned long)WS_COOLDOWN_MS);
+    s_cooldown_until_ms = now + WS_COOLDOWN_MS;
+
+    // Disconnect all WebSocket clients to force a clean slate
+    int client_fds[7];
+    size_t clients = sizeof(client_fds) / sizeof(client_fds[0]);
+    if (httpd_get_client_list(server_, &clients, client_fds) == ESP_OK) {
+      for (size_t i = 0; i < clients; i++) {
+        if (httpd_ws_get_fd_info(server_, client_fds[i]) ==
+            HTTPD_WS_CLIENT_WEBSOCKET) {
+          httpd_sess_trigger_close(server_, client_fds[i]);
+          ESP_LOGI(TAG, "Closed stale WS client fd=%d", client_fds[i]);
+        }
+      }
+    }
+
+    // Reset all buffer ref-counts to guarantee clean state
+    portENTER_CRITICAL(&s_ws_mux);
+    for (int i = 0; i < (int)WS_BUFFER_COUNT; i++) {
+      ws_buffer_ref_counts_[i] = 0;
+    }
+    portEXIT_CRITICAL(&s_ws_mux);
+
+    return; // Skip this frame — entering cooldown
   }
 
   // ---- Find a free buffer ----
@@ -1287,22 +1484,38 @@ esp_err_t HttpServer::sdInfoHandler(httpd_req_t *req) {
     return ESP_FAIL;
   }
 
-  char json_buf[1024];
-  if (g_sd.listDirectory("logs", json_buf, sizeof(json_buf)) != ESP_OK) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                        "Failed to list logs");
-    return ESP_FAIL;
-  }
+  double free_bytes = (double)g_sd.getFreeSpaceBytes();
+  double total_bytes = (double)g_sd.getTotalSpaceBytes();
 
   cJSON *resp = cJSON_CreateObject();
-  cJSON_AddNumberToObject(resp, "free_bytes", (double)g_sd.getFreeSpaceBytes());
-  cJSON_AddNumberToObject(resp, "total_bytes",
-                          (double)g_sd.getTotalSpaceBytes());
+  cJSON_AddNumberToObject(resp, "free_bytes", free_bytes);
+  cJSON_AddNumberToObject(resp, "total_bytes", total_bytes);
 
-  cJSON *files_arr = cJSON_Parse(json_buf);
-  if (files_arr) {
-    cJSON_AddItemToObject(resp, "files", files_arr);
-  }
+  // Merge files from logs/ and clips/ into single array
+  cJSON *all_files = cJSON_CreateArray();
+  char json_buf[2048];
+
+  auto mergeDir = [&](const char* dir) {
+    if (g_sd.listDirectory(dir, json_buf, sizeof(json_buf)) == ESP_OK) {
+      cJSON *arr = cJSON_Parse(json_buf);
+      if (arr && cJSON_IsArray(arr)) {
+        int n = cJSON_GetArraySize(arr);
+        for (int i = 0; i < n; i++) {
+          cJSON *item = cJSON_Duplicate(cJSON_GetArrayItem(arr, i), true);
+          if (item) cJSON_AddItemToArray(all_files, item);
+        }
+      }
+      if (arr) cJSON_Delete(arr);
+    }
+  };
+
+  mergeDir("logs");
+  mergeDir("clips");
+  cJSON_AddItemToObject(resp, "files", all_files);
+
+  int file_count = cJSON_GetArraySize(all_files);
+  ESP_LOG_COLOR(LOG_COLOR_CYAN, TAG, "SD info: free=%.0f/%.0f MB  files=%d",
+                free_bytes / 1048576.0, total_bytes / 1048576.0, file_count);
 
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_type(req, "application/json");
@@ -1426,6 +1639,67 @@ esp_err_t HttpServer::sdDeleteHandler(httpd_req_t *req) {
 }
 
 // =============================================================================
+//  HTTP HANDLER — SD ERASE ALL (/api/sd/erase_all)
+// =============================================================================
+
+esp_err_t HttpServer::sdEraseAllHandler(httpd_req_t *req) {
+  if (!g_sd.isMounted()) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "SD Card not mounted");
+    return ESP_FAIL;
+  }
+
+  auto eraseDir = [&](const char* dir) -> bool {
+    char json_buf[1024];
+    if (g_sd.listDirectory(dir, json_buf, sizeof(json_buf)) != ESP_OK) {
+      return true; // dir doesn't exist — not an error
+    }
+    cJSON *arr = cJSON_Parse(json_buf);
+    if (!arr || !cJSON_IsArray(arr)) {
+      if (arr) cJSON_Delete(arr);
+      return true;
+    }
+    int n = cJSON_GetArraySize(arr);
+    bool ok = true;
+    for (int i = 0; i < n; i++) {
+      cJSON *item = cJSON_GetArrayItem(arr, i);
+      cJSON *name_j = cJSON_GetObjectItem(item, "name");
+      if (cJSON_IsString(name_j)) {
+        char file_path[128];
+        snprintf(file_path, sizeof(file_path), "%s/%s", dir, name_j->valuestring);
+        if (g_sd.deleteFile(file_path) != ESP_OK) {
+          ok = false;
+        }
+      }
+    }
+    cJSON_Delete(arr);
+    return ok;
+  };
+
+  bool logs_ok = eraseDir("logs");
+  bool clips_ok = eraseDir("clips");
+  (void)logs_ok; (void)clips_ok;
+
+  // Recreate the base directories
+  g_sd.mkdir("logs");
+  g_sd.mkdir("clips");
+
+  cJSON *resp = cJSON_CreateObject();
+  cJSON_AddBoolToObject(resp, "ok", true);
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_type(req, "application/json");
+  char *json_str = cJSON_PrintUnformatted(resp);
+  cJSON_Delete(resp);
+  if (json_str) {
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+  } else {
+    httpd_resp_send_500(req);
+  }
+  return ESP_OK;
+}
+
+// =============================================================================
 //  HTTP HANDLER — NVS BACKUP DOWNLOAD (/api/nvs/backup)
 // =============================================================================
 
@@ -1490,74 +1764,195 @@ esp_err_t HttpServer::nvsBackupHandler(httpd_req_t *req) {
 }
 
 // =============================================================================
-//  HTTP HANDLER — CLIP LIST (/api/clips)
+//  HTTP HANDLER — DELETE ALL CLIPS (/api/clips/delete_all)
 // =============================================================================
 
-esp_err_t HttpServer::clipListHandler(httpd_req_t *req) {
+esp_err_t HttpServer::deleteAllClipsHandler(httpd_req_t *req) {
   if (!g_sd.isMounted()) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                        "SD Card not mounted");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD not mounted");
     return ESP_FAIL;
   }
 
+  // List clips directory (may contain session_XXX subdirs and legacy .thv files)
   char list_json[2048];
   if (g_sd.listDirectory("clips", list_json, sizeof(list_json)) != ESP_OK) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                        "Failed to list clips");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "list failed");
     return ESP_FAIL;
   }
 
   cJSON *files = cJSON_Parse(list_json);
   if (!files || !cJSON_IsArray(files)) {
     if (files) cJSON_Delete(files);
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                        "Parse error");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "parse error");
     return ESP_FAIL;
   }
 
-  cJSON *resp = cJSON_CreateObject();
-  cJSON *items = cJSON_CreateArray();
+  int deleted = 0, errors = 0;
 
   cJSON *f;
   cJSON_ArrayForEach(f, files) {
     cJSON *name_j = cJSON_GetObjectItem(f, "name");
     if (!cJSON_IsString(name_j)) continue;
     const char *name = name_j->valuestring;
+    if (!name) continue;
 
-    // Only .thv files
+    // Check if it's a .thv file or a session directory
     const char *dot = strrchr(name, '.');
-    if (!dot || strcmp(dot, ".thv") != 0) continue;
+    if (dot && strcmp(dot, ".thv") == 0) {
+      // Legacy flat .thv — delete directly
+      char full[96];
+      snprintf(full, sizeof(full), "/sdcard/clips/%s", name);
+      g_sd.lock();
+      if (remove(full) == 0) deleted++; else errors++;
+      g_sd.unlock();
+    } else if (strncmp(name, "session_", 8) == 0) {
+      // Session subdirectory — delete all .thv inside
+      char subdir[48];
+      snprintf(subdir, sizeof(subdir), "clips/%s", name);
+      char sub_json[2048];
+      if (g_sd.listDirectory(subdir, sub_json, sizeof(sub_json)) == ESP_OK) {
+        cJSON *sub_files = cJSON_Parse(sub_json);
+        if (cJSON_IsArray(sub_files)) {
+          cJSON *sf;
+          cJSON_ArrayForEach(sf, sub_files) {
+            cJSON *sn = cJSON_GetObjectItem(sf, "name");
+            if (!cJSON_IsString(sn)) continue;
+            const char *sfname = sn->valuestring;
+            if (!sfname) continue;
+            // Only delete .thv files
+            const char *sdot = strrchr(sfname, '.');
+            if (sdot && strcmp(sdot, ".thv") == 0) {
+              char sfpath[128];
+              snprintf(sfpath, sizeof(sfpath), "/sdcard/clips/%s/%s", name, sfname);
+              g_sd.lock();
+              if (remove(sfpath) == 0) deleted++; else errors++;
+              g_sd.unlock();
+            }
+          }
+          cJSON_Delete(sub_files);
+        }
+      }
+    }
+  }
 
-    // Read ThvHeader from file
+  cJSON_Delete(files);
+
+  cJSON *resp = cJSON_CreateObject();
+  cJSON_AddNumberToObject(resp, "deleted", deleted);
+  cJSON_AddNumberToObject(resp, "errors", errors);
+
+  char *json_str = cJSON_Print(resp);
+  cJSON_Delete(resp);
+  if (!json_str) return ESP_ERR_NO_MEM;
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_sendstr(req, json_str);
+  free(json_str);
+  return ESP_OK;
+}
+
+// =============================================================================
+//  HTTP HANDLER — CLIP LIST (/api/clips)
+//  Scans clips/ for .thv files (flat or in session_XXX subdirs)
+// =============================================================================
+
+esp_err_t HttpServer::clipListHandler(httpd_req_t *req) {
+  if (!g_sd.isMounted()) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD not mounted");
+    return ESP_FAIL;
+  }
+
+  char list_json[2048];
+  if (g_sd.listDirectory("clips", list_json, sizeof(list_json)) != ESP_OK) {
+    ESP_LOGW(TAG, "clipList: listDirectory('clips') FAILED");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to list clips");
+    return ESP_FAIL;
+  }
+
+  cJSON *top = cJSON_Parse(list_json);
+  if (!top || !cJSON_IsArray(top)) {
+    if (top) cJSON_Delete(top);
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Parse error");
+    return ESP_FAIL;
+  }
+
+  cJSON *resp = cJSON_CreateObject();
+  cJSON *items = cJSON_CreateArray();
+
+  // Helper: process a single .thv file given its directory prefix
+  auto processThv = [&](const char* dir_prefix, const char* name, const char* session) {
     char full_path[96];
-    snprintf(full_path, sizeof(full_path), "/sdcard/clips/%s", name);
+    snprintf(full_path, sizeof(full_path), "/sdcard/clips/%s/%s", dir_prefix, name);
+    g_sd.lock();
     FILE *fp = fopen(full_path, "rb");
-    if (!fp) continue;
+    if (!fp) { g_sd.unlock(); return; }
 
     ThvHeader hdr;
     memset(&hdr, 0, sizeof(hdr));
     size_t nread = fread(&hdr, 1, sizeof(hdr), fp);
+    struct stat st;
+    bool st_ok = (stat(full_path, &st) == 0);
     fclose(fp);
-    if (nread != sizeof(hdr) || hdr.magic != THV_MAGIC) continue;
+    g_sd.unlock();
 
-    // Build item JSON
+    if (nread != sizeof(hdr) || hdr.magic != THV_MAGIC) return;
+
     cJSON *item = cJSON_CreateObject();
     cJSON_AddStringToObject(item, "name", name);
+    cJSON_AddStringToObject(item, "session", session);
     cJSON_AddNumberToObject(item, "frame_count", hdr.frame_count);
     cJSON_AddNumberToObject(item, "fps", hdr.fps);
     cJSON_AddNumberToObject(item, "width", hdr.width);
     cJSON_AddNumberToObject(item, "height", hdr.height);
     cJSON_AddNumberToObject(item, "trigger_dir", hdr.trigger_dir);
-
-    // File size
-    struct stat st;
-    if (stat(full_path, &st) == 0) {
-      cJSON_AddNumberToObject(item, "size_bytes", (double)st.st_size);
+    if (hdr.fps > 0) {
+      cJSON_AddNumberToObject(item, "duration_ms", (double)(hdr.frame_count * 1000 / hdr.fps));
+    } else {
+      cJSON_AddNumberToObject(item, "duration_ms", 0);
     }
-
+    if (st_ok) {
+      cJSON_AddNumberToObject(item, "size_bytes", (double)st.st_size);
+      cJSON_AddNumberToObject(item, "unix_time_sec", (double)st.st_mtime);
+    }
     cJSON_AddItemToArray(items, item);
+  };
+
+  cJSON *f;
+  cJSON_ArrayForEach(f, top) {
+    cJSON *name_j = cJSON_GetObjectItem(f, "name");
+    if (!cJSON_IsString(name_j)) continue;
+    const char *name = name_j->valuestring;
+    if (!name) continue;
+
+    const char *dot = strrchr(name, '.');
+    if (dot && strcmp(dot, ".thv") == 0) {
+      // Legacy flat .thv — no session
+      processThv("", name, "");
+    } else if (strncmp(name, "session_", 8) == 0) {
+      // Session subdirectory — recurse
+      char subdir[48];
+      snprintf(subdir, sizeof(subdir), "clips/%s", name);
+      char sub_json[2048];
+      if (g_sd.listDirectory(subdir, sub_json, sizeof(sub_json)) != ESP_OK) continue;
+
+      cJSON *sub_files = cJSON_Parse(sub_json);
+      if (!cJSON_IsArray(sub_files)) { cJSON_Delete(sub_files); continue; }
+
+      cJSON *sf;
+      cJSON_ArrayForEach(sf, sub_files) {
+        cJSON *sn = cJSON_GetObjectItem(sf, "name");
+        if (!cJSON_IsString(sn)) continue;
+        const char *sfname = sn->valuestring;
+        if (!sfname) continue;
+        const char *sdot = strrchr(sfname, '.');
+        if (!sdot || strcmp(sdot, ".thv") != 0) continue;
+        processThv(name, sfname, name);
+      }
+      cJSON_Delete(sub_files);
+    }
   }
 
+  cJSON_Delete(top);
   cJSON_AddItemToObject(resp, "clips", items);
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_type(req, "application/json");
@@ -1625,28 +2020,20 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
 
   const char* clip_id = ThermalRecorder::getCurrentClipId();
 
-  // W4-CSV: Persist to SD if available
-  if (g_sd.isMounted()) {
-    char log_file[64];
-    getLogPathForToday(log_file, sizeof(log_file));
+  // W4-CSV: Enqueue to LogWriter (async SD write — non-blocking)
+  {
+    char fpath[96];
+    snprintf(fpath, sizeof(fpath), "logs/%s/crossings.csv", s_session_folder);
 
-    char line[160];
-    // Format:
-    // session,timestamp_ms,clip_id,dir,count_in,count_out,track_temp,ambient_temp,active_tracks,track_id
+    uint32_t hash = computeLinesHash();
+    char line[192];
     snprintf(line, sizeof(line),
-             "%u,%" PRIu64 ",%s,%s,%d,%d,%.2f,%.2f,%u,%u",
-             s_session_id, (uint64_t)ev.timestamp_ms, clip_id,
+             "%u,%" PRIu64 ",%s,%08lX,%s,%d,%d,%.2f,%.2f,%u,%u",
+             (unsigned int)s_session_id, (uint64_t)ev.timestamp_ms, clip_id, (unsigned long)hash,
              ev.is_in ? "IN" : "OUT",
              ev.count_in, ev.count_out, ev.temperature, ambient_temp,
-             active_tracks, ev.id);
-
-    if (!g_sd.fileExists(log_file)) {
-      g_sd.appendLine(log_file,
-                      "session,timestamp_ms,clip_id,direction,count_in,"
-                      "count_out,track_temp,ambient_temp,active_tracks,"
-                      "track_id");
-    }
-    g_sd.appendLine(log_file, line);
+             (unsigned int)active_tracks, (unsigned int)ev.id);
+    LogWriter::enqueue(fpath, line);
   }
 
   // FIX-3: Async pool with ref-counting (mirrors broadcastFrame pattern)
@@ -1750,4 +2137,77 @@ void HttpServer::broadcastEvent(const CrossingEvent &ev, float ambient_temp,
     }
     portEXIT_CRITICAL(&s_event_mux);
   }
+}
+
+// ---------------------------------------------------------------------------
+//  onClipEvent  — called from ThermalRecorder writer task via callback
+//                 Only CLIP_END writes to clips.csv (CLIP_START is skipped)
+// ---------------------------------------------------------------------------
+void HttpServer::onClipEvent(const char *event_type, const char *clip_id,
+                             uint32_t timestamp_ms, uint32_t dur_ms,
+                             uint32_t frame_count, uint32_t crossings,
+                             bool saved) {
+  if (server_ == NULL)
+    return;
+
+  // Only write CLIP_END rows (complete clip info)
+  if (strcmp(event_type, "CLIP_END") != 0)
+    return;
+
+  // Extract basename from full path
+  const char *basename = strrchr(clip_id, '/');
+  if (basename) basename++; else basename = clip_id;
+
+  // Get start timestamp from recorder
+  uint32_t start_ms = ThermalRecorder::getClipStartTimestampMs();
+
+  uint32_t hash = computeLinesHash();
+  char fpath[96];
+  snprintf(fpath, sizeof(fpath), "logs/%s/clips.csv", s_session_folder);
+
+  char line[192];
+  snprintf(line, sizeof(line),
+           "%u,%s,%08lX,%lu,%lu,%lu,%lu,%u,%u",
+           (unsigned int)s_session_id, basename, (unsigned long)hash,
+           (unsigned long)start_ms, (unsigned long)timestamp_ms,
+           (unsigned long)dur_ms, (unsigned long)frame_count,
+           (unsigned int)crossings, (unsigned int)(saved ? 1 : 0));
+  LogWriter::enqueue(fpath, line);
+}
+
+// ---------------------------------------------------------------------------
+//  computeLinesHash  — DJB2 hash of door_lines + key thresholds
+// ---------------------------------------------------------------------------
+uint32_t HttpServer::computeLinesHash() {
+    ThermalConfig::DoorLineConfig dl;
+    portENTER_CRITICAL(&ThermalConfig::door_lines_mux);
+    dl = ThermalConfig::door_lines;
+    portEXIT_CRITICAL(&ThermalConfig::door_lines_mux);
+
+    uint32_t hash = 5381;
+    hash = ((hash << 5) + hash) + (uint32_t)dl.num_lines;
+    hash = ((hash << 5) + hash) + (uint32_t)(dl.use_segments ? 1 : 0);
+    for (int i = 0; i < dl.num_lines; i++) {
+        uint32_t tmp;
+        memcpy(&tmp, &dl.lines[i].x1, sizeof(tmp));
+        hash = ((hash << 5) + hash) + tmp;
+        memcpy(&tmp, &dl.lines[i].y1, sizeof(tmp));
+        hash = ((hash << 5) + hash) + tmp;
+        memcpy(&tmp, &dl.lines[i].x2, sizeof(tmp));
+        hash = ((hash << 5) + hash) + tmp;
+        memcpy(&tmp, &dl.lines[i].y2, sizeof(tmp));
+        hash = ((hash << 5) + hash) + (uint32_t)dl.lines[i].enabled;
+    }
+    hash = ((hash << 5) + hash) + (uint32_t)(ThermalConfig::BIOLOGICAL_TEMP_MIN * 100.0f + 0.5f);
+    hash = ((hash << 5) + hash) + (uint32_t)(ThermalConfig::BACKGROUND_DELTA_T * 100.0f + 0.5f);
+    hash = ((hash << 5) + hash) + (uint32_t)ThermalConfig::DEFAULT_LINE_ENTRY_Y;
+    hash = ((hash << 5) + hash) + (uint32_t)ThermalConfig::DEFAULT_LINE_EXIT_Y;
+    return hash;
+}
+
+// ---------------------------------------------------------------------------
+//  getSessionFolder  — session path component
+// ---------------------------------------------------------------------------
+const char* HttpServer::getSessionFolder() {
+    return s_session_folder;
 }

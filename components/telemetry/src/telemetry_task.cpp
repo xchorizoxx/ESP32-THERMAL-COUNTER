@@ -14,9 +14,8 @@
 
 static const char* TAG = "TELEMETRY";
 
-TelemetryTask::TelemetryTask(QueueHandle_t ipcQueue, UdpTransmitter& udp)
+TelemetryTask::TelemetryTask(QueueHandle_t ipcQueue)
     : ipcQueue_(ipcQueue)
-    , udp_(udp)
 {
 }
 
@@ -87,9 +86,9 @@ void TelemetryTask::run()
         if (++packet_count >= 320) {
             packet_count = 0;
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI(TAG, "Health: Stack HWM=%u B free | Heap=%u B free",
-                     (unsigned int)(hwm * sizeof(StackType_t)),
-                     (unsigned int)esp_get_free_heap_size());
+            // ESP_LOGI(TAG, "Health: Stack HWM=%u B free | Heap=%u B free",
+            //          (unsigned int)(hwm * sizeof(StackType_t)),
+            //          (unsigned int)esp_get_free_heap_size());
         }
     }
 }

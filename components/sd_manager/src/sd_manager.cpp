@@ -3,7 +3,6 @@
 #include "driver/sdspi_host.h"
 #include "esp_log.h"
 #include <sys/stat.h>
-#include <sys/statvfs.h>
 #include <unistd.h>
 #include <cstring>
 #include <cstdio>
@@ -12,6 +11,13 @@
 #include "freertos/task.h"
 
 static const char* TAG = "SD_MANAGER";
+
+// Colored log macros for debug visibility
+#define LOG_CYAN    "\033[0;36m"
+#define LOG_RESET   "\033[0m"
+#define LOG_COLOR(color, tag, format, ...) \
+    printf(color "I (%lu) %s: " format LOG_RESET "\n", \
+           (unsigned long)esp_log_timestamp(), tag, ##__VA_ARGS__)
 
 SDManager::SDManager() : card_(nullptr), mounted_(false), mutex_(nullptr) {
     mutex_ = xSemaphoreCreateMutex();
@@ -49,7 +55,8 @@ esp_err_t SDManager::init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sck, gpio
              mosi, miso, sck, cs);
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    host.slot = SPI2_HOST; 
+    host.slot = SPI2_HOST;
+    host.max_freq_khz = 10000; 
 
     spi_bus_config_t bus_cfg = {};
     bus_cfg.mosi_io_num     = mosi;
@@ -69,6 +76,8 @@ esp_err_t SDManager::init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sck, gpio
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = cs;
     slot_config.host_id = (spi_host_device_t)host.slot;
+
+    gpio_set_pull_mode(cs, GPIO_PULLUP_ONLY);
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
@@ -112,16 +121,32 @@ esp_err_t SDManager::mkdirInternal(const char* rel_path) {
 
 uint64_t SDManager::getFreeSpaceBytes() const {
     if (!mounted_.load(std::memory_order_relaxed)) return 0;
-    struct statvfs vfs;
-    if (statvfs(MOUNT_POINT, &vfs) != 0) return 0;
-    return (uint64_t)vfs.f_bfree * vfs.f_bsize;
+
+    FATFS* fs;
+    DWORD free_clust;
+    FRESULT res = f_getfree("0:", &free_clust, &fs);
+    if (res != FR_OK || !fs) {
+        LOG_COLOR(LOG_CYAN, TAG, "f_getfree failed: res=%d", (int)res);
+        return 0;
+    }
+
+    uint64_t bytes = (uint64_t)free_clust * fs->csize * fs->ssize;
+    LOG_COLOR(LOG_CYAN, TAG, "f_getfree: free_clust=%lu csize=%u ssize=%u → free=%llu",
+              (unsigned long)free_clust, (unsigned)fs->csize,
+              (unsigned)fs->ssize, (unsigned long long)bytes);
+    return bytes;
 }
 
 uint64_t SDManager::getTotalSpaceBytes() const {
-    if (!mounted_.load(std::memory_order_relaxed)) return 0;
-    struct statvfs vfs;
-    if (statvfs(MOUNT_POINT, &vfs) != 0) return 0;
-    return (uint64_t)vfs.f_blocks * vfs.f_bsize;
+    if (!mounted_.load(std::memory_order_relaxed) || !card_) return 0;
+
+    // CSD capacity: for SDHC/SDXC it is in 512-byte blocks
+    uint64_t bytes = (uint64_t)card_->csd.capacity * 512ULL;
+    LOG_COLOR(LOG_CYAN, TAG, "CSD total: capacity=%lu sector_size=%u → total=%llu",
+              (unsigned long)card_->csd.capacity,
+              (unsigned)card_->csd.sector_size,
+              (unsigned long long)bytes);
+    return bytes;
 }
 
 esp_err_t SDManager::mkdir(const char* rel_path) {
@@ -213,11 +238,16 @@ esp_err_t SDManager::listDirectory(const char* rel_path, char* out_json, size_t 
     pos += snprintf(out_json + pos, json_size - pos, "[");
     bool first = true;
     struct dirent* entry;
+    // Reserve 128 bytes for the closing bracket + worst-case last entry name
+    const size_t reserve = 128;
     
     while ((entry = readdir(dir)) != nullptr) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
 
-        if (!first && pos < json_size) {
+        // Stop before buffer exhaustion — guarantee valid closing bracket fits
+        if (pos + reserve >= json_size) break;
+
+        if (!first) {
             pos += snprintf(out_json + pos, json_size - pos, ",");
         }
         first = false;
@@ -231,18 +261,12 @@ esp_err_t SDManager::listDirectory(const char* rel_path, char* out_json, size_t 
             size = st.st_size;
         }
 
-        if (pos < json_size) {
-            pos += snprintf(out_json + pos, json_size - pos, "{\"name\":\"%s\",\"size\":%lu}", entry->d_name, (unsigned long)size);
-        }
+        pos += snprintf(out_json + pos, json_size - pos, "{\"name\":\"%s\",\"size\":%lu}", entry->d_name, (unsigned long)size);
     }
     closedir(dir);
     
-    if (pos < json_size) {
-        pos += snprintf(out_json + pos, json_size - pos, "]");
-    } else {
-        out_json[json_size - 1] = '\0';
-        if (json_size > 2) out_json[json_size - 2] = ']';
-    }
+    // Always enough room for the closing bracket (reserved above)
+    pos += snprintf(out_json + pos, json_size - pos, "]");
     
     unlock();
     return ESP_OK;

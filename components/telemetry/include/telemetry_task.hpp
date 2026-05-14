@@ -11,16 +11,18 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "thermal_types.hpp"
-#include "udp_transmitter.hpp"
+// UDP transmitter disabled — broadcasts via UDP are not used.
+// Web UI receives data via WebSocket instead, which is more reliable.
+// See main.cpp for the disabled construction/init.
+// #include "udp_transmitter.hpp"
 
 class TelemetryTask {
 public:
     /**
      * @brief Constructor.
      * @param ipcQueue Shared queue with Core 1 pipeline
-     * @param udp      Reference to the already initialized UDP transmitter
      */
-    TelemetryTask(QueueHandle_t ipcQueue, UdpTransmitter& udp);
+    TelemetryTask(QueueHandle_t ipcQueue);
 
     /**
      * @brief Initialization (configuration log).
@@ -38,5 +40,4 @@ private:
     void run(); // Blocking loop on xQueueReceive
 
     QueueHandle_t   ipcQueue_;
-    UdpTransmitter& udp_;
 };

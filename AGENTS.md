@@ -112,6 +112,10 @@ Binary frames use magic `0x12`, protocol v2. Contains thermal image + track posi
 
 ---
 
+## Disabled Features
+
+- **UDP Transmitter**: Disabled. WebSocket replaces UDP for all data. Source code at `components/telemetry/src/udp_transmitter.cpp` kept for reference but not compiled. History: UDP broadcasts to 255.255.255.255 saturated the TinyUSB NCM driver and broke critical network traffic.
+
 ## Key Files
 
 | File | Purpose |

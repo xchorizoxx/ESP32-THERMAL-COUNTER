@@ -105,6 +105,7 @@ int TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut,
         if (!found) {
             states_[i].state = FsmState::UNBORN; // Free slot
             states_[i].id = 0;
+            memset(states_[i].line_streak, 0, sizeof(states_[i].line_streak));
         }
     }
 
@@ -127,17 +128,10 @@ int TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut,
                 if (!mem) continue;
             }
 
-            // Decrementar cooldown si está activo
-            if (mem->cross_streak > 0) {
-                mem->cross_streak--;
-                tracker.setZoneState(t.id, 2);  // P03-fix
-                continue; // Evitar doble conteo mientras dure el cooldown
-            }
-
             // Necesitamos al menos 2 muestras para tener vector
             if (t.history.count >= 2) {
                 // Lookback dinámico: máximo 6 frames, o lo disponible
-                const int LOOKBACK = (t.history.count >= 6) ? 6 : (int)(t.history.count - 1);
+                const int LOOKBACK = ((int)t.history.count - 1 > 5) ? 5 : (int)(t.history.count - 1);
                 const int COOLDOWN = LOOKBACK + 2; // Frames de espera post-cruce
 
                 // Posición actual: historial crudo (no display_x EMA-suavizado)
@@ -149,9 +143,15 @@ int TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut,
                 float prev_x = t.history.entries[prev_idx].x;
                 float prev_y = t.history.entries[prev_idx].y;
 
+                // Decrementar cooldown por línea
+                for (int li = 0; li < dl_snap.num_lines; li++) {
+                    if (mem->line_streak[li] > 0) mem->line_streak[li]--;
+                }
+
                 for (int li = 0; li < dl_snap.num_lines; li++) {
                     const CountingSegment& seg = dl_snap.lines[li];
                     if (!seg.enabled) continue;
+                    if (mem->line_streak[li] > 0) continue; // Esta línea en cooldown
 
                     int cross = checkSegmentCrossing(
                         prev_x, prev_y, curr_x, curr_y,
@@ -161,14 +161,14 @@ int TrackletFSM::update(TrackletTracker& tracker, int& countIn, int& countOut,
                     if (cross == 1 && !already_counted_out) {
                         countOut++;
                         already_counted_out = true;
-                        mem->cross_streak = (int8_t)COOLDOWN;
+                        mem->line_streak[li] = (int8_t)COOLDOWN;
                         addEvent(t, false); // OUT event
                         // [MAGENTA] OUT crossing event (Full line)
                         ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "Track ID=%d crossed '%s' -> +1 OUT (temp=%.1f)", t.id, seg.name, t.avg_temperature);
                     } else if (cross == -1 && !already_counted_in) {
                         countIn++;
                         already_counted_in = true;
-                        mem->cross_streak = (int8_t)COOLDOWN;
+                        mem->line_streak[li] = (int8_t)COOLDOWN;
                         addEvent(t, true); // IN event
                         // [CYAN] IN crossing event (Full line)
                         ESP_LOG_COLOR(LOG_COLOR_CYAN, TAG, "Track ID=%d crossed '%s' -> +1 IN (temp=%.1f)", t.id, seg.name, t.avg_temperature);

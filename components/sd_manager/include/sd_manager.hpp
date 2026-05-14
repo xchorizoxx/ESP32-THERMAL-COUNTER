@@ -6,6 +6,7 @@
 #include "esp_err.h"
 #include "sdmmc_cmd.h"
 #include "driver/gpio.h"
+#include "ff.h"            // FATFS API for f_getfree
 #include <cstdint>
 #include <cstddef>
 #include <atomic>

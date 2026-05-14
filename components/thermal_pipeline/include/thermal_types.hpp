@@ -113,7 +113,7 @@ struct __attribute__((packed)) TrackInfo {
  * @brief Represents a single person crossing the line.
  * Captured by Core 1 (Vision) and processed by Core 0 (Web/Telemetry).
  */
-struct CrossingEvent {
+struct __attribute__((packed)) CrossingEvent {
   uint8_t id;             ///< Track ID
   bool is_in;             ///< true=IN, false=OUT
   int16_t count_in;       ///< Snapshot of total IN count (session)

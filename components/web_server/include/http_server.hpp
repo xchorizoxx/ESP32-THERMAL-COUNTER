@@ -62,6 +62,18 @@ public:
      */
     static void broadcastEvent(const CrossingEvent& ev, float ambient_temp, uint8_t active_tracks);
 
+    /**
+     * @brief Clip lifecycle callback — writes CLIP_START/CLIP_END rows to CSV.
+     *        Registered as ThermalRecorder::s_on_clip_event during start().
+     */
+    static void onClipEvent(const char* event_type,
+                            const char* clip_id,
+                            uint32_t timestamp_ms,
+                            uint32_t dur_ms,
+                            uint32_t frame_count,
+                            uint32_t crossings,
+                            bool saved);
+
 private:
     static httpd_handle_t server_;
 
@@ -79,12 +91,18 @@ private:
     static esp_err_t sdInfoHandler(httpd_req_t *req);
     static esp_err_t sdDownloadHandler(httpd_req_t *req);
     static esp_err_t sdDeleteHandler(httpd_req_t *req);
+    static esp_err_t sdEraseAllHandler(httpd_req_t *req);
 
     // --- NVS Backup ---
     static esp_err_t nvsBackupHandler(httpd_req_t *req);  ///< GET /api/nvs/backup
 
     // --- Clip API ---
     static esp_err_t clipListHandler(httpd_req_t *req);   ///< GET /api/clips
+    static esp_err_t deleteAllClipsHandler(httpd_req_t *req); ///< POST /api/clips/delete_all
+
+    // --- Session metadata ---
+    static const char* getSessionFolder(); ///< "session_075" or "session_075_20260513"
+    static uint32_t    computeLinesHash(); ///< DJB2 hash of door_lines + thresholds
 
     // --- WebSocket ---
     static void wsAsyncCompletionCb(esp_err_t err, int socket, void *arg);

@@ -40,3 +40,9 @@ AGENTES/
 # Entornos y otros IDEs
 .idea/
 .env
+
+# Opencode
+.opencode/
+.agents/
+.ctx/  
+opencode.json 
