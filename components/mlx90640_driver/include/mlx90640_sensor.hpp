@@ -83,6 +83,7 @@ private:
     float      ambientTemp_;
     int        lastSubPageID_;
     bool       initialized_;
+    bool       first_ta_read_ = true;
 
     // Static buffers (not allocated at runtime)
     paramsMLX90640 params_;

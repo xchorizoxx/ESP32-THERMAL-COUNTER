@@ -36,8 +36,15 @@ Thumbs.db
 *.bin
 *.elf
 *.map
-
 # Agent and Review artifacts
 AGENTES/
-review/
-.agents/rules/
+
+# Entornos y otros IDEs
+.idea/
+.env
+
+# Opencode
+.opencode/
+.agents/
+.ctx/
+opencode.json

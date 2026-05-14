@@ -1,5 +1,6 @@
 #include "peak_detector.hpp"
 #include "thermal_config.hpp"
+#include "fov_correction.hpp"
 
 void PeakDetector::detect(const float* currentFrame, const float* backgroundMap,
                           ThermalPeak* peaks, int* numPeaks,
@@ -37,9 +38,44 @@ void PeakDetector::detect(const float* currentFrame, const float* backgroundMap,
 
             // All conditions met → it is a peak
             if (*numPeaks < maxPeaks) {
-                peaks[*numPeaks].x = (uint8_t)c;
-                peaks[*numPeaks].y = (uint8_t)r;
-                peaks[*numPeaks].temperature = val;
+                // Centroide sub-píxel ponderado por temperatura en el vecindario 3×3.
+                // Reduce saltos discretos cuando la persona se mueve entre celdas.
+                float sum_w = 0.0f, sum_wx = 0.0f, sum_wy = 0.0f;
+                for (int dr2 = -1; dr2 <= 1; dr2++) {
+                    for (int dc2 = -1; dc2 <= 1; dc2++) {
+                        float w = currentFrame[(r + dr2) * cols + (c + dc2)];
+                        if (w < tempMin) w = 0.0f; // no pesar píxeles fríos
+                        sum_w  += w;
+                        sum_wx += w * (float)(c + dc2);
+                        sum_wy += w * (float)(r + dr2);
+                    }
+                }
+                float cx_raw = (sum_w > 0.0f) ? (sum_wx / sum_w) : (float)c;
+                float cy_raw = (sum_w > 0.0f) ? (sum_wy / sum_w) : (float)r;
+
+                // Corrección FOV: Transforma las coordenadas
+                FovCorrection::correct(cx_raw, cy_raw);
+
+                peaks[*numPeaks].x = cx_raw;
+                peaks[*numPeaks].y = cy_raw;
+
+                // Interpolar temperatura bilineal en la posición corregida por FOV
+                // (la temperatura del pico raw puede diferir hasta ~0.5°C de la corregida)
+                float temp_interp = val;
+                int ix = (int)cx_raw;
+                int iy = (int)cy_raw;
+                if (ix >= 0 && ix < cols - 1 && iy >= 0 && iy < rows - 1) {
+                    float fx = cx_raw - (float)ix;
+                    float fy = cy_raw - (float)iy;
+                    float p00 = currentFrame[iy * cols + ix];
+                    float p10 = currentFrame[iy * cols + ix + 1];
+                    float p01 = currentFrame[(iy + 1) * cols + ix];
+                    float p11 = currentFrame[(iy + 1) * cols + ix + 1];
+                    float top = p00 + fx * (p10 - p00);
+                    float bot = p01 + fx * (p11 - p01);
+                    temp_interp = top + fy * (bot - top);
+                }
+                peaks[*numPeaks].temperature = temp_interp;
                 peaks[*numPeaks].suppressed  = false;
                 (*numPeaks)++;
             } else {

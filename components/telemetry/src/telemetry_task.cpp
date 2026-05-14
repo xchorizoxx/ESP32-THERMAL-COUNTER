@@ -7,25 +7,37 @@
 
 #include "telemetry_task.hpp"
 #include "esp_log.h"
-#include "http_server.hpp" // [NEW] Added for WebSockets
+#include "esp_task_wdt.h"  
+#include "http_server.hpp" 
+#include "esp_netif.h"     // [NEW] To check interface status
+#include <errno.h>         // [FIX] Required for errno usage in logs
 
 static const char* TAG = "TELEMETRY";
 
-TelemetryTask::TelemetryTask(QueueHandle_t ipcQueue, UdpTransmitter& udp)
+TelemetryTask::TelemetryTask(QueueHandle_t ipcQueue)
     : ipcQueue_(ipcQueue)
-    , udp_(udp)
 {
 }
 
 void TelemetryTask::init()
 {
-    ESP_LOGI(TAG, "TelemetryTask initialized (queue=%p)", ipcQueue_);
+    // [MAGENTA] Network-related log (Full line)
+    ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "TelemetryTask initialized (queue=%p)", ipcQueue_);
 }
 
 void TelemetryTask::TaskWrapper(void* pvParameters)
 {
+    // P05-fix: Register this task with the WDT to prevent zombie-task on network freeze.
+    esp_err_t wdt_err = esp_task_wdt_add(NULL);
+    if (wdt_err != ESP_OK && wdt_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "WDT register failed: %s — task will run unmonitored", esp_err_to_name(wdt_err));
+    }
+
     auto* self = static_cast<TelemetryTask*>(pvParameters);
     self->run();
+
+    esp_task_wdt_delete(NULL);
+    ESP_LOGE(TAG, "TelemetryTask::run() returned unexpectedly — deleting task");
     vTaskDelete(NULL);
 }
 
@@ -33,31 +45,35 @@ void TelemetryTask::run()
 {
     static IpcPacket packet; // static: avoids allocating ~1.6 KB on the task stack
 
-    ESP_LOGI(TAG, "Telemetry task started on Core %d", xPortGetCoreID());
+    // [MAGENTA] Network-related log (Full line)
+    ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "Telemetry task started on Core %d", xPortGetCoreID());
 
     while (true) {
+        // WDT reset FIRST — before any potentially blocking I/O (like HTTP locks)
+        esp_task_wdt_reset();
+
         // Block until receiving a packet from the pipeline (Core 1)
-        BaseType_t received = xQueueReceive(ipcQueue_, &packet, portMAX_DELAY);
+        // Timeout 100ms guarantees the WDT gets reset even if queue is empty
+        BaseType_t received = xQueueReceive(ipcQueue_, &packet, pdMS_TO_TICKS(100));
         if (received != pdTRUE) {
             continue;
         }
 
-        // Send telemetry (counters + tracks)
-        esp_err_t err = udp_.sendTelemetry(packet.telemetry);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "Error sending telemetry (frame %lu)",
-                     packet.telemetry.frame_id);
-        }
-
-        // Send thermal image
-        err = udp_.sendImage(packet.image);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "Error sending image (frame %lu)",
-                     packet.image.frame_id);
-        }
+        // [FIX] UDP broadcasts are disabled globally.
+        // Broadcasting huge thermal frames (1500+ bytes) to 255.255.255.255 saturates the 
+        // TinyUSB NCM driver queue and prevents essential network traffic (like DHCP replies)
+        // from going out. The Web UI uses WebSockets, not UDP.
 
         // [NEW] Send via WebSocket to HTTP clients
         HttpServer::broadcastFrame(packet.image, packet.telemetry, packet.sensor_ok);
+
+        // W4-CSV: Broadcast individual crossing events as JSON for precise logging
+        for (int i = 0; i < packet.telemetry.num_events; i++) {
+            HttpServer::broadcastEvent(packet.telemetry.events[i], packet.telemetry.ambient_temp, packet.telemetry.num_tracks);
+        }
+
+        // WDT reset moved to top of loop
+        // esp_task_wdt_reset();
 
         ESP_LOGD(TAG, "Frame %lu transmitted: IN=%d OUT=%d tracks=%d",
                  packet.telemetry.frame_id,
@@ -65,13 +81,14 @@ void TelemetryTask::run()
                  packet.telemetry.count_out,
                  packet.telemetry.num_tracks);
 
-        // --- Self-Monitoring: Profile Stack High Water Mark (every 100 packets) ---
+        // --- Self-Monitoring: Stack HWM + Heap every 320 frames (~10s at 32Hz) ---
         static uint32_t packet_count = 0;
-        if (++packet_count >= 100) {
+        if (++packet_count >= 320) {
             packet_count = 0;
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI(TAG, "Stack High Water Mark: %u words (%u bytes) free", 
-                     (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
+            // ESP_LOGI(TAG, "Health: Stack HWM=%u B free | Heap=%u B free",
+            //          (unsigned int)(hwm * sizeof(StackType_t)),
+            //          (unsigned int)esp_get_free_heap_size());
         }
     }
 }

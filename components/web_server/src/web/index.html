@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ESP32 Thermal Vigilant</title>
+    <link rel="stylesheet" href="/style.css?v=2.0">
+</head>
+
+<body>
+    <!-- ===================== TOP APP BAR ===================== -->
+    <header class="app-bar">
+        <div class="brand">
+            <svg class="icon-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path
+                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+            <h1>VIGILANT <span>THERMAL</span></h1>
+        </div>
+        <div class="status-indicators">
+            <div class="badge" id="badge-ws" title="WebSocket">
+                <div class="dot red" id="dot-ws"></div>
+                <span id="lbl-ws">Desconectado</span>
+            </div>
+            <div class="badge" id="badge-clock" title="Calidad de reloj">
+                <div class="dot gray" id="dot-clock"></div>
+                <span id="lbl-clock-quality">Sin hora</span>
+            </div>
+            <div class="badge" id="badge-sensor" title="Sensor MLX90640">
+                <div class="dot gray" id="dot-sensor"></div>
+            </div>
+            <div class="badge" id="badge-rtc-top" title="Reloj RTC DS3231">
+                <div class="dot gray" id="dot-rtc-top"></div>
+            </div>
+            <div class="badge" id="badge-sd-top" title="Tarjeta MicroSD">
+                <div class="dot gray" id="dot-sd-top"></div>
+            </div>
+            <div class="badge" title="FPS">
+                <span id="lbl-fps">0 Hz</span>
+            </div>
+            <div class="badge" title="Temperatura ambiente">
+                <span id="lbl-amb">--°C</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ===================== MAIN CONTENT ===================== -->
+    <main id="main-content">
+
+        <!-- ============== VISION VIEW ============== -->
+        <section id="view-vision" class="view-section active">
+            <div class="card canvas-card">
+                <div class="canvas-header">
+                    <h2>Live Feed</h2>
+                    <div class="vision-controls">
+                        <button class="btn-pill active" data-mode="normal"
+                            onclick="setVisionMode('normal', event)">Normal</button>
+                        <button class="btn-pill" data-mode="raw" onclick="setVisionMode('raw', event)">Raw</button>
+                        <button class="btn-pill" data-mode="diff"
+                            onclick="setVisionMode('diff', event)">Diferencial</button>
+                        <button class="btn-pill" id="btn-trail" onclick="toggleTrail()">Trail</button>
+                    </div>
+                </div>
+                <div class="canvas-container">
+                    <!-- Live counters overlay -->
+                    <div class="canvas-overlay-counts">
+                        <span id="overlay-in" class="overlay-badge green">In: 0</span>
+                        <span id="overlay-out" class="overlay-badge blue">Out: 0</span>
+                    </div>
+                    <canvas id="thermalCanvas" width="320" height="240"></canvas>
+                    <canvas id="uiCanvas" width="320" height="240"
+                        style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
+                </div>
+                <div class="scale-bar">
+                    <span id="scale-min">--°C</span>
+                    <canvas id="scaleCanvas" width="200" height="10"></canvas>
+                    <span id="scale-max">--°C</span>
+                </div>
+            </div>
+
+            <!-- VGA placeholder (Fase E) -->
+            <div class="card vga-placeholder">
+                <div class="vga-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                        <circle cx="12" cy="13" r="4" />
+                    </svg>
+                </div>
+                <p>Módulo VGA Óptico (Fase E)</p>
+            </div>
+        </section>
+
+        <!-- ============== STATS VIEW (W7) ============== -->
+        <section id="view-stats" class="view-section">
+
+            <!-- Totals row -->
+            <div class="stats-grid">
+                <div class="stat-card green">
+                    <div class="stat-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <h3>Entradas (total)</h3>
+                        <p id="stat-in">0</p>
+                        <small id="stat-session-in" class="stat-session-label">Sesión: 0</small>
+                    </div>
+                </div>
+                <div class="stat-card blue">
+                    <div class="stat-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M19 12H5M12 19l-7-7 7-7" />
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <h3>Salidas (total)</h3>
+                        <p id="stat-out">0</p>
+                        <small id="stat-session-out" class="stat-session-label">Sesión: 0</small>
+                    </div>
+                </div>
+                <div class="stat-card amber">
+                    <div class="stat-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                            <circle cx="9" cy="7" r="4" />
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <h3>Ocupación neta</h3>
+                        <p id="stat-net">0</p>
+                        <small class="stat-session-label">In − Out</small>
+                    </div>
+                </div>
+                <div class="stat-card gray">
+                    <div class="stat-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <h3>Sesión</h3>
+                        <p id="stat-session-id-display">--</p>
+                        <small id="stat-time-quality-label" class="stat-session-label">Sin referencia</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Activity chart (last 24 hours or 24 blocks if no clock) -->
+            <div class="card">
+                <div class="chart-header">
+                    <h3>Actividad de cruces</h3>
+                    <span id="chart-subtitle" class="text-muted-sm">-- eventos en sesión</span>
+                </div>
+                <canvas id="mini-chart" width="320" height="80" style="width:100%;"></canvas>
+                <div class="chart-legend">
+                    <span class="legend-dot" style="background:#3b82f6;"></span><span>Entradas</span>
+                    <span class="legend-dot" style="background:#10b981; margin-left:12px;"></span><span>Salidas</span>
+                </div>
+            </div>
+
+            <!-- Events log table -->
+            <div class="card">
+                <div class="chart-header">
+                    <h3>Últimos eventos</h3>
+                    <button class="btn-pill" onclick="generateCSV()" title="Descargar todos los eventos como CSV">⬇
+                        CSV</button>
+                </div>
+                <div class="events-table-wrap">
+                    <table class="events-table">
+                        <thead>
+                            <tr>
+                                <th>Hora</th>
+                                <th>Dir.</th>
+                                <th>In</th>
+                                <th>Out</th>
+                                <th>Temp.</th>
+                                <th>Amb.</th>
+                                <th>Tracks</th>
+                                <th>Clip</th>
+                            </tr>
+                        </thead>
+                        <tbody id="events-tbody">
+                            <tr>
+                                <td colspan="6" class="no-events">Sin eventos en esta sesión</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- SD Storage Manager -->
+            <div class="card sd-card-manager">
+                <div class="chart-header">
+                    <h3>💾 Almacenamiento SD</h3>
+                    <button class="btn-primary" onclick="downloadAllLogsZip()" id="btn-sd-zip" disabled style="width:auto; padding: 6px 12px; font-size:0.75rem;">📦 Descargar TODO en ZIP</button>
+                </div>
+
+                <div id="sd-status-panel">
+                    <div class="sd-storage-bar-bg">
+                        <div class="sd-storage-bar-fill" id="sd-bar-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="sd-storage-labels">
+                        <span id="sd-lbl-used">Calculando...</span>
+                        <span id="sd-lbl-free">-- libres</span>
+                    </div>
+                </div>
+
+                <!-- Download session data -->
+                <div style="margin-top:15px; display:flex; flex-wrap:wrap; gap:8px;">
+                    <button class="btn-primary" onclick="downloadSessionData()" style="width:auto; padding:6px 12px; font-size:0.75rem;">📦 Sesión datos (CSV+JSON)</button>
+                    <button class="btn-primary" onclick="downloadSessionFull()" style="width:auto; padding:6px 12px; font-size:0.75rem;">📦 Sesión + clips</button>
+                    <button class="btn-primary" onclick="downloadFullBackup()" style="width:auto; padding:6px 12px; font-size:0.75rem;">💾 Backup completo</button>
+                </div>
+
+                <div class="events-table-wrap" style="margin-top: 15px;">
+                    <table class="events-table">
+                        <thead>
+                            <tr>
+                                <th>Archivo</th>
+                                <th>Tamaño</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sd-files-tbody">
+                            <tr>
+                                <td colspan="3" class="no-events">Cargando estado de la SD...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="margin-top: 10px; display: flex; justify-content: flex-end;">
+                    <button class="btn-danger" id="btn-sd-format" onclick="formatSdCard()" disabled
+                        style="width:auto; padding: 6px 12px; font-size:0.75rem;">🗑 Formatear SD (Borrar Todo)</button>
+                </div>
+            </div>
+
+            <!-- NVS Backup & Reset Actions -->
+            <div class="card form-card">
+                <h3>🛡 Backup Global (RAM/NVS)</h3>
+                <p class="text-muted-sm" style="margin-bottom: 12px;">Estado interno del microcontrolador. Inmune a
+                    cortes de luz.</p>
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <button class="btn-primary" onclick="downloadNvsBackup()">⬇ Descargar Backup NVS</button>
+                    <button class="btn-primary" onclick="generateCSV()">📊 Descargar Estado Actual en Vivo</button>
+                    <button class="btn-warn" onclick="saveNvsNow()">💾 Forzar Guardado en NVS Ahora</button>
+                    <button class="btn-danger" onclick="resetAllCounters()">🔄 Resetear Aforo Global a 0</button>
+                    <button class="btn-danger" onclick="eraseNvs()" style="background:var(--accent-amber);">🗑 Vaciar NVS (Factory Reset)</button>
+                </div>
+            </div>
+
+            <div style="height:20px;"></div>
+        </section>
+
+        <!-- ============== SETTINGS VIEW ============== -->
+        <section id="view-settings" class="view-section">
+            <div class="settings-tabs">
+                <button class="tab-btn active" onclick="switchSettings('basic', event)">Básica</button>
+                <button class="tab-btn" onclick="switchSettings('adv', event)">Avanzado</button>
+                <button class="tab-btn" onclick="switchSettings('net', event)">Sistema</button>
+            </div>
+
+            <!-- ---- BASIC TAB ---- -->
+            <div id="set-basic" class="settings-panel active">
+                <div class="card form-card">
+                    <h3>Detección y Ruido</h3>
+                    <div class="form-group">
+                        <label>Temperatura Mín. Biológica: <span id="val-temp_bio" class="val-badge">25.0</span>
+                            °C</label>
+                        <input type="range" id="cfg-temp_bio" min="15.0" max="38.0" step="0.5"
+                            oninput="updateBadge('temp_bio', this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label>Delta T (Contraste vs Fondo): <span id="val-delta_t" class="val-badge">1.5</span>
+                            °C</label>
+                        <input type="range" id="cfg-delta_t" min="0.5" max="5.0" step="0.1"
+                            oninput="updateBadge('delta_t', this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label>Factor EMA (Adaptación Fondo): <span id="val-alpha_ema"
+                                class="val-badge">0.05</span></label>
+                        <input type="range" id="cfg-alpha_ema" min="0.01" max="0.50" step="0.01"
+                            oninput="updateBadge('alpha_ema', this.value)">
+                        <small>Menor = fondo más estable.</small>
+                    </div>
+                    <details style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;">
+                        <summary
+                            style="cursor:pointer; font-size:0.85rem; color:var(--text-muted); margin-bottom:10px;">
+                            ⚙ Modo Legacy — Líneas Horizontales Norte/Sur
+                        </summary>
+                        <div class="form-group">
+                            <label>Línea Entrada (Norte): Fila <span id="val-line_entry"
+                                    class="val-badge">8</span></label>
+                            <input type="range" id="cfg-line_entry" min="0" max="23" step="1"
+                                oninput="updateBadge('line_entry', this.value)">
+                            <small>Solo aplica sin líneas de segmento.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Línea Salida (Sur): Fila <span id="val-line_exit" class="val-badge">16</span></label>
+                            <input type="range" id="cfg-line_exit" min="0" max="23" step="1"
+                                oninput="updateBadge('line_exit', this.value)">
+                            <small>Solo aplica sin líneas de segmento.</small>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Custom counting lines -->
+                <div class="card form-card">
+                    <h3>Líneas de Conteo (Segmentos)</h3>
+                    <button type="button" class="btn-primary" id="btn-edit-lines" onclick="toggleLineEditor()"
+                        style="width:100%; margin-bottom:10px;">
+                        ✏ EDITAR LÍNEAS EN EL CANVAS
+                    </button>
+                    <div id="lines-list" style="font-size:0.75rem; color:var(--text-muted); min-height:20px;">
+                        <!-- Populated by updateLineList() -->
+                    </div>
+                    <button type="button" class="btn-danger" onclick="clearAllLines()"
+                        style="width:100%; margin-top:10px;">
+                        🗑 BORRAR TODAS LAS LÍNEAS
+                    </button>
+                    <small style="display:block; margin-top:8px;">
+                        Activa "Editar" y dibuja directamente sobre el Live Feed.
+                    </small>
+                </div>
+
+                <!-- Dead zones -->
+                <div class="card form-card">
+                    <h3>Zonas Muertas Laterales</h3>
+                    <div class="form-group">
+                        <label>Zona Muerta Izquierda: Col <span id="val-dead_left" class="val-badge">5</span></label>
+                        <input type="range" id="cfg-dead_left" min="0" max="31" step="1"
+                            oninput="updateBadge('dead_left', this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label>Zona Muerta Derecha: Col <span id="val-dead_right" class="val-badge">26</span></label>
+                        <input type="range" id="cfg-dead_right" min="0" max="31" step="1"
+                            oninput="updateBadge('dead_right', this.value)">
+                    </div>
+                </div>
+            </div>
+
+            <!-- ---- ADVANCED TAB ---- -->
+            <div id="set-adv" class="settings-panel">
+                <div class="card form-card">
+                    <h3>Mapeo de Color (Ironbow)</h3>
+                    <div class="form-group">
+                        <label>Umbral Frío → Biológico: <span id="val-color_low" class="val-badge">25.0</span>
+                            °C</label>
+                        <input type="range" id="cfg-color_low" min="15.0" max="38.0" step="0.5" value="25.0"
+                            oninput="updateBadge('color_low', this.value)" onchange="regenerateLUT()">
+                        <small>Acelera el gradiente hacia colores brillantes.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Umbral Biológico → Crítico: <span id="val-color_high" class="val-badge">38.0</span>
+                            °C</label>
+                        <input type="range" id="cfg-color_high" min="30.0" max="45.0" step="0.5" value="38.0"
+                            oninput="updateBadge('color_high', this.value)" onchange="regenerateLUT()">
+                        <small>Saturación Amarillo/Blanco.</small>
+                    </div>
+                </div>
+                <div class="card form-card">
+                    <h3>Topología Biométrica</h3>
+                    <div class="form-group">
+                        <label>Altura del Sensor: <span id="val-sensor_height" class="val-badge">3.5</span> m</label>
+                        <input type="range" id="cfg-sensor_height" min="1.5" max="5.0" step="0.1"
+                            oninput="updateBadge('sensor_height', this.value)">
+                        <small>Compensa FOV y distancias planas.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Diámetro de Persona: <span id="val-person_diameter" class="val-badge">0.7</span>
+                            m</label>
+                        <input type="range" id="cfg-person_diameter" min="0.4" max="1.5" step="0.1"
+                            oninput="updateBadge('person_diameter', this.value)">
+                        <small>Tamaño de bloque para NMS lineal.</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ---- SYSTEM TAB (W8: RTC stub + clock + session) ---- -->
+            <div id="set-net" class="settings-panel">
+
+                <!-- Clock & RTC (W8 stub) -->
+                <div class="card form-card">
+                    <h3>🕐 Reloj del Sistema</h3>
+                    <div class="clock-status-row">
+                        <div class="dot gray" id="dot-rtc"></div>
+                        <span id="lbl-rtc-status">DS3231 no detectado</span>
+                    </div>
+                    <div class="clock-display-block">
+                        <div id="lbl-clock-time" class="clock-time-display">--:--:--</div>
+                        <div id="lbl-clock-date" class="clock-date-display">-- / -- / ----</div>
+                    </div>
+                    <div class="session-info-grid">
+                        <div class="session-row">
+                            <span class="text-muted-sm">Sesión ID</span>
+                            <span id="lbl-session-id" class="val-badge">--</span>
+                        </div>
+                        <div class="session-row">
+                            <span class="text-muted-sm">Fuente de hora</span>
+                            <span id="lbl-time-quality-full" class="val-badge">Sin referencia</span>
+                        </div>
+                        <div class="session-row">
+                            <span class="text-muted-sm">Conteo guardado en flash</span>
+                            <span id="lbl-nvs-counts" class="val-badge">In:-- Out:--</span>
+                        </div>
+                    </div>
+                    <!-- Future DS3231 controls will appear here when W-C1 driver is added -->
+                    <div id="rtc-controls-placeholder" style="display:none;">
+                        <!-- Fase C1: DS3231 sync controls -->
+                    </div>
+                    <button class="btn-primary" style="margin-top:14px;" onclick="requestStatus()">
+                        ↺ Refrescar estado
+                    </button>
+                </div>
+
+                <!-- System actions -->
+                <div class="card form-card">
+                    <h3>Acciones del Sistema</h3>
+                    <button class="btn-warn" style="margin-bottom:10px;" onclick="appCmd('RETRY_SENSOR')">
+                        ↺ Reconectar Sensor Térmico
+                    </button>
+                    <button class="btn-warn" style="margin-bottom:10px;" onclick="appCmd('RETRY_RTC')">
+                        ↺ Reconectar Reloj RTC
+                    </button>
+                    <button class="btn-warn" style="margin-bottom:10px;" onclick="appCmd('RETRY_SD')">
+                        ↺ Reconectar Tarjeta SD
+                    </button>
+                    <button class="btn-primary" style="margin-bottom:10px;" onclick="saveNvsNow()">
+                        💾 Guardar NVS ahora
+                    </button>
+                    <button class="btn-danger" onclick="rebootEsp()">
+                        ⚡ Reboot ESP32
+                    </button>
+                </div>
+
+                <!-- OTA -->
+                <div class="card form-card">
+                    <h3>Actualización OTA</h3>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">
+                        Sube un nuevo firmware .bin compilado con ESP-IDF.
+                    </p>
+                    <input type="file" id="ota-file" accept=".bin"
+                        style="font-size:0.8rem; color:var(--text-muted); width:100%; margin-bottom:10px;">
+                    <button class="btn-primary" onclick="startOTA()">⬆ Flashear Firmware</button>
+                    <div id="ota-progress" style="display:none; margin-top:10px;">
+                        <div class="ota-progress-bar">
+                            <div id="ota-progress-fill"
+                                style="width:0%; height:100%; background:var(--accent-green); border-radius:4px; transition:width 0.3s;">
+                            </div>
+                        </div>
+                        <small id="ota-progress-label" style="color:var(--text-muted);">Subiendo...</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Save button (always visible at the bottom of settings) -->
+            <div class="settings-actions">
+                <button class="btn-primary" onclick="saveConfig()">💾 Guardar configuración en Flash</button>
+            </div>
+            <div style="height:150px;"></div>
+        </section>
+
+        <!-- ============== CLIPS VIEW (Grabaciones) ============== -->
+        <section id="view-clips" class="view-section">
+
+            <!-- Clip list header -->
+            <div class="card">
+                <div class="chart-header">
+                    <h3>🎬 Grabaciones Térmicas</h3>
+                    <button class="btn-pill" onclick="loadClips()">↻ Recargar</button>
+                </div>
+                <p class="text-muted-sm" style="margin-bottom:12px;">
+                    Clips guardados en la SD durante detección de actividad.
+                </p>
+                <div id="clips-toolbar" class="sd-storage-labels" style="margin-bottom:10px; gap:8px;">
+                    <!-- Populated by loadClips() -->
+                </div>
+                <div id="clips-list">
+                    <p class="text-muted-sm" style="text-align:center;padding:20px 0;">
+                        Cargando lista de clips...
+                    </p>
+                </div>
+            </div>
+
+            <!-- Recorder config summary -->
+            <div class="card form-card">
+                <h3>⚙ Configuración de Grabación</h3>
+                <div class="form-group">
+                    <label>Pre-roll: <span id="val-clip-preroll" class="val-badge">1000</span> ms</label>
+                    <input type="range" id="cfg-clip-preroll" min="250" max="3000" step="50" value="1000">
+                </div>
+                <div class="form-group">
+                    <label>Cooldown: <span id="val-clip-cooldown" class="val-badge">500</span> ms</label>
+                    <input type="range" id="cfg-clip-cooldown" min="200" max="5000" step="50" value="500">
+                </div>
+                <div class="form-group">
+                    <label>Duración Máx.: <span id="val-clip-maxdur" class="val-badge">30</span> s</label>
+                    <input type="range" id="cfg-clip-maxdur" min="5" max="120" step="5" value="30">
+                </div>
+                <div class="form-group">
+                    <label>Duración Mín.: <span id="val-clip-mindur" class="val-badge">1.0</span> s</label>
+                    <input type="range" id="cfg-clip-mindur" min="0.5" max="10" step="0.1" value="1.0">
+                </div>
+            </div>
+
+            <div style="height:20px;"></div>
+        </section>
+
+        <!-- ============== PLAYER MODAL ============== -->
+        <div id="player-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="player-title">Reproductor Térmico</h3>
+                    <button class="btn-pill" onclick="closePlayer()" style="padding:4px 10px;">✕</button>
+                </div>
+
+                <div class="player-info-row">
+                    <span id="player-clip-name" class="val-badge">clip_00001.thv</span>
+                    <span id="player-clip-dir" class="dir-in">IN</span>
+                    <span id="player-clip-time" class="text-muted-sm">--:--:--</span>
+                </div>
+
+                <div class="player-canvas-wrap">
+                    <canvas id="playerCanvas" width="320" height="240"></canvas>
+                </div>
+
+                <div class="player-timeline-row">
+                    <span class="text-muted-sm" id="player-frame-cur">0</span>
+                    <input type="range" id="player-timeline" min="0" max="100" value="0"
+                           oninput="seekTo(parseInt(this.value))">
+                    <span class="text-muted-sm" id="player-frame-total">0</span>
+                </div>
+
+                <div class="player-controls">
+                    <button class="btn-pill" onclick="togglePlay()" id="btn-play">▶</button>
+                    <div class="player-speed-group">
+                        <button class="btn-pill speed-btn active" data-speed="1" onclick="setPlaySpeed(1)">1x</button>
+                        <button class="btn-pill speed-btn" data-speed="2" onclick="setPlaySpeed(2)">2x</button>
+                        <button class="btn-pill speed-btn" data-speed="4" onclick="setPlaySpeed(4)">4x</button>
+                    </div>
+                    <span class="text-muted-sm" id="player-temp-range">--°C / --°C</span>
+                </div>
+
+                <div class="scale-bar" style="margin-top:8px;">
+                    <span id="player-scale-min">--°C</span>
+                    <canvas id="playerScaleCanvas" width="200" height="10"></canvas>
+                    <span id="player-scale-max">--°C</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============== DEBUG DRAWER ============== -->
+        <div id="debug-drawer" class="drawer hidden">
+            <div class="drawer-header" onclick="toggleDebug()">
+                <span>Debugger Logs</span>
+                <span id="debug-toggle-icon">▲</span>
+            </div>
+            <div class="drawer-content" id="debug-console"></div>
+        </div>
+
+    </main>
+
+    <!-- ===================== BOTTOM NAV ===================== -->
+    <nav class="bottom-nav">
+        <ul>
+            <li>
+                <button class="nav-item active" onclick="switchMainView('vision', this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <span>Visión</span>
+                </button>
+            </li>
+            <li>
+                <button class="nav-item" onclick="switchMainView('stats', this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 20V10M12 20V4M6 20v-6" />
+                    </svg>
+                    <span>Estadísticas</span>
+                </button>
+            </li>
+            <li>
+                <button class="nav-item" onclick="switchMainView('clips', this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="4" width="20" height="16" rx="2" />
+                        <polygon points="10,8 16,12 10,16" fill="currentColor" />
+                    </svg>
+                    <span>Grabaciones</span>
+                </button>
+            </li>
+            <li>
+                <button class="nav-item" onclick="switchMainView('settings', this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3" />
+                        <path
+                            d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
+                    </svg>
+                    <span>Config</span>
+                </button>
+            </li>
+        </ul>
+    </nav>
+
+    <script src="/app.js?v=2.0"></script>
+</body>
+
+</html>

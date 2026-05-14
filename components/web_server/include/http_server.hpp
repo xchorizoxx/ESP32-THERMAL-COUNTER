@@ -3,47 +3,108 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
+#include "freertos/timers.h"
 #include "esp_err.h"
 #include "esp_http_server.h"
 #include "thermal_types.hpp"
-
+#include <stdint.h>
 
 class HttpServer {
 public:
     /**
-     * @brief Initialize and start the HTTP and WebSocket server.
+     * @brief Time quality constants — broadcast in every binary frame (W3).
      */
-    static esp_err_t start(QueueHandle_t configQueue = NULL);
+    static constexpr uint8_t TIME_QUALITY_NONE    = 0; ///< No time reference available
+    static constexpr uint8_t TIME_QUALITY_BROWSER = 1; ///< Unix time set by browser on connect
+    static constexpr uint8_t TIME_QUALITY_RTC     = 2; ///< Reserved for DS3231 hardware RTC (W8)
 
     /**
-     * @brief Stop the server and clean up resources.
+     * @brief Binary WebSocket frame magic byte.
+     *        0x12 = protocol v2 (includes session_id, time_quality, peak_temp_100 per track).
+     *        Old clients sending 0x11 frames will be silently ignored by the new JS.
      */
-    static void stop();
+    static constexpr uint8_t WS_FRAME_MAGIC = 0x12;
 
     /**
-     * @brief Broadcast a frame containing image and telemetry data to all connected WebSocket clients.
+     * @brief Static buffer pool for async WebSocket broadcasting.
+     *        W1-2: Increased from 2048 to 4096. A compile-time assert in
+     *        http_server.cpp verifies the worst-case frame fits.
      */
-    static void broadcastFrame(const ImagePayload& img, const TelemetryPayload& tel, bool sensor_ok = true);
+    static constexpr size_t WS_BUFFER_COUNT = 4;
+    static constexpr size_t WS_BUFFER_SIZE  = 4096;
 
-private:
-    static httpd_handle_t server_;
-
-    // Static buffer system to avoid malloc/free during broadcast
-    static constexpr size_t WS_BUFFER_COUNT = 2;
-    static constexpr size_t WS_BUFFER_SIZE  = 2048;
     static uint8_t ws_buffers_[WS_BUFFER_COUNT][WS_BUFFER_SIZE];
     static int     ws_buffer_ref_counts_[WS_BUFFER_COUNT];
 
     /**
-     * @brief Callback invoked when asynchronous transmission finishes.
+     * @brief Initialize HTTP + WebSocket server.
+     * @param configQueue  FreeRTOS queue for sending AppConfigCmd to Core 1.
      */
-    static void wsAsyncCompletionCb(esp_err_t err, int socket, void *arg);
+    static esp_err_t start(QueueHandle_t configQueue = NULL);
 
-    // HTTP Handlers
+    /**
+     * @brief Stop the server and release all resources.
+     */
+    static void stop();
+
+    /**
+     * @brief Broadcast a binary frame to all connected WebSocket clients.
+     *        Called from Core 1 pipeline dispatch at 16 Hz.
+     *        Also updates the counter mirror used by the NVS save timer (W6).
+     */
+    static void broadcastFrame(const ImagePayload& img,
+                               const TelemetryPayload& tel,
+                               bool sensor_ok = true);
+
+    /**
+     * @brief Broadcast a JSON event (e.g., person crossing) to all clients.
+     *        W4-CSV: Sends { "type": "crossing", "dir": "IN", "temp": 36.5 }
+     */
+    static void broadcastEvent(const CrossingEvent& ev, float ambient_temp, uint8_t active_tracks);
+
+    /**
+     * @brief Clip lifecycle callback — writes CLIP_START/CLIP_END rows to CSV.
+     *        Registered as ThermalRecorder::s_on_clip_event during start().
+     */
+    static void onClipEvent(const char* event_type,
+                            const char* clip_id,
+                            uint32_t timestamp_ms,
+                            uint32_t dur_ms,
+                            uint32_t frame_count,
+                            uint32_t crossings,
+                            bool saved);
+
+private:
+    static httpd_handle_t server_;
+
+    // --- HTTP handlers ---
     static esp_err_t indexGetHandler(httpd_req_t *req);
+    static esp_err_t styleGetHandler(httpd_req_t *req);
+    static esp_err_t appJsGetHandler(httpd_req_t *req);
     static esp_err_t wsHandler(httpd_req_t *req);
     static esp_err_t otaPostHandler(httpd_req_t *req);
+    static esp_err_t rebootPostHandler(httpd_req_t *req); ///< W1-5: static fn, not lambda
+    static esp_err_t saveNvsHandler(httpd_req_t *req);    ///< POST /save_nvs — manual counter persist
+    static esp_err_t downloadLogHandler(httpd_req_t *req);
     
-    // Internal handler for incoming WebSocket JSON messages
+    // --- SD API ---
+    static esp_err_t sdInfoHandler(httpd_req_t *req);
+    static esp_err_t sdDownloadHandler(httpd_req_t *req);
+    static esp_err_t sdDeleteHandler(httpd_req_t *req);
+    static esp_err_t sdEraseAllHandler(httpd_req_t *req);
+
+    // --- NVS Backup ---
+    static esp_err_t nvsBackupHandler(httpd_req_t *req);  ///< GET /api/nvs/backup
+
+    // --- Clip API ---
+    static esp_err_t clipListHandler(httpd_req_t *req);   ///< GET /api/clips
+    static esp_err_t deleteAllClipsHandler(httpd_req_t *req); ///< POST /api/clips/delete_all
+
+    // --- Session metadata ---
+    static const char* getSessionFolder(); ///< "session_075" or "session_075_20260513"
+    static uint32_t    computeLinesHash(); ///< DJB2 hash of door_lines + thresholds
+
+    // --- WebSocket ---
+    static void wsAsyncCompletionCb(esp_err_t err, int socket, void *arg);
     static void handleWebSocketMessage(httpd_req_t *req, httpd_ws_frame_t *ws_pkt);
 };

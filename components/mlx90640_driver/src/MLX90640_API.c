@@ -120,6 +120,7 @@ int MLX90640_GetFrameData(uint8_t slaveAddr, uint16_t *frameData)
     uint16_t data[64];
     uint8_t cnt = 0;
     
+    uint16_t dataReady_watchdog = 0;
     while(dataReady == 0)
     {
         error = MLX90640_I2CRead(slaveAddr, MLX90640_STATUS_REG, 1, &statusRegister);
@@ -128,8 +129,11 @@ int MLX90640_GetFrameData(uint8_t slaveAddr, uint16_t *frameData)
             return error;
         }    
         //dataReady = statusRegister & 0x0008;
-        dataReady = MLX90640_GET_DATA_READY(statusRegister); 
-    }      
+        dataReady = MLX90640_GET_DATA_READY(statusRegister);
+        if (++dataReady_watchdog > 500) {
+            return -MLX90640_MEAS_TRIGGER_ERROR;
+        }
+    }
     
     error = MLX90640_I2CWrite(slaveAddr, MLX90640_STATUS_REG, MLX90640_INIT_STATUS_VALUE);
     if(error == -MLX90640_I2C_NACK_ERROR)

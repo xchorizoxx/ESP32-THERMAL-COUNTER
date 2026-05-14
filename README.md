@@ -1,232 +1,186 @@
-# 🛰️ Thermal Door Detector · Edge AI HUD
+# Thermal Door Counter — ESP32-S3 + MLX90640
 
-![Version](https://img.shields.io/badge/Version-Alpha--0.6--Tactical--Debug-blue)
-![Platform](https://img.shields.io/badge/Platform-ESP32--S3-orange)
-![Framework](https://img.shields.io/badge/Framework-ESP--IDF--v6.0-red)
+Embedded person counting system using thermal vision (32×24 pixels). Zero optical cameras: 100% privacy, works in total darkness.
 
-[Leer en Español](README_ES.md)
+## Technical Specifications
 
+| Parameter | Value |
+|-----------|-------|
+| Sensor | Melexis MLX90640 (32×24 thermopile, 110° FOV) |
+| Processor | ESP32-S3 dual-core @ 240MHz |
+| Acquisition | 32 Hz (sub-frames) |
+| Processing | 16 Hz (full composed frames) |
+| Architecture | Core 1 (Vision) + Core 0 (Network/Web) |
+| Tracking | TrackletTracker with 20-frame circular history (Stage A2) |
+| Counting | TrackletFSM with configurable line segments (Stage A3) |
+| Interface | Web UI via SoftAP (192.168.4.1) |
+| Storage | MicroSD (FATFS on SPI2) |
+| Real Time Clock | RTC DS3231 (I2C1) with battery backup |
+| Flash | 16MB (4MB App Partitions) |
+| Updates | OTA via `/update` endpoint |
 
-![Project Concept](docs/assets/thermal-counter-concept.png)
+## Software Architecture
 
-### 📸 System Overview
+```
+[Core 1] ThermalPipeline (priority 24, 16 Hz)
+  ├── MLX90640 Driver (I2C 400kHz, Fast Mode)
+  ├── FrameAccumulator (Chess mode sub-frame fusion)
+  ├── NoiseFilter (1D Kalman per pixel)
+  ├── BackgroundModel (selective EMA update)
+  ├── PeakDetector (local maxima detection)
+  ├── NmsSuppressor (adaptive radius: center vs edges)
+  └── TrackletFSM (bidirectional counting, dead zones)
 
-#### Hardware Setup
-![Protoboard](docs/assets/hardware-protoboard.jpg)
+[Core 0] TelemetryTask + HTTP Server (priority 2-5)
+  ├── WiFi SoftAP "ThermalCounter"
+  ├── Binary WebSocket (16 FPS)
+  ├── RTC Driver (DS3231 vs Soft-clock Sync)
+  ├── SD Manager (CSV Event Logging on MicroSD)
+  └── Health Monitor (Real-time HW status)
 
-#### Web HUD Interface
-![Web HUD](docs/assets/web-hud-camera.jpg)
-
----
-
-## 📽️ Demonstration Videos
-
-Experience the system in action through these field tests:
-
-- **[Extended Prototype Demonstration](docs/assets/demo-extended.mp4)**: Full walkthrough of the system, from boot to real-time counting.
-- **[Multiple People Detection Test](docs/assets/demo-multiple-people.mp4)**: Stress test showing the Alpha-Beta tracker handling multiple overlapping targets.
-
----
-
-- **Total Privacy:** No faces or identifiable features are captured.
-- **Light Immunity:** Operates in total darkness or direct sunlight.
-- **Biometric Detection:** Based on the human thermal signature. It detects superficial skin temperatures (typically between 28°C and 37°C), allowing it to differentiate human targets from inanimate objects and background noise.
-- **Versatile Visualization:** Beyond person counting, it can be used as a **standard thermal camera** for real-time monitoring through the web interface.
-- **Triple-Vision Modes:** The HUD supports 3 distinct modes (Raw, Background, and Radar) for deep system diagnostics.
-
----
-
-## 📖 Index
-1. [Overview](#overview)
-2. [Architectural Foundation](#architectural-foundation)
-3. [High-Level Architecture](#high-level-architecture)
-4. [The Vision Pipeline (Algorithm)](#the-vision-pipeline-algorithm)
-5. [Tactical HUD Interface](#tactical-hud-interface)
-6. [Calibration Guide (with visual examples)](#calibration-guide)
-7. [Technical Specifications](#technical-specifications)
-8. [Installation and Deployment](#installation-and-deployment)
-9. [OTA Updates (with visual examples)](#ota-updates-over-the-air)
-
----
-
-## 🛡️ Overview
-
-Unlike conventional cameras, this system uses a **32x24 thermopile array**. Each pixel is a real temperature measurement. This data nature ensures:
-- **Total Privacy:** No faces or identifiable features are captured.
-- **Light Immunity:** Operates in total darkness or direct sunlight.
-- **Biometric Detection:** Based on the human thermal signature (~30-36°C), differentiating it from inanimate objects.
-
----
-
-## 🏗️ Architectural Foundation
-
-The system exploits the **Dual-Core** architecture of the ESP32-S3 through an asymmetric task division using **FreeRTOS**:
-
-### Core 1: The Vision Engine (`ThermalPipe`)
-The highest priority core. It executes the mathematical processing loop at **16 Hz**.
-- **Determinism:** Uses `vTaskDelayUntil` to ensure accurate sensor sampling.
-- **I2C Security (400kHz):** Configured to Fast Mode to guarantee data integrity and avoid EEPROM corruption from electrical noise.
-- **Isolation:** Does not perform heavy network tasks to avoid interference in the data bus.
-- **Static Memory:** All image buffers are statically pre-allocated to avoid heap fragmentation.
-
-### Core 0: Communications and Telemetry (`TelemetryTask`)
-Manages the system's external layer.
-- **SoftAP & Web Server:** Handles a WiFi access point and serves the tactical Dashboard. Default values:
-- SSDI: Thermal Counter
-- Password: counter1234
-- **Binary WebSockets:** Packages processed data into C `packed` structures for efficient transmission.
-- **NVS Flash:** Manages calibration persistence so settings survive power outages.
-
----
-
-## 🏗️ High-Level Architecture
-
-The system is designed under an **Asynchronous Producer-Consumer** model, optimizing the use of the ESP32-S3's two cores.
-
-```mermaid
-graph TD
-    subgraph "Core 1: Vision Engine"
-        A[Sensor MLX90640] -->|I2C 400kHz| B(Thermal Pipeline)
-        B -->|Process| C{Detection?}
-        C -->|Yes| D[Alpha-Beta Tracker]
-        D -->|Update| E[Frame Result Struct]
-    end
-
-    E -->|Queue Send| F((FreeRTOS Queue))
-
-    subgraph "Core 0: System & Comms"
-        F -->|Queue Receive| G(Telemetry Task)
-        G -->|UDP/WebSocket| H[Client Dashboard]
-        I[HTTP Server] -->|Config Cmds| J((Config Queue))
-        J -->|Update| B
-    end
-
-    style A fill:#f96,stroke:#333
-    style F fill:#6cf,stroke:#333
-    style H fill:#9f9,stroke:#333
+IPC: FreeRTOS Queue (depth 4, static allocation)
 ```
 
-### Technical Ecosystem
-- **FreeRTOS Static Allocation:** All objects (`Task`, `Queue`, `Semaphore`) are created using static memory to ensure the system never fails due to heap exhaustion.
-- **Zero-Copy Intent:** Pointers and `packed` structures are used to minimize data copying between the vision pipeline and the network layer.
-- **Integrated Watchdog:** The system monitors the health of both tasks; if the pipeline stalls due to an I2C bus error, the system automatically restarts to recover service.
+## Main Features
+- **Sub-pixel Detection**: Heat centroids calculated with sub-pixel precision for smooth tracking.
+- **Dual Connectivity**: WiFi (SoftAP) and **USB (RNDIS/ECM)** for direct local access.
+- **Visual Feedback**: RGB LED (GPIO 48) for system status (Blue: Booting, Green: Operating, Purple: USB Mode).
+- **Responsive Web UI**: Adaptive layout for mobile and PC monitors (Desktop-optimized grid).
+- **Privacy First**: 100% local processing; no images ever leave the device.
+- **Dynamic Config**: Adjustable thresholds via web panel, persisted to NVS flash.
+
+## Quick Start
+1. **Hardware**: Connect ESP32-S3 to MLX90640 via I2C (GPIO 8/9).
+2. **BOOT Button**: Hold for 2s to activate **USB Network Mode**.
+3. **Flash**: VS Code + ESP-IDF extension → "Build, Flash and Monitor".
+4. **Connect**: Join WiFi "ThermalCounter" or use USB cable (IP: 192.168.4.1).
+5. **Config**: Open http://192.168.4.1 in your browser → adjust thresholds → Save to Flash.
+
+See [`docs/01-architecture.md`](docs/01-architecture.md) for detailed system design.
+
+## Critical Configuration Parameters
+
+| Parameter | Description | Typical Range |
+|-----------|-------------|---------------|
+| Biological Temp | Human temperature threshold | 25-30°C |
+| Background Delta T | Contrast vs learned background | 1.5-2.5°C |
+| EMA Alpha | Background adaptation speed | 0.05-0.10 |
+| NMS Radius Center | Suppression radius (center zone) | 4-8 pixels |
+| NMS Radius Edge | Suppression radius (edge zones) | 2-4 pixels |
+| Dead Zone Left/Right | Horizontal exclusion zones | 0-8 pixels |
+
+Calibration guide: [`docs/04-configuration.md`](docs/04-configuration.md)
+
+## Vision Pipeline (5 Stages)
+
+**Stage 1 — Acquisition**: MLX90640 in Chess mode, 16 Hz raw sub-frames (alternating even/odd pixels).
+
+**Stage 2 — Pre-processing**:
+- FrameAccumulator: Fuses sub-frames into full 32×24 frames
+- NoiseFilter: Per-pixel 1D Kalman (reduces NETD noise)
+
+**Stage 3 — Background Modeling**: Selective EMA update. Pixels under active tracks are frozen to prevent absorption.
+
+**Stage 4 — Detection**:
+- Peak detection: Local maxima above `BIOLOGICAL_TEMP_MIN` with `BACKGROUND_DELTA_T` contrast
+- NMS: Adaptive radius (larger in center where distortion is lower)
+
+**Stage 5 — Tracking & Counting**:
+- TrackletTracker: 20-frame position history for velocity estimation
+- Composite matching: Distance + temperature similarity
+- TrackletFSM: Bidirectional counting with configurable line segments
+
+Algorithm details: [`docs/02-algorithm.md`](docs/02-algorithm.md)
+
+## Hardware Connections
+
+| Bus | Signal | GPIO | Note |
+|-----|--------|------|------|
+| I2C0 (MLX90640) | SDA | GPIO 8 | 1 MHz FM+, external 1kΩ pull-ups |
+| I2C0 (MLX90640) | SCL | GPIO 9 | 1 MHz FM+, external 1kΩ pull-ups |
+| I2C1 (DS3231) | SDA | GPIO 7 | Standard speed |
+| I2C1 (DS3231) | SCL | GPIO 6 | Standard speed |
+| I2C1 (DS3231) | VCC | GPIO 15 | RTC power control |
+| I2C1 (DS3231) | GND | GPIO 16 | RTC ground switch |
+| SPI2 (SD) | MOSI | GPIO 13 | MicroSD |
+| SPI2 (SD) | MISO | GPIO 14 | MicroSD |
+| SPI2 (SD) | SCK | GPIO 12 | MicroSD |
+| SPI2 (SD) | CS | GPIO 11 | MicroSD |
+
+Full pinout: [`docs/03-hardware.md`](docs/03-hardware.md)
+
+## OTA Updates
+
+```bash
+# Via Python script (connected to ThermalCounter WiFi)
+python scripts/ota_upload.py
+
+# Via Web UI
+# Open http://192.168.4.1 → OTA panel → Upload build/DetectorPuerta.bin
+```
+
+Operations guide: [`docs/06-operations.md`](docs/06-operations.md)
+
+## Documentation Index
+
+- [`docs/01-architecture.md`](docs/01-architecture.md) — System architecture and dual-core design
+- [`docs/02-algorithm.md`](docs/02-algorithm.md) — TrackletTracker and TrackletFSM algorithms
+- [`docs/03-hardware.md`](docs/03-hardware.md) — Pinout, connections, and electrical specs
+- [`docs/04-configuration.md`](docs/04-configuration.md) — Calibration parameters and Web UI guide
+- [`docs/05-webserver.md`](docs/05-webserver.md) — HTTP API, WebSocket protocol, OTA
+- [`docs/06-operations.md`](docs/06-operations.md) — OTA, deployment, and maintenance
+- [`docs/07-peripherals.md`](docs/07-peripherals.md) — Peripheral drivers detail
+- [`docs/08-data-persistence.md`](docs/08-data-persistence.md) — Storage, NVS, SD CSV format
+- [`docs/09-status-indicators.md`](docs/09-status-indicators.md) — RGB LED codes and USB guide
+
+## Project Structure
+
+```
+├── .agents/                   # AI instructions and plans
+├── components/
+│   ├── mlx90640_driver/       # Melexis sensor driver (I2C0)
+│   ├── rtc_driver/            # DS3231 RTC driver (I2C1)
+│   ├── sd_manager/            # SD card FATFS manager
+│   ├── status_led/            # RGB LED driver
+│   ├── telemetry/             # Network stack, LogWriter (Core 0)
+│   ├── thermal_pipeline/      # Vision pipeline (Core 1)
+│   ├── thermal_recorder/      # Thermal clip recorder
+│   └── web_server/            # HTTP + WebSocket + OTA
+├── docs/
+│   ├── assets/                # Screenshots and demo videos
+│   │   ├── images/
+│   │   └── videos/
+│   ├── 01-architecture.md
+│   ├── 02-algorithm.md
+│   ├── 03-hardware.md
+│   ├── 04-configuration.md
+│   ├── 05-webserver.md
+│   ├── 06-operations.md
+│   ├── 07-peripherals.md
+│   ├── 08-data-persistence.md
+│   ├── 09-status-indicators.md
+│   ├── CHANGELOG.md
+│   ├── README.md              # Docs index
+│   └── ROADMAP.md
+├── managed_components/        # ESP-IDF dependencies
+├── scripts/
+│   └── ota_upload.py          # OTA flash utility
+├── main/
+│   └── main.cpp               # Entry point, task creation
+└── README.md / README_ES.md   # This file (ES/EN)
+```
+
+## Changelog
+
+- **v1.0.0-estable** (Current): Session-based file organization, CSV restructure, config export, client-side ZIP downloads, enhanced clip management, docs restructured.
+- **v0.9.5-alpha**: Dual-core architecture, SD logging, OTA, USB network mode.
+- **v0.8.1-alpha**: TrackletFSM, configurable counting lines, NVS persistence.
+
+## License
+
+- **Project**: MIT License
+- **MLX90640 Driver**: Apache 2.0 (Melexis N.V.)
 
 ---
 
-## 🧠 The Vision Pipeline (Algorithm)
-
-Processing is divided into 5 sequential stages that transform thermal noise into counting events:
-
-### 1. Pre-processing and "De-Chess" Filter
-### 1. Selective EMA Background Modeling
-Maintains a dynamic model of the environment's base temperature.
-- **Adaptive Learning**: Automatically ignores pixels identified as "Person Tracks" to prevent targets from being absorbed into the background.
-
-### 2. Peak Detection (Thermal Topology)
-Analyzes the difference between the live frame and the background model.
-- Identifies local maximums that exceed the biological temperature threshold (~30°C).
-
-### 3. Non-Maximum Suppression (NMS)
-Filters redundant detections. Since a person occupies multiple pixels, NMS ensures each human heat signature is represented by a single centroid.
-
-### 4. Alpha-Beta Tracking with Identity Verification
-Implements a predictive filter to follow people between frames.
-- **Anti-Stealing (Alpha 0.6):** Ensures each heat "peak" is assigned to a single track, preventing nearby people from stealing their neighbor's identity.
-- Calculates the velocity vector `(vx, vy)`.
-- Manages track "life": if a person disappears for 5 frames, the system removes them to avoid ghost generation.
-
-### 5. Intent Inference & Crossing Logic
-Defines two virtual `Y` lines. Counting triggers when a track ID crosses both lines.
-- **Intent Inference (Alpha 0.6):** If a person is first detected in the middle (neutral) zone, the system uses its **vertical velocity vector** to decide if the line crossing counts as an entry or exit, eliminating failures due to "sudden appearance".
-
----
-
-## 🖥️ Tactical HUD Interface
-
-The system includes a **Cyberpunk/Tactical HUD** style web interface designed for field engineering:
-
-- **Bilinear Interpolation:** The browser rescales the 32x24 matrix to 640x480 using the GPU, creating a smooth ("blur") image instead of pixelated blocks.
-- **Velocity Vectors:** Each tracked person shows a yellow arrow indicating where and how fast they are moving.
-- **Radar Mode:** Allows viewing the "thermal residue" (subtracted image). Ideal for debugging if the background is being learned correctly.
-- **Thermal Camera Mode:** View the thermal map in real-time with high-speed GPU interpolation for standard surveillance.
-- **Ta Telemetry:** Displays the internal silicon temperature to monitor the sensor's thermal stress.
-
----
-
-## 📽️ Demonstration Videos
-
-Experience the system in action through these field tests:
-
-- **[Extended Prototype Demonstration](docs/assets/demo-extended.mp4)**: Full walkthrough of the system, from boot to real-time counting.
-- **[Multiple People Detection Test](docs/assets/demo-multiple-people.mp4)**: Stress test showing the Alpha-Beta tracker handling multiple overlapping targets.
-
----
-
-## ⚙️ Calibration Guide
-
-The system is highly flexible thanks to parameters accessible via the Web:
-
-| Parameter | Function | When to Adjust |
-|-----------|----------|----------------|
-| **Biological Temp** | Min Threshold (°C) | If the environment is very hot (>30°C), increase this value. |
-| **Background Delta** | Contrast vs Wall | If there is significant thermal shadowing, increase to avoid false positives. |
-| **EMA Adaptation** | Learning Speed | Increase if the room temperature changes abruptly (Air Conditioning). |
-| **NMS Radius** | "Person" Size | **Crave Data:** Adjust based on ceiling height. High ceilings require smaller radii. |
-| **Y Lines** | Activation Zones | Move so they sit right over the door lintel in the view. |
-
-**Recommended Flow:**
-1. Adjust parameters for clean detection.
-2. Click **APPLY SETTINGS** to test live.
-3. Click **SAVE TO FLASH** to make the configuration permanent.
-
----
-
-## 📊 Technical Specifications
-
-- **Sensor:** Melexis MLX90640 (Thermopile Array).
-- **Resolution:** 32 x 24 pixels (768 measurement points).
-- **Field of View (FOV):** 110° x 75° (Wide angle).
-- **Processing Frequency:** 16 constant FPS.
-- **Consumption:** ~120mA (active WiFi + Processing).
-- **Accuracy:** ±1.5°C typical.
-
----
-
----
-
-## 🛠️ OTA Updates (Over-The-Air)
-The system supports wireless firmware updates. No need to connect a USB cable once the sensor is installed.
-- **Web Dashboard**: Upload the `.bin` file directly from the "OTA Update" panel.
-- **Direct Script**: Use `python scripts/ota_upload.py` to flash remotely from your terminal.
-
-For more details, see the [OTA Flashing Guide](docs/operations/ota_flash.md).
-
----
-
-## 📂 Project Structure
-
-- **`docs/`**: Detailed technical documentation.
-  - `algorithm/`: Mathematical explanation of the vision pipeline.
-  - `hardware/`: Connection diagrams and extension designs (SD/RTC).
-  - `operations/`: Calibration, deployment, and OTA flashing guides.
-- **`.agents/`**: Optimized context for AI assistants (Antigravity).
-- **`components/`**: C++ modules (Driver, Pipeline, Telemetry, Web Server).
-- **`scripts/`**: Utility tools for development.
-
----
-
-## 🚀 Installation and Deployment
-Full documentation in the [Deployment Guide](docs/operations/deploy.md).
-
----
-
-> [!IMPORTANT]
-> **Industrial Safety:** This device is a person counting and flow analysis system. It should not be used for medical diagnosis or critical safety.
-
-## 📜 License & Credits
-
--   **Project**: This project is licensed under the **MIT License**.
--   **Melexis Driver**: The MLX90640 driver located in `components/mlx90640_driver/` is property of **Melexis N.V.** and is licensed under the **Apache License, Version 2.0**.
--   **Authors**: Developed for the ESP32-S3 high-efficiency thermal vision solution.
-
----
+*Spanish version: [README_ES.md](README_ES.md)*

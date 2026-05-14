@@ -24,7 +24,7 @@ Mlx90640Sensor::Mlx90640Sensor(i2c_port_t port, gpio_num_t sda,
 
 esp_err_t Mlx90640Sensor::init()
 {
-    ESP_LOGI(TAG, "Initializing MLX90640 sensor (addr=0x%02X, SDA=%d, SCL=%d)",
+    ESP_LOGI(TAG, "Attempting to probe MLX90640 (addr=0x%02X, SDA=%d, SCL=%d)",
              addr_, sda_, scl_);
 
     // 1. Configure and start I2C
@@ -61,8 +61,8 @@ esp_err_t Mlx90640Sensor::init()
         return ESP_FAIL;
     }
 
-    // 4. Default refresh rate (16Hz)
-    setRefreshRate(0x05); 
+    // FIX-4: Refresh rate is set by the caller (main.cpp), not here.
+    // Setting it here and then overriding in main.cpp wastes an I2C write.
 
     initialized_ = true;
     ESP_LOGI(TAG, "Sensor Hardware and Parameters Initialized successfully");
@@ -73,26 +73,43 @@ esp_err_t Mlx90640Sensor::readFrame(float* outBuffer)
 {
     if (!initialized_) return ESP_FAIL;
 
-    // Read full frame (both sub-pages in chess mode)
     int status = MLX90640_GetFrameData(addr_, frameData_);
-    
-    if (status < 0) {
-        ESP_LOGW(TAG, "Frame Read Error (I2C): status=%d. Attempting bus recovery...", status);
+
+    if (status == -MLX90640_FRAME_DATA_ERROR) {
+        ESP_LOGD(TAG, "Frame data race detected (status=-8), retrying in 2ms...");
+        vTaskDelay(pdMS_TO_TICKS(2));
+        status = MLX90640_GetFrameData(addr_, frameData_);
+        if (status < 0) {
+            ESP_LOGW(TAG, "Frame data error persists after retry (status=%d) — frame skipped", status);
+            return ESP_FAIL;
+        }
+        ESP_LOGD(TAG, "Frame recovered after retry");
+
+    } else if (status < 0) {
+        ESP_LOGW(TAG, "I2C bus error (status=%d), performing bus recovery...", status);
         resetI2C();
-        return ESP_FAIL;
+        vTaskDelay(pdMS_TO_TICKS(2));
+        status = MLX90640_GetFrameData(addr_, frameData_);
+        if (status < 0) {
+            ESP_LOGE(TAG, "I2C error persists after bus recovery (status=%d)", status);
+            return ESP_FAIL;
+        }
+        ESP_LOGI(TAG, "Frame recovered after I2C bus reset");
     }
 
-    // Extract subpage ID
     lastSubPageID_ = MLX90640_GetSubPageNumber(frameData_);
 
-    // The Melexis API expects VDD and ambient temp to calculate pixels
-    float vdd = MLX90640_GetVdd(frameData_, &params_);
     float ta = MLX90640_GetTa(frameData_, &params_);
-    float tr = ta - 8.0f; // Simplified reflected temperature calculation
-    
-    ambientTemp_ = ta;
+    float tr = ta - 8.0f;
 
-    // Emissivity fixed at 0.95 for human skin/clothing
+    constexpr float TA_EMA_ALPHA = 0.1f;
+    if (first_ta_read_) {
+        ambientTemp_ = ta;
+        first_ta_read_ = false;
+    } else {
+        ambientTemp_ = TA_EMA_ALPHA * ta + (1.0f - TA_EMA_ALPHA) * ambientTemp_;
+    }
+
     MLX90640_CalculateTo(frameData_, &params_, 0.95f, tr, outBuffer);
 
     return ESP_OK;

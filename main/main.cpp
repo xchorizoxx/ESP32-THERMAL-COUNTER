@@ -23,14 +23,64 @@
 #include "mlx90640_sensor.hpp"
 #include "thermal_pipeline.hpp"
 #include "wifi_softap.hpp"
-#include "udp_transmitter.hpp"
+// UDP transmitter disabled. The Web UI uses WebSocket for all data.
+// UDP broadcasts to 255.255.255.255 saturated the TinyUSB NCM driver
+// and broke critical network traffic. Keep the source but do not build.
+// #include "udp_transmitter.hpp"
 #include "telemetry_task.hpp"
+#include "log_writer.hpp"
 #include "http_server.hpp" // [NEW]
+
+#include "status_led.hpp"
+#include "driver/gpio.h"
+#include "rtc_driver.hpp"
+#include "sd_manager.hpp"
+#include "thermal_recorder.hpp"
 
 static const char* TAG = "MAIN";
 
+// Global instances for Web Server access (must be before periphWatchdogTask)
+RTCDriver g_rtc;
+SDManager g_sd;
+
+// FIX-2a: Static task buffers for PeriphWatchdog (no heap allocation)
+static StaticTask_t s_periphWatchdogTaskBuffer;
+static StackType_t  s_periphWatchdogStack[4096 / sizeof(StackType_t)];
+
+static void periphWatchdogTask(void* arg)
+{
+    const TickType_t WATCHDOG_INTERVAL = pdMS_TO_TICKS(300000);
+    while (true) {
+        vTaskDelay(WATCHDOG_INTERVAL);
+        if (!g_sd.isMounted()) {
+            ESP_LOGW(TAG, "SD Card disconnected. Auto-reconnecting...");
+            g_sd.init((gpio_num_t)ThermalConfig::SD_MOSI_PIN,
+                      (gpio_num_t)ThermalConfig::SD_MISO_PIN,
+                      (gpio_num_t)ThermalConfig::SD_SCK_PIN,
+                      (gpio_num_t)ThermalConfig::SD_CS_PIN);
+        }
+        if (!g_rtc.isAvailable()) {
+            ESP_LOGW(TAG, "RTC disconnected. Auto-reconnecting...");
+            g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
+                       (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
+        }
+    }
+}
+
 extern "C" void app_main(void)
 {
+    esp_reset_reason_t reason = esp_reset_reason();
+    switch (reason) {
+        case ESP_RST_POWERON:   ESP_LOGI(TAG, "Boot: Power on"); break;
+        case ESP_RST_SW:        ESP_LOGW(TAG, "Boot: Software reset (esp_restart)"); break;
+        case ESP_RST_PANIC:     ESP_LOGE(TAG, "Boot: PANIC (exception/assertion)"); break;
+        case ESP_RST_INT_WDT:   ESP_LOGE(TAG, "Boot: INT Watchdog timeout"); break;
+        case ESP_RST_TASK_WDT:  ESP_LOGE(TAG, "Boot: TASK Watchdog timeout"); break;
+        case ESP_RST_WDT:       ESP_LOGE(TAG, "Boot: Watchdog (generic)"); break;
+        case ESP_RST_BROWNOUT:  ESP_LOGE(TAG, "Boot: Brownout (power supply issue)"); break;
+        default:                ESP_LOGW(TAG, "Boot: Unknown reason (%d)", reason); break;
+    }
+
     ESP_LOGI(TAG, "=== Thermal Counting System initializing ===");
 
     // -------------------------------------------------------------------------
@@ -44,6 +94,10 @@ extern "C" void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    // Initialize Status LED immediately so we can show boot state
+    StatusLedManager::getInstance().init();
+    StatusLedManager::getInstance().setState(StatusLedManager::State::BOOTING);
+
     // -------------------------------------------------------------------------
     // Step 2: Configure system Watchdog
     // -------------------------------------------------------------------------
@@ -55,9 +109,71 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(esp_task_wdt_reconfigure(&wdtCfg));
 
     // -------------------------------------------------------------------------
+    // Step 2.1: MicroSD Storage
+    // -------------------------------------------------------------------------
+    ret = g_sd.init((gpio_num_t)ThermalConfig::SD_MOSI_PIN,
+                    (gpio_num_t)ThermalConfig::SD_MISO_PIN,
+                    (gpio_num_t)ThermalConfig::SD_SCK_PIN,
+                    (gpio_num_t)ThermalConfig::SD_CS_PIN);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Storage system ready (SD card mounted)");
+    } else {
+        ESP_LOGW(TAG, "Storage system UNAVAILABLE (No SD card found)");
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 2.2: Real Time Clock (DS3231 on I2C1)
+    // -------------------------------------------------------------------------
+    // Set up GPIO Powering for RTC (VCC=15, GND=16)
+    gpio_config_t rtc_pwr_conf = {};
+    rtc_pwr_conf.intr_type = GPIO_INTR_DISABLE;
+    rtc_pwr_conf.mode = GPIO_MODE_OUTPUT;
+    rtc_pwr_conf.pin_bit_mask = (1ULL << ThermalConfig::I2C1_VCC_PIN) | (1ULL << ThermalConfig::I2C1_GND_PIN);
+    rtc_pwr_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    rtc_pwr_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    ESP_ERROR_CHECK(gpio_config(&rtc_pwr_conf));
+
+    // Cycle power to RTC for a clean DS3231 oscillator restart
+    ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 0)); // VCC = LOW
+    ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_GND_PIN, 0)); // GND = LOW
+    vTaskDelay(pdMS_TO_TICKS(10));  // Ensure power cap fully discharges
+
+    ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 1)); // VCC = HIGH 3.3V
+    // GND stays LOW
+
+    // Give the RTC chip 300ms to fully boot up and stabilize after power
+    vTaskDelay(pdMS_TO_TICKS(300));
+
+    ret = g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
+                     (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
+    if (ret == ESP_OK) {
+        RTCDriver::DateTime dt;
+        if (g_rtc.getTime(dt) == ESP_OK) {
+            char iso[32];
+            dt.toISO(iso, sizeof(iso));
+            ESP_LOGI(TAG, "RTC Time synchronized: %s", iso);
+        }
+    } else {
+        ESP_LOGW(TAG, "RTC system UNAVAILABLE (Using relative system ticks)");
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 2.3: Thermal Clip Recorder (PSRAM ring buffer + writer task)
+    // -------------------------------------------------------------------------
+    {
+        esp_err_t r = ThermalRecorder::init();
+        if (r == ESP_OK) {
+            ESP_LOGI(TAG, "Thermal clip recorder initialized");
+        } else {
+            ESP_LOGW(TAG, "Thermal clip recorder disabled (%s)", esp_err_to_name(r));
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Step 3: WiFi SoftAP
     // -------------------------------------------------------------------------
-    ESP_LOGI(TAG, "Starting SoftAP '%s'...", ThermalConfig::SOFTAP_SSID);
+    // [MAGENTA] Network-related log (Full line)
+    ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "Starting SoftAP '%s'...", ThermalConfig::SOFTAP_SSID);
     ret = WifiSoftAp::init(ThermalConfig::SOFTAP_SSID,
                            ThermalConfig::SOFTAP_PASS,
                            ThermalConfig::SOFTAP_CHANNEL,
@@ -83,12 +199,25 @@ extern "C" void app_main(void)
 
     ret = sensor.init();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "FAILED to initialize MLX90640 sensor (is it connected?)");
+        ESP_LOGE(TAG, "FAILED to initialize MLX90640 sensor — pipeline will retry in background");
         // Continuing to allow Web panel to start and show the error
     } else {
-        ret = sensor.setRefreshRate(0x05); // 16 Hz
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "FAILED to configure refresh rate");
+        bool rate_ok = false;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            ret = sensor.setRefreshRate(0x06); // 32 Hz — match PIPELINE_FREQ_HZ
+            if (ret == ESP_OK) {
+                ESP_LOGI(TAG, "MLX90640 configured at 32Hz (attempt %d)", attempt);
+                rate_ok = true;
+                break;
+            }
+            ESP_LOGW(TAG, "setRefreshRate attempt %d/3 failed: %s", attempt, esp_err_to_name(ret));
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+
+        if (!rate_ok) {
+            ESP_LOGE(TAG, "CRITICAL: Cannot set MLX90640 to 32Hz after 3 attempts — rebooting in 2s");
+            vTaskDelay(pdMS_TO_TICKS(2000)); // Let log print
+            esp_restart();
         }
     }
 
@@ -115,25 +244,36 @@ extern "C" void app_main(void)
 
     // -------------------------------------------------------------------------
     // Step 5.1: Configuration Command Queue (Core 0 -> Core 1)
+    // P08-fix: Migrado de xQueueCreate (heap) a xQueueCreateStatic (zero-heap).
     // -------------------------------------------------------------------------
-    QueueHandle_t configQueue = xQueueCreate(10, sizeof(AppConfigCmd));
+    static StaticQueue_t configQueueBuffer;
+    static uint8_t configQueueStorage[10 * sizeof(AppConfigCmd)];
+
+    QueueHandle_t configQueue = xQueueCreateStatic(
+        10,
+        sizeof(AppConfigCmd),
+        configQueueStorage,
+        &configQueueBuffer
+    );
     if (configQueue == NULL) {
         ESP_LOGE(TAG, "FAILED to create Config Queue — aborting");
         return;
     }
 
     // -------------------------------------------------------------------------
-    // Step 6: UDP Transmitter
+    // Step 6: UDP Transmitter (DISABLED)
     // -------------------------------------------------------------------------
-    static UdpTransmitter udp(
-        ThermalConfig::UDP_BROADCAST_IP,
-        ThermalConfig::UDP_PORT
-    );
-    ret = udp.init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "FAILED to initialize UDP Transmitter — aborting");
-        return;
-    }
+    // UDP broadcast is disabled to avoid saturating the TinyUSB NCM driver.
+    // All data goes through WebSocket instead.
+    // Source code kept for reference in components/telemetry/src/udp_transmitter.cpp
+    // static UdpTransmitter udp(ThermalConfig::UDP_BROADCAST_IP, ThermalConfig::UDP_PORT);
+    // ret = udp.init();
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "FAILED to initialize UDP Transmitter — aborting");
+    //     return;
+    // } else {
+    //     ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "UDP Transmitter initialized");
+    // }
 
     // -------------------------------------------------------------------------
     // Step 7: Thermal Vision Pipeline (Core 1 - APP_CPU)
@@ -169,9 +309,16 @@ extern "C" void app_main(void)
     }
 
     // -------------------------------------------------------------------------
+    // Step 7.6: Async Log Writer (dispatches blocking SD writes off IPC path)
+    // -------------------------------------------------------------------------
+    LogWriter::init();
+
+    // -------------------------------------------------------------------------
     // Step 8: Telemetry (Core 0 - PRO_CPU)
     // -------------------------------------------------------------------------
-    static TelemetryTask telemetry(ipcQueue, udp);
+    // UDP transmitter removed — telemetry uses WebSocket only
+    // static UdpTransmitter udp(...) was above
+    static TelemetryTask telemetry(ipcQueue);
     telemetry.init();
 
     static StaticTask_t telemetryTaskBuffer;
@@ -202,13 +349,28 @@ extern "C" void app_main(void)
     } else if (ota_valid == ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGI(TAG, "[OTA] Factory partition detected — OTA marking not required");
     } else {
-        ESP_LOGW(TAG, "[OTA] esp_ota_mark_app_valid failed: %s", esp_err_to_name(ota_valid));
+        ESP_LOGE(TAG, "[OTA] esp_ota_mark_app_valid failed: %s", esp_err_to_name(ota_valid));
     }
 
-    // --- Self-Monitoring: Profile Stack High Water Mark ---
-    UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-    ESP_LOGI(TAG, "=== System operational. app_main HWM: %u words (%u bytes) ===", 
-             (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
+    // -------------------------------------------------------------------------
+    // Step 9: Peripheral Auto-Reconnect Watchdog (Core 0, static stack)
+    // FIX-2a: xTaskCreateStaticPinnedToCore — zero heap, 4096 B stack, Core 0
+    // -------------------------------------------------------------------------
+    TaskHandle_t periphHandle = xTaskCreateStaticPinnedToCore(
+        periphWatchdogTask, "PeriphWatchdog",
+        4096 / sizeof(StackType_t),
+        NULL, tskIDLE_PRIORITY + 1,
+        s_periphWatchdogStack, &s_periphWatchdogTaskBuffer,
+        0);
+    if (periphHandle == NULL) {
+        ESP_LOGE(TAG, "FAILED to create PeriphWatchdog task");
+    }
+
+    StatusLedManager::getInstance().setState(StatusLedManager::State::IDLE);
+
+    // [WHITE] Memory monitoring (Full line, commented)
+    // ESP_LOG_COLOR(LOG_COLOR_WHITE, TAG, "=== System operational. app_main HWM: %u words (%u bytes) ===", 
+    //               (unsigned int)hwm, (unsigned int)(hwm * sizeof(StackType_t)));
 
     // app_main() returns here; FreeRTOS tasks run autonomously
 }
