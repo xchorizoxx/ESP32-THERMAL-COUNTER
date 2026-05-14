@@ -33,7 +33,7 @@
 
 ### In-Situ Calibration
 
-See dedicated document: [`CONFIGURATION.md`](CONFIGURATION.md)
+See dedicated document: [`04-configuration.md`](04-configuration.md)
 
 Quick summary:
 1. Connect to WiFi "ThermalCounter"
@@ -159,6 +159,6 @@ The system should auto-revert, but if not:
 
 ## References
 
-- Configuration: [`CONFIGURATION.md`](CONFIGURATION.md)
-- Hardware: [`HARDWARE.md`](HARDWARE.md)
-- Architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- Configuration: [`04-configuration.md`](04-configuration.md)
+- Hardware: [`03-hardware.md`](03-hardware.md)
+- Architecture: [`01-architecture.md`](01-architecture.md)

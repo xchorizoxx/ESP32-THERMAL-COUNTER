@@ -2,7 +2,7 @@
 
 ESP32-S3 dual-core person counter using MLX90640 (32×24 thermopile). ESP-IDF 6.0.0, FreeRTOS, C++.
 
-**CRITICAL: CLAUDE.md contains outdated values.** This file takes precedence.
+**CRITICAL: AGENTS.md is the primary source of truth.**
 
 ---
 
@@ -14,6 +14,7 @@ ESP32-S3 dual-core person counter using MLX90640 (32×24 thermopile). ESP-IDF 6.
 | Pipeline frequency | **32 Hz** | `thermal_config.hpp:112` |
 | CPU frequency | **160 MHz** (debug) | `sdkconfig` |
 | LibC | **picolibc** | `sdkconfig` |
+| Partition table | **partitions_4mb.csv** (4MB OTA, universal) | `sdkconfig.defaults` |
 | All components path | `components/` (NOT top-level) | directory listing |
 | RTC I2C bus | **I2C1** (GPIO 6/7), NOT shared with MLX | `thermal_config.hpp:133-134` |
 | SD card SPI pins | MOSI=13, MISO=14, SCK=12, CS=11 | `thermal_config.hpp:138-141` |
@@ -71,7 +72,7 @@ Two static queues (no heap allocation):
 - `configQueue` (depth 10): Core 0 → Core 1. Carries `AppConfigCmd` (parameter updates from web UI).
 
 ### Boot Sequence (main.cpp:app_main)
-NVS → Watchdog → SD init → RTC init (I2C1, GPIO 6/7) → WiFi SoftAP → MLX90640 (I2C0, GPIO 8/9, 1MHz) → IPC queues → UDP transmitter → ThermalPipeline task (Core 1) → HttpServer → TelemetryTask (Core 0) → OTA rollback cancel → PeriphWatchdog
+NVS → Watchdog → SD init → RTC init (I2C1, GPIO 6/7) → WiFi SoftAP → MLX90640 (I2C0, GPIO 8/9, 1MHz) → IPC queues → ThermalPipeline task (Core 1) → HttpServer → TelemetryTask (Core 0) → OTA rollback cancel → PeriphWatchdog
 
 ### Task Stacks
 - ThermalPipeline: 6144 bytes
@@ -158,9 +159,6 @@ Cada fase sigue este ciclo exacto — saltarse pasos causa errores:
 
 ## References
 
-- `CLAUDE.md` — historical AI quick reference (some values outdated)
-- `AGENTES/PLAN-AGENTE-INSTRUCCIONES.md` — Spanish operational blueprint with stage map
-- `docs/01-architecture.md` — full system design
-- `docs/02-algorithm.md` — tracking math
+- `.agents/plans/` — Spanish operational blueprint with stage map
 - `.agents/workflows/hardware-safety.md` — hardware modification approval protocol
 - `sdkconfig.defaults` — Kconfig overrides

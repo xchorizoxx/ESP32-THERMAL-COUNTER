@@ -34,9 +34,20 @@ This index organizes the technical documentation for the Thermal Door Counter.
 ├── docs/
 │   ├── 01-architecture.md     # System design overview
 │   ├── 02-algorithm.md        # Tracking algorithms
+│   ├── 03-hardware.md         # Pinout and connections
+│   ├── 04-configuration.md    # Calibration guide
+│   ├── 05-webserver.md        # HTTP API, WebSocket, OTA
+│   ├── 06-operations.md       # Deployment and maintenance
+│   ├── 07-peripherals.md      # Peripheral drivers
+│   ├── 08-data-persistence.md # Storage, NVS, CSV
+│   ├── 09-status-indicators.md# LED codes, USB guide
 │   ├── assets/                # Screenshots, demo videos
+│   │   ├── images/
+│   │   └── videos/
 │   ├── CHANGELOG.md           # Version history
-│   └── README.md              # This index
+│   ├── README.md              # This index
+│   ├── ROADMAP.md             # Future plans
+│   └── reference/             # Hardware reference docs
 ├── main/
 │   └── main.cpp               # Entry point, task creation
 ├── scripts/

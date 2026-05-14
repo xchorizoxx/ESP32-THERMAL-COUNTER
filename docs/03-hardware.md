@@ -8,8 +8,8 @@
 |----------|----------|------|
 | VCC | 3.3V | Stable LDO required. 23mA peak sensor + 150mA peak WiFi |
 | GND | GND | Short return path, low impedance |
-| SDA | GPIO 8 | Pull-up 1kΩ - 2.2kΩ mandatory for 400kHz |
-| SCL | GPIO 9 | Pull-up 1kΩ - 2.2kΩ mandatory for 400kHz |
+| SDA | GPIO 8 | Pull-up 1kΩ mandatory for 1MHz FM+ |
+| SCL | GPIO 9 | Pull-up 1kΩ mandatory for 1MHz FM+ |
 
 ### Decoupling Capacitors (Recommended)
 
@@ -43,38 +43,39 @@ For cables >15cm between ESP32 and sensor:
 
 ### Pull-ups
 
-Critical pull-up resistances for clean signals at 400kHz:
+Critical pull-up resistances for clean signals at 1MHz:
 
 | Pull-up | Rise Time | Suitable for |
 |---------|-----------|---------------|
 | 4.7kΩ | ~500ns | 100kHz (Standard) |
 | 2.2kΩ | ~250ns | 400kHz (Fast) |
-| 1.0kΩ | ~120ns | 1MHz (Fast Mode+) |
+| 1.0kΩ | ~120ns | 1MHz (Fast Mode+) — **Project default** |
 
 Slow rise time causes data corruption and intermittent I2C errors.
 
 ### Clock Speed
 
-Project configured at **400kHz (Fast Mode)**:
-- Balance between speed and reliability
-- MLX90640 frame transfer (~2KB) in ~40ms
-- Compatible with typical 10-20cm wiring
+Project configured at **1MHz (Fast Mode+)**:
+- Required for reliable 32 Hz sensor acquisition
+- MLX90640 frame transfer (~2KB) in ~16ms
+- External 1kΩ pull-ups mandatory for clean signal edges
 
 ## ESP32-S3 Pins (Summary)
 
-| GPIO | Function | ESP32-S3 Pin | Peripheral | Function |
-| :--- | :--- | :--- |
-| GPIO 8 | MLX90640 | I2C0 SDA | Thermal Sensor |
-| GPIO 9 | MLX90640 | I2C0 SCL | Thermal Sensor |
-| GPIO 1 | DS3231 | I2C1 SDA | Real Time Clock |
-| GPIO 2 | DS3231 | I2C1 SCL | Real Time Clock |
-| GPIO 11 | MicroSD | SPI2 MOSI | Storage |
-| GPIO 13 | MicroSD | SPI2 MISO | Storage |
-| GPIO 12 | MicroSD | SPI2 SCK | Storage |
-| GPIO 14 | MicroSD | SPI2 CS | Storage |
-| GPIO 0 | BOOT Button | Hold 2s for USB Network Activation |
-| GPIO 48 | RGB LED | WS2812 Status |
-| 5V / GND | ALL | Shared Power Supply |
+| GPIO | Peripheral | Bus/Signal | Function |
+| :--- | :--- | :--- | :--- |
+| GPIO 8 | MLX90640 | I2C0 SDA | Thermal sensor data |
+| GPIO 9 | MLX90640 | I2C0 SCL | Thermal sensor clock |
+| GPIO 7 | DS3231 | I2C1 SDA | RTC data |
+| GPIO 6 | DS3231 | I2C1 SCL | RTC clock |
+| GPIO 15 | DS3231 | VCC | RTC power control |
+| GPIO 16 | DS3231 | GND | RTC ground switch |
+| GPIO 13 | MicroSD | SPI2 MOSI | SD data out |
+| GPIO 14 | MicroSD | SPI2 MISO | SD data in |
+| GPIO 12 | MicroSD | SPI2 SCK | SD clock |
+| GPIO 11 | MicroSD | SPI2 CS | SD chip select |
+| GPIO 0 | BOOT Button | Input | Hold 2s for USB Network Mode |
+| GPIO 48 | RGB LED | WS2812 | Status indicator |
 
 ---
 
@@ -90,16 +91,17 @@ The ESP32-S3 built-in NeoPixel (GPIO 48) provides real-time feedback of the syst
   - This mode allows you to view the web dashboard via a USB cable connected to your PC, without disconnecting from your local WiFi.
 
 ### RTC (DS3231)
-- Dedicated I2C1 bus (GPIO 1/2) to avoid clock-stretching issues from the sensor
+- Dedicated I2C1 bus (GPIO 6/7) to avoid clock-stretching issues from the sensor
+- Power controlled via GPIO 15 (VCC) and GPIO 16 (GND switch)
 - Address: 0x68
 - Battery backup (CR1220) for time persistence during power loss
 
 ### MicroSD (SPI)
 - Bus: SPI2 (Shared with future peripherals if needed)
-- MOSI: GPIO 11
-- MISO: GPIO 13  
+- MOSI: GPIO 13
+- MISO: GPIO 14  
 - SCK: GPIO 12
-- CS: GPIO 14
+- CS: GPIO 11
 - Formatted as FAT32 (up to 32GB supported natively)
 - Mount point: `/sdcard`
 
@@ -129,5 +131,4 @@ Incline only if specific lateral coverage is required.
 
 ## References
 
-- MLX90640 Datasheet: `docs/reference/MLX90640_Datasheet.md`
 - ESP32-S3 TRM: [Espressif Technical Reference](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/api-reference/peripherals/i2c.html)

@@ -45,10 +45,10 @@ CONFIG_I2C_ENABLE_DEBUG_LOG=n
 # --- Target Device ---
 CONFIG_IDF_TARGET="esp32s3"
 
-# --- Custom Partitions for OTA ---
+# --- Custom Partitions for OTA (4MB-compatible, works on any ESP32-S3) ---
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
-CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_4mb.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions_4mb.csv"
 
 # --- Flash Size (Required for 1400K OTA partitions) ---
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y

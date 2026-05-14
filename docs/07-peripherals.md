@@ -2,7 +2,7 @@
 ## ESP32 Thermal Counter v2.0
 
 ### 1. Sensor Térmico (MLX90640)
-*   **Bus**: I2C0 (400kHz - 1MHz).
+*   **Bus**: I2C0 @ 1MHz (Fast Mode+). External 1kΩ pull-ups required.
 *   **Resolución**: 32x24 (768 píxeles).
 *   **Refresh Rate**: Configurado a 16Hz para balancear fluidez y ruido térmico.
 *   **Lógica**: El driver realiza lecturas directas a la RAM del sensor y aplica la compensación de temperatura (VDD, Ta, CP) según la hoja de datos de Melexis.

@@ -23,7 +23,7 @@ Embedded person counting system using thermal vision (32×24 pixels). Zero optic
 
 ```
 [Core 1] ThermalPipeline (priority 24, 16 Hz)
-  ├── MLX90640 Driver (I2C 400kHz, Fast Mode)
+  ├── MLX90640 Driver (I2C 1MHz, Fast Mode+)
   ├── FrameAccumulator (Chess mode sub-frame fusion)
   ├── NoiseFilter (1D Kalman per pixel)
   ├── BackgroundModel (selective EMA update)

@@ -15,7 +15,7 @@ Dual-core embedded system for person counting using Melexis MLX90640 thermal sen
 ├──────────────────────────┼──────────────────────────────────┤
 │  ThermalPipeline         │  TelemetryTask                   │
 │  ├── MLX90640 Driver     │  ├── SoftAP "ThermalCounter"     │
-│  │   └── I2C 400kHz      │  ├── RTCDriver (I2C1)            │
+│  │   └── I2C 1MHz FM+    │  ├── RTCDriver (I2C1)            │
 │  ├── FrameAccumulator    │  ├── SDManager (SPI2)            │
 │  ├── NoiseFilter         │  ├── HTTP Server                 │
 │  ├── BackgroundModel     │  │   ├── WebSocket (binary)      │
@@ -31,7 +31,7 @@ Dual-core embedded system for person counting using Melexis MLX90640 thermal sen
 | Core | Task | Priority | Responsibility | Frequency |
 | :--- | :--- | :--- | :--- | :--- |
 | **APP_CPU (1)** | **ThermalPipe** | **MAX (24)** | MLX Acquisition + Vision Engine | **32 Hz** (sub-frames) / **16 Hz** (pipe) |
-| **PRO_CPU (0)** | **TelemetryTX** | **Med (2)** | UDP broadcast + Web Server | Varies |
+| **PRO_CPU (0)** | **TelemetryTask** | **tskIDLE_PRIORITY + 2** | IPC consumer, WebSocket broadcast, health monitor | Varies |
 
 ---
 
@@ -80,22 +80,22 @@ Manages communications without interfering with vision pipeline.
 
 - **SoftAP**: "ThermalCounter" @ 192.168.4.1
 - **WebSocket**: Binary frames ~1.5 KB @ 16 FPS
-- **UDP**: Optional telemetry broadcast (port 4210)
+- **WebSocket**: Binary + JSON event broadcast to all connected clients
 - **OTA**: POST `/update` endpoint for firmware updates
 - **Health**: Real-time status reporting of I2C/SPI peripherals
 
 ## Persistence & Timekeeping (Stage C1/D1)
 
 ### 1. Real-Time Clock (RTC)
-The `RTCDriver` manages a DS3231 on a dedicated I2C1 bus (GPIO 1/2). 
+The `RTCDriver` manages a DS3231 on a dedicated I2C1 bus (GPIO 6/7, with power control on GPIO 15/16). 
 - **Time Sync**: At boot, the system attempts to sync the internal ESP32 clock with the RTC.
 - **Fallback**: If RTC is missing, the system uses "Relative Ticks" and flags `time_quality` as 0. 
 - **Web Sync**: The browser can push its local time to the RTC via the WebSocket `SET_TIME` command.
 
 ### 2. Storage & Logging (SD Card)
-The `SDManager` handles a MicroSD card on SPI2 (GPIO 11-14).
+The `SDManager` handles a MicroSD card on SPI2 (MOSI=GPIO 13, MISO=GPIO 14, SCK=GPIO 12, CS=GPIO 11).
 - **FileSystem**: Formatted as FAT32.
-- **Events**: Every counting event detected by `TrackletFSM` is serialized to a CSV file in `/logs/YYYY-MM-DD.csv`.
+- **Session organization**: Logs and clips organized per session (`session_XXX/`), with separate `crossings.csv` and `clips.csv` files.
 - **Integrity**: Files are opened, appended, and closed immediately to prevent data loss on power failure.
 
 ### 3. Flash Memory (16MB)
@@ -199,7 +199,7 @@ struct IpcPacket {
 };
 ```
 
-Core 1 produces → Queue (timeout 0, drop if full) → Core 0 consumes → WebSocket/UDP.
+Core 1 produces → Queue (timeout 0, drop if full) → Core 0 consumes → WebSocket broadcast.
 
 Packet size: ~1.6 KB. Queue depth: 4 elements (~6.4 KB total).
 

@@ -23,7 +23,7 @@ Sistema embebido para conteo de personas mediante visión térmica (32×24 píxe
 
 ```
 [Core 1] ThermalPipeline (prioridad 24, 16 Hz)
-  ├── MLX90640 Driver (I2C 400kHz, Fast Mode)
+  ├── MLX90640 Driver (I2C 1MHz, Fast Mode+)
   ├── FrameAccumulator (fusión modo Chess)
   ├── NoiseFilter (Kalman 1D por píxel)
   ├── BackgroundModel (EMA selectivo)
