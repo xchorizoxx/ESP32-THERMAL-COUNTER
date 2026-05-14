@@ -51,6 +51,8 @@ public:
     // --- Called from Core 1 — just pings the cooldown timer (optional) ---
     static bool clipRecordingNow();          // true if currently recording
     static const char* getCurrentClipId();    // "CLIP_00005.thv" or ""
+    static void setSessionFolder(const char* folder);  // "session_075" from HttpServer
+    static uint32_t getClipStartTimestampMs(); // s_clip_start_ms_
 
     // --- Writer task (Core 0) ---
     static void writerTask(void* pv);
@@ -74,13 +76,15 @@ private:
     // Clip file
     static uint32_t        s_clip_counter_;
     static uint8_t         s_nvs_batch_;          // NVS write batch counter (every 10 clips)
-    static char            s_clip_path_[64];
+    static char            s_clip_path_[96];
     static FILE*           s_clip_file_;
     static uint32_t        s_last_fopen_fail_ms_;
 
     // Helpers
     static void startClip(uint32_t now_ms);
     static void closeClip();
+
+    static char s_session_folder_[48];  // "session_075" — set by HttpServer
 };
 
 // .thv file header (16 bytes) — accessible by clip list API

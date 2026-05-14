@@ -98,6 +98,11 @@ private:
 
     // --- Clip API ---
     static esp_err_t clipListHandler(httpd_req_t *req);   ///< GET /api/clips
+    static esp_err_t deleteAllClipsHandler(httpd_req_t *req); ///< POST /api/clips/delete_all
+
+    // --- Session metadata ---
+    static const char* getSessionFolder(); ///< "session_075" or "session_075_20260513"
+    static uint32_t    computeLinesHash(); ///< DJB2 hash of door_lines + thresholds
 
     // --- WebSocket ---
     static void wsAsyncCompletionCb(esp_err_t err, int socket, void *arg);

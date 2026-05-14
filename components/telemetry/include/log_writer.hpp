@@ -20,6 +20,7 @@ class LogWriter {
 public:
     static constexpr int QUEUE_DEPTH   = 32;
     static constexpr int MAX_LINE_LEN  = 256;
+    static constexpr int MAX_PATH_LEN  = 48;
 
     /**
      * @brief Initialize the LogWriter: create queue + start writer task.
@@ -28,15 +29,18 @@ public:
     static void init();
 
     /**
-     * @brief Enqueue a CSV line for async SD write.
+     * @brief Enqueue a CSV line for async SD write to a specific file.
      * Non-blocking: copies the line and pushes to queue.
      * If the queue is full, the line is silently dropped.
      * Safe to call from any FreeRTOS task context.
+     * @param filename  Relative path under SD root, e.g. "logs/session_075/crossings.csv"
+     * @param line      CSV line content (without trailing newline)
      */
-    static void enqueue(const char* line);
+    static void enqueue(const char* filename, const char* line);
 
 private:
     struct LogLine {
+        char path[MAX_PATH_LEN];
         char text[MAX_LINE_LEN];
     };
 
@@ -46,7 +50,7 @@ private:
 
     // Writer task
     static StaticTask_t    s_task_buf;
-    static StackType_t     s_task_stack[2048 / sizeof(StackType_t)];
+    static StackType_t     s_task_stack[4096 / sizeof(StackType_t)];
 
     static void task(void* pv);
 };

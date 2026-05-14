@@ -43,9 +43,10 @@ uint32_t ThermalRecorder::s_clip_crossings_ = 0;
 
 uint32_t ThermalRecorder::s_clip_counter_  = 0;
 uint8_t  ThermalRecorder::s_nvs_batch_     = 0;
-char     ThermalRecorder::s_clip_path_[64] = {};
+char     ThermalRecorder::s_clip_path_[96] = {};
 FILE*    ThermalRecorder::s_clip_file_     = nullptr;
 uint32_t ThermalRecorder::s_last_fopen_fail_ms_ = 0;
+char     ThermalRecorder::s_session_folder_[48] = {};
 
 // ---------------------------------------------------------------------------
 //  Helpers
@@ -158,11 +159,23 @@ bool ThermalRecorder::clipRecordingNow() {
 
 const char* ThermalRecorder::getCurrentClipId() {
     if (s_clip_file_ && (s_state_ == RECORDING || s_state_ == COOLDOWN)) {
-        // Extract basename from path (/sdcard/clips/CLIP_00005.thv → CLIP_00005.thv)
+        // Extract basename from path (/sdcard/clips/.../CLIP_00005.thv → CLIP_00005.thv)
         const char* slash = strrchr(s_clip_path_, '/');
         return slash ? slash + 1 : s_clip_path_;
     }
     return "";
+}
+
+void ThermalRecorder::setSessionFolder(const char* folder) {
+    size_t len = strlen(folder);
+    if (len >= sizeof(s_session_folder_)) len = sizeof(s_session_folder_) - 1;
+    memcpy(s_session_folder_, folder, len);
+    s_session_folder_[len] = '\0';
+    ESP_LOGI(TAG, "Session folder: %s", s_session_folder_);
+}
+
+uint32_t ThermalRecorder::getClipStartTimestampMs() {
+    return s_state_ == RECORDING ? s_clip_start_ms_ : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -291,8 +304,15 @@ void ThermalRecorder::startClip(uint32_t now_ms) {
     }
 
     s_clip_counter_++;
-    snprintf(s_clip_path_, sizeof(s_clip_path_),
-             "/sdcard/clips/CLIP_%05lu.thv", (unsigned long)s_clip_counter_);
+    if (s_session_folder_[0] == '\0') {
+        // Fallback: no session set yet
+        snprintf(s_clip_path_, sizeof(s_clip_path_),
+                 "/sdcard/clips/CLIP_%05lu.thv", (unsigned long)s_clip_counter_);
+    } else {
+        snprintf(s_clip_path_, sizeof(s_clip_path_),
+                 "/sdcard/clips/%s/CLIP_%05lu.thv", s_session_folder_,
+                 (unsigned long)s_clip_counter_);
+    }
 
     // Step 1: Copy pre-roll frames from ring buffer to PSRAM cache
     // (before fopen — avoids blocking the writer during SD I/O)

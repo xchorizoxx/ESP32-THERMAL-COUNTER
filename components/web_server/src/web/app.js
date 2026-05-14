@@ -43,6 +43,7 @@ const CONFIG = {
 
 // W3: Session / clock
 let sessionId   = 0;
+let sessionFolder = '';
 let timeQuality = 0;   // 0=none 1=browser 2=rtc
 let nvsBaseIn   = 0;
 let nvsBaseOut  = 0;
@@ -697,6 +698,7 @@ function applyConfig(obj) {
 
     // W3/W6
     sessionId   = obj.session_id   ?? sessionId;
+    sessionFolder = obj.session_folder ?? '';
     timeQuality = obj.time_quality  ?? timeQuality;
     nvsBaseIn   = obj.nvs_base_in  ?? nvsBaseIn;
     nvsBaseOut  = obj.nvs_base_out ?? nvsBaseOut;
@@ -730,8 +732,9 @@ function applyConfig(obj) {
 }
 
 function applyStatus(obj) {
-    sessionId   = obj.session_id   ?? sessionId;
-    timeQuality = obj.time_quality  ?? timeQuality;
+    sessionId    = obj.session_id     ?? sessionId;
+    sessionFolder = obj.session_folder ?? sessionFolder;
+    timeQuality  = obj.time_quality   ?? timeQuality;
     nvsBaseIn   = obj.nvs_base_in  ?? nvsBaseIn;
     nvsBaseOut  = obj.nvs_base_out ?? nvsBaseOut;
     setEl('lbl-session-id',        sessionId);
@@ -1336,27 +1339,42 @@ async function loadClips() {
         }
 
         let html = '';
+        let totalSize = 0;
         for (const c of clips) {
             const kb = Math.round(c.size_bytes / 1024);
             const dirLabel = c.trigger_dir === 1 ? 'IN' : (c.trigger_dir === 2 ? 'OUT' : '--');
             const dirClass = c.trigger_dir === 1 ? 'dir-in' : (c.trigger_dir === 2 ? 'dir-out' : '');
+            const dur = c.duration_ms ? (c.duration_ms / 1000).toFixed(1) + 's' : '--';
+            const sess = c.session || '';
+            const fullPath = sess ? `clips/${sess}/${c.name}` : `clips/${c.name}`;
+            totalSize += c.size_bytes || 0;
             html += `<div class="clip-item">
                 <div class="clip-icon">▶</div>
                 <div class="clip-info">
                     <div class="clip-name" title="${c.name}">${c.name}</div>
                     <div class="clip-meta">
                         <span>${c.frame_count} frames</span>
+                        <span>${dur}</span>
                         <span>${kb} KB</span>
                         <span>${c.fps} Hz</span>
+                        ${sess ? `<span class="text-muted-sm">${sess}</span>` : ''}
                     </div>
                 </div>
                 <div class="clip-crossings ${dirClass}">${dirLabel}</div>
                 <div class="clip-actions">
-                    <button class="btn-icon play" onclick="playClip('${c.name}')" title="Reproducir">▶</button>
-                    <button class="btn-icon download" onclick="window.location.href='/api/sd/download?file=clips/${c.name}'" title="Descargar">⬇</button>
-                    <button class="btn-icon delete" onclick="deleteClip('${c.name}')" title="Borrar">✕</button>
+                    <button class="btn-icon play" onclick="playClip('${fullPath}')" title="Reproducir">▶</button>
+                    <button class="btn-icon download" onclick="downloadSingleFile('${fullPath}', '${c.name}')" title="Descargar">⬇</button>
+                    <button class="btn-icon delete" onclick="deleteClip('${fullPath}')" title="Borrar">✕</button>
                 </div>
             </div>`;
+        }
+        // Update toolbar
+        const totalMB = (totalSize / 1048576).toFixed(1);
+        const toolbar = document.getElementById('clips-toolbar');
+        if (toolbar) {
+            toolbar.innerHTML = `<span class="text-muted-sm">${clips.length} clips · ${totalMB} MB</span>
+                <button class="btn-pill" onclick="downloadAllClips()">📦 Todos los clips</button>
+                <button class="btn-pill" onclick="deleteAllClips()">🗑 Borrar todos</button>`;
         }
         el.innerHTML = html;
     } catch (e) {
@@ -1368,16 +1386,16 @@ async function loadClips() {
 // ---------------------------------------------------------------------------
 // deleteClip — POST /api/sd/delete
 // ---------------------------------------------------------------------------
-async function deleteClip(file) {
-    if (!confirm(`¿Borrar ${file}?`)) return;
+async function deleteClip(filePath) {
+    if (!confirm(`¿Borrar ${filePath}?`)) return;
     try {
         const resp = await fetch('/api/sd/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ file: 'clips/' + file })
+            body: JSON.stringify({ file: filePath })
         });
         const result = await resp.json();
-        logMsg(`Clip ${file}: ${result.status}`);
+        logMsg(`Clip ${filePath}: ${result.status}`);
         loadClips();
     } catch (e) {
         logMsg('deleteClip error: ' + e.message, true);
@@ -1389,7 +1407,7 @@ async function deleteClip(file) {
 // ---------------------------------------------------------------------------
 async function playClip(file) {
     try {
-        const resp = await fetch('/api/sd/download?file=clips/' + file);
+        const resp = await fetch('/api/sd/download?file=' + file);
         if (!resp.ok) { logMsg('Error descargando clip', true); return; }
         const buf = await resp.arrayBuffer();
         if (buf.byteLength < 16) { logMsg('Clip muy pequeño', true); return; }
@@ -1494,4 +1512,322 @@ function closePlayer() {
     document.getElementById('player-modal').style.display = 'none';
     _clipData = null;
     _clipHeader = null;
+}
+
+// =============================================================================
+//  ZIP GENERATOR (pure JS, no external dependencies)
+// =============================================================================
+
+// CRC32 table (lazy-init)
+let _crc32Table = null;
+function _crc32(data) {
+    if (!_crc32Table) {
+        _crc32Table = new Uint32Array(256);
+        for (let i = 0; i < 256; i++) {
+            let c = i;
+            for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+            _crc32Table[i] = c;
+        }
+    }
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < data.length; i++)
+        crc = _crc32Table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function _u16(dv, o, v) { dv.setUint16(o, v, true); }
+function _u32(dv, o, v) { dv.setUint32(o, v, true); }
+
+function makeZip(entries) {
+    const enc = new TextEncoder();
+    const files = entries.map(e => {
+        const data = (typeof e.data === 'string') ? enc.encode(e.data)
+                  : (e.data instanceof ArrayBuffer) ? new Uint8Array(e.data)
+                  : e.data;
+        const name = enc.encode(e.name);
+        return { data, name, crc: _crc32(data), size: data.length };
+    });
+
+    // Build local file entries + calculate offsets
+    const locals = [];
+    let dataOffset = 0;
+    for (const f of files) {
+        const hdrSize = 30 + f.name.length;
+        const hdr = new ArrayBuffer(hdrSize);
+        const dv = new DataView(hdr);
+        _u32(dv, 0, 0x04034b50);
+        _u16(dv, 4, 20);
+        _u16(dv, 6, 0);
+        _u16(dv, 8, 0);
+        _u16(dv, 10, 0);
+        _u16(dv, 12, 0);
+        _u32(dv, 14, f.crc);
+        _u32(dv, 18, f.size);
+        _u32(dv, 22, f.size);
+        _u16(dv, 26, f.name.length);
+        _u16(dv, 28, 0);
+        new Uint8Array(hdr, 30).set(f.name);
+        locals.push({ hdr, data: f.data, size: f.size, nameLen: f.name.length });
+        dataOffset += hdrSize + f.size;
+    }
+
+    // Build central directory
+    const cdEntries = [];
+    let cdOffset = 0;
+    for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const lhSize = 30 + f.name.length;
+        const cdSize = 46 + f.name.length;
+        const cd = new ArrayBuffer(cdSize);
+        const dv = new DataView(cd);
+        _u32(dv, 0, 0x02014b50);
+        _u16(dv, 4, 20);
+        _u16(dv, 6, 20);
+        _u16(dv, 8, 0);
+        _u16(dv, 10, 0);
+        _u16(dv, 12, 0);
+        _u16(dv, 14, 0);
+        _u32(dv, 16, f.crc);
+        _u32(dv, 20, f.size);
+        _u32(dv, 24, f.size);
+        _u16(dv, 28, f.name.length);
+        _u16(dv, 30, 0);
+        _u16(dv, 32, 0);
+        _u16(dv, 34, 0);
+        _u16(dv, 36, 0);
+        _u32(dv, 38, 0);
+        _u32(dv, 42, cdOffset);
+        new Uint8Array(cd, 46).set(f.name);
+        cdEntries.push(cd);
+        cdOffset += lhSize + f.size;
+    }
+
+    const cdSize = cdEntries.reduce((s, e) => s + e.byteLength, 0);
+    const cdStart = dataOffset;
+    const eocdSize = 22;
+    const totalSize = cdStart + cdSize + eocdSize;
+
+    const zip = new Uint8Array(totalSize);
+    let pos = 0;
+    for (const l of locals) {
+        zip.set(new Uint8Array(l.hdr), pos); pos += l.hdr.byteLength;
+        zip.set(l.data, pos); pos += l.data.length;
+    }
+    for (const cd of cdEntries) {
+        zip.set(new Uint8Array(cd), pos); pos += cd.byteLength;
+    }
+    const eocd = new DataView(new ArrayBuffer(eocdSize));
+    _u32(eocd, 0, 0x06054b50);
+    _u16(eocd, 4, 0);
+    _u16(eocd, 6, 0);
+    _u16(eocd, 8, files.length);
+    _u16(eocd, 10, files.length);
+    _u32(eocd, 12, cdSize);
+    _u32(eocd, 16, cdStart);
+    _u16(eocd, 20, 0);
+    zip.set(new Uint8Array(eocd.buffer), pos);
+
+    return new Blob([zip], { type: 'application/zip' });
+}
+
+function _downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// Download a single file from SD via ESP32 HTTP
+async function downloadSingleFile(sdPath, displayName) {
+    const resp = await fetch(`/api/sd/download?file=${sdPath}`);
+    if (!resp.ok) { logMsg(`Error descargando ${sdPath}`, true); return; }
+    const blob = await resp.blob();
+    _downloadBlob(blob, displayName || sdPath.split('/').pop());
+}
+
+// =============================================================================
+//  DOWNLOAD SESSION DATA (crossings.csv + clips.csv + config.json)
+// =============================================================================
+async function downloadSessionData() {
+    if (!sessionFolder) { logMsg('No hay sesión activa', true); return; }
+    logMsg(`Descargando datos de ${sessionFolder}...`);
+
+    const entries = [];
+    const files = [
+        `logs/${sessionFolder}/crossings.csv`,
+        `logs/${sessionFolder}/clips.csv`,
+        `config/${sessionFolder}.json`
+    ];
+
+    for (const path of files) {
+        try {
+            const resp = await fetch(`/api/sd/download?file=${path}`);
+            if (resp.ok) {
+                const text = await resp.text();
+                entries.push({ name: path.split('/').pop(), data: text });
+            }
+        } catch (e) { logMsg(`Error: ${path}`, true); }
+    }
+
+    if (entries.length === 0) { logMsg('No se encontraron datos de sesión', true); return; }
+    const zip = makeZip(entries);
+    _downloadBlob(zip, `${sessionFolder}_datos.zip`);
+    logMsg(`Descargado: ${entries.length} archivos`);
+}
+
+// =============================================================================
+//  DOWNLOAD SESSION FULL (session data + all .thv clips)
+// =============================================================================
+async function downloadSessionFull() {
+    if (!sessionFolder) { logMsg('No hay sesión activa', true); return; }
+    logMsg(`Descargando sesión completa ${sessionFolder}...`);
+
+    const entries = [];
+
+    // Fetch text files (CSV + JSON)
+    const textFiles = [
+        `logs/${sessionFolder}/crossings.csv`,
+        `logs/${sessionFolder}/clips.csv`,
+        `config/${sessionFolder}.json`
+    ];
+    for (const path of textFiles) {
+        try {
+            const resp = await fetch(`/api/sd/download?file=${path}`);
+            if (resp.ok) {
+                const text = await resp.text();
+                entries.push({ name: path.split('/').pop(), data: text });
+            }
+        } catch (e) { /* skip */ }
+    }
+
+    // Fetch clips
+    try {
+        const resp = await fetch('/api/clips');
+        const data = await resp.json();
+        const sessionClips = (data.clips || []).filter(c => c.session === sessionFolder);
+        for (const c of sessionClips) {
+            const fullPath = `clips/${sessionFolder}/${c.name}`;
+            try {
+                const r2 = await fetch(`/api/sd/download?file=${fullPath}`);
+                if (r2.ok) {
+                    const buf = await r2.arrayBuffer();
+                    entries.push({ name: `clips/${c.name}`, data: buf });
+                }
+            } catch (e) { /* skip */ }
+        }
+    } catch (e) { logMsg('Error cargando lista de clips', true); }
+
+    if (entries.length === 0) { logMsg('Sin datos para descargar', true); return; }
+    const zip = makeZip(entries);
+    _downloadBlob(zip, `${sessionFolder}_completo.zip`);
+    logMsg(`Sesión completa: ${entries.length} archivos`);
+}
+
+// =============================================================================
+//  DOWNLOAD ALL CLIPS (all .thv from all sessions)
+// =============================================================================
+async function downloadAllClips() {
+    logMsg('Preparando todos los clips...');
+    const entries = [];
+
+    try {
+        const resp = await fetch('/api/clips');
+        const data = await resp.json();
+        const clips = data.clips || [];
+        for (const c of clips) {
+            const fullPath = c.session ? `clips/${c.session}/${c.name}` : `clips/${c.name}`;
+            const zipName = c.session ? `${c.session}/${c.name}` : c.name;
+            try {
+                const r2 = await fetch(`/api/sd/download?file=${fullPath}`);
+                if (r2.ok) {
+                    const buf = await r2.arrayBuffer();
+                    entries.push({ name: zipName, data: buf });
+                }
+            } catch (e) { /* skip */ }
+        }
+    } catch (e) { logMsg('Error cargando clips', true); return; }
+
+    if (entries.length === 0) { logMsg('No hay clips', true); return; }
+    const zip = makeZip(entries);
+    _downloadBlob(zip, `todos_los_clips.zip`);
+    logMsg(`${entries.length} clips descargados`);
+}
+
+// =============================================================================
+//  DOWNLOAD FULL BACKUP (everything — all sessions, all files)
+// =============================================================================
+async function downloadFullBackup() {
+    logMsg('Preparando backup completo...');
+    const entries = [];
+
+    // Scan session folders via clips listing
+    try {
+        const resp = await fetch('/api/clips');
+        const data = await resp.json();
+        const clips = data.clips || [];
+
+        // Collect unique session folders
+        const sessions = new Set();
+        clips.forEach(c => { if (c.session) sessions.add(c.session); });
+
+        for (const sess of sessions) {
+            // Text files
+            for (const f of [`logs/${sess}/crossings.csv`, `logs/${sess}/clips.csv`, `config/${sess}.json`]) {
+                try {
+                    const r = await fetch(`/api/sd/download?file=${f}`);
+                    if (r.ok) {
+                        const text = await r.text();
+                        entries.push({ name: f, data: text });
+                    }
+                } catch (e) { /* skip */ }
+            }
+            // Clips for this session
+            const sessionClips = clips.filter(c => c.session === sess);
+            for (const c of sessionClips) {
+                try {
+                    const r = await fetch(`/api/sd/download?file=clips/${sess}/${c.name}`);
+                    if (r.ok) {
+                        const buf = await r.arrayBuffer();
+                        entries.push({ name: `clips/${sess}/${c.name}`, data: buf });
+                    }
+                } catch (e) { /* skip */ }
+            }
+        }
+
+        // Also include any legacy flat clips
+        const legacyClips = clips.filter(c => !c.session);
+        for (const c of legacyClips) {
+            try {
+                const r = await fetch(`/api/sd/download?file=clips/${c.name}`);
+                if (r.ok) {
+                    const buf = await r.arrayBuffer();
+                    entries.push({ name: `clips/legacy/${c.name}`, data: buf });
+                }
+            } catch (e) { /* skip */ }
+        }
+    } catch (e) { logMsg('Error escaneando sesiones', true); return; }
+
+    if (entries.length === 0) { logMsg('No hay datos', true); return; }
+    const zip = makeZip(entries);
+    _downloadBlob(zip, `backup_completo.zip`);
+    logMsg(`Backup: ${entries.length} archivos`);
+}
+
+// =============================================================================
+//  DELETE ALL CLIPS
+// =============================================================================
+async function deleteAllClips() {
+    if (!confirm('⚠️ ¿Borrar TODOS los clips térmicos?\nEsta acción no se puede deshacer.')) return;
+    if (!confirm('¿Estás seguro? Se perderán todas las grabaciones.')) return;
+
+    try {
+        const resp = await fetch('/api/clips/delete_all', { method: 'POST' });
+        const result = await resp.json();
+        logMsg(`Clips borrados: ${result.deleted} (${result.errors} errores)`);
+        loadClips();
+    } catch (e) {
+        logMsg('Error al borrar clips: ' + e.message, true);
+    }
 }
