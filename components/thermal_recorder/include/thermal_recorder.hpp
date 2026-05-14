@@ -44,7 +44,9 @@ public:
     static bool      isActive();             // true when PSRAM allocated
 
     // --- Called from Core 1 (pipeline) — fast, no allocation ---
-    static void IRAM_ATTR pushFrame(const float* pixels_degC, int num_tracks, int cross_dir);
+    // NOT IRAM_ATTR: pushFrame uses LOG_COLOR (printf/esp_log_timestamp) which
+    // are flash-resident. Called from task context (not ISR), so IRAM is unnecessary.
+    static void pushFrame(const float* pixels_degC, int num_tracks, int cross_dir);
 
     // --- Called from Core 1 — just pings the cooldown timer (optional) ---
     static bool clipRecordingNow();          // true if currently recording

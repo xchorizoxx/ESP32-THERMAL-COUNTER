@@ -113,9 +113,9 @@ bool ThermalRecorder::isActive() { return s_ring_buf_ != nullptr; }
 // ---------------------------------------------------------------------------
 //  pushFrame  (Core 1 — fast, no allocation)
 // ---------------------------------------------------------------------------
-void IRAM_ATTR ThermalRecorder::pushFrame(const float* pixels_degC,
-                                          int num_tracks,
-                                          int cross_dir) {
+void ThermalRecorder::pushFrame(const float* pixels_degC,
+                                int num_tracks,
+                                int cross_dir) {
     if (!s_ring_buf_) return;
 
     // Diagnostic: log every ~32 frames (1s at 32 Hz)
