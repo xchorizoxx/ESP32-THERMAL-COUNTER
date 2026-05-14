@@ -160,7 +160,7 @@ Cada fase sigue este ciclo exacto — saltarse pasos causa errores:
 
 - `CLAUDE.md` — historical AI quick reference (some values outdated)
 - `AGENTES/PLAN-AGENTE-INSTRUCCIONES.md` — Spanish operational blueprint with stage map
-- `docs/ARCHITECTURE.md` — full system design
-- `docs/ALGORITHM.md` — tracking math
+- `docs/01-architecture.md` — full system design
+- `docs/02-algorithm.md` — tracking math
 - `.agents/workflows/hardware-safety.md` — hardware modification approval protocol
 - `sdkconfig.defaults` — Kconfig overrides

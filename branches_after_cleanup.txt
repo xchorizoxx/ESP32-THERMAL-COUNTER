@@ -1,5 +1,0 @@
-* Alpha-0.8.0
-  master
-  remotes/origin/HEAD -> origin/master
-  remotes/origin/Implementación-A4-B1
-  remotes/origin/master

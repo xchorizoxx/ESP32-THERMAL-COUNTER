@@ -60,7 +60,7 @@ IPC: FreeRTOS Queue (profundidad 4, asignación estática)
 4. **Conectar**: WiFi "ThermalCounter" o cable USB (192.168.4.1).
 5. **Configurar**: Abrir navegador → ajustar umbrales → Guardar en Flash.
 
-Ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) para diseño detallado del sistema.
+Ver [`docs/01-architecture.md`](docs/01-architecture.md) para diseño detallado del sistema.
 
 ## Parámetros de Configuración Críticos
 
@@ -73,7 +73,7 @@ Ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) para diseño detallado del si
 | Radio NMS Borde | Radio supresión (zonas bordes) | 2-4 píxeles |
 | Zona Muerta Izq/Der | Zonas exclusión horizontal | 0-8 píxeles |
 
-Guía de calibración: [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)
+Guía de calibración: [`docs/04-configuration.md`](docs/04-configuration.md)
 
 ## Pipeline de Visión (5 Etapas)
 
@@ -94,24 +94,24 @@ Guía de calibración: [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)
 - Matching compuesto: Distancia + similitud de temperatura
 - TrackletFSM: Conteo bidireccional con líneas configurables por segmentos
 
-Detalles algoritmicos: [`docs/ALGORITHM.md`](docs/ALGORITHM.md)
+Detalles algoritmicos: [`docs/02-algorithm.md`](docs/02-algorithm.md)
 
 ## Conexiones de Hardware
 
-| MLX90640 | ESP32-S3 | Nota |
-|----------|----------|------|
-| VCC | 3.3V | LDO estable requerido (150mA pico con WiFi) |
-| GND | GND | Camino de tierra corto |
-| SDA (I2C0) | GPIO 8 | Sensor Térmico |
-| SCL (I2C0) | GPIO 9 | Sensor Térmico |
-| SDA (I2C1) | GPIO 1 | RTC DS3231 |
-| SCL (I2C1) | GPIO 2 | RTC DS3231 |
-| SD MOSI | GPIO 11 | MicroSD (SPI2) |
-| SD MISO | GPIO 13 | MicroSD (SPI2) |
-| SD SCK | GPIO 12 | MicroSD (SPI2) |
-| SD CS | GPIO 14 | MicroSD (SPI2) |
+| Bus | Señal | GPIO | Nota |
+|-----|-------|------|------|
+| I2C0 (MLX90640) | SDA | GPIO 8 | 1 MHz FM+, pull-ups 1kΩ externos |
+| I2C0 (MLX90640) | SCL | GPIO 9 | 1 MHz FM+, pull-ups 1kΩ externos |
+| I2C1 (DS3231) | SDA | GPIO 7 | Velocidad estándar |
+| I2C1 (DS3231) | SCL | GPIO 6 | Velocidad estándar |
+| I2C1 (DS3231) | VCC | GPIO 15 | Control alimentación RTC |
+| I2C1 (DS3231) | GND | GPIO 16 | Interruptor masa RTC |
+| SPI2 (SD) | MOSI | GPIO 13 | MicroSD |
+| SPI2 (SD) | MISO | GPIO 14 | MicroSD |
+| SPI2 (SD) | SCK | GPIO 12 | MicroSD |
+| SPI2 (SD) | CS | GPIO 11 | MicroSD |
 
-Pinout completo: [`docs/HARDWARE.md`](docs/HARDWARE.md)
+Pinout completo: [`docs/03-hardware.md`](docs/03-hardware.md)
 
 ## Actualizaciones OTA
 
@@ -123,45 +123,62 @@ python scripts/ota_upload.py
 # Abrir http://192.168.4.1 → panel OTA → Subir build/DetectorPuerta.bin
 ```
 
-Guía de operaciones: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+Guía de operaciones: [`docs/06-operations.md`](docs/06-operations.md)
 
 ## Índice de Documentación
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Arquitectura del sistema y diseño dual-core
-- [`docs/ALGORITHM.md`](docs/ALGORITHM.md) — Algoritmos TrackletTracker y TrackletFSM
-- [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) — Parámetros de calibración y guía Web UI
-- [`docs/HARDWARE.md`](docs/HARDWARE.md) — Pinout, conexiones y especificaciones eléctricas
-- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — OTA, despliegue y mantenimiento
+- [`docs/01-architecture.md`](docs/01-architecture.md) — Arquitectura del sistema y diseño dual-core
+- [`docs/02-algorithm.md`](docs/02-algorithm.md) — Algoritmos TrackletTracker y TrackletFSM
+- [`docs/03-hardware.md`](docs/03-hardware.md) — Pinout, conexiones y especificaciones eléctricas
+- [`docs/04-configuration.md`](docs/04-configuration.md) — Parámetros de calibración y guía Web UI
+- [`docs/05-webserver.md`](docs/05-webserver.md) — API HTTP, WebSocket, OTA
+- [`docs/06-operations.md`](docs/06-operations.md) — OTA, despliegue y mantenimiento
+- [`docs/07-peripherals.md`](docs/07-peripherals.md) — Drivers de periféricos
+- [`docs/08-data-persistence.md`](docs/08-data-persistence.md) — Almacenamiento, NVS, CSV
+- [`docs/09-status-indicators.md`](docs/09-status-indicators.md) — Códigos LED y USB
 
 ## Estructura del Proyecto
 
 ```
+├── .agents/                   # Instrucciones IA y planes
 ├── components/
-│   ├── mlx90640_driver/       # Driver sensor Melexis (I2C)
+│   ├── mlx90640_driver/       # Driver sensor Melexis (I2C0)
+│   ├── rtc_driver/            # Driver RTC DS3231 (I2C1)
+│   ├── sd_manager/            # Gestor SD FATFS
+│   ├── status_led/            # Driver LED RGB
+│   ├── telemetry/             # Stack red, LogWriter (Core 0)
 │   ├── thermal_pipeline/      # Pipeline visión (Core 1)
-│   ├── telemetry/             # Stack red (Core 0)
-│   └── web_server/            # Servidor HTTP + WebSocket
+│   ├── thermal_recorder/      # Grabador de clips térmicos
+│   └── web_server/            # HTTP + WebSocket + OTA
 ├── docs/
-│   ├── assets/                # Capturas y videos demo
-│   ├── ARCHITECTURE.md
-│   ├── ALGORITHM.md
-│   ├── CONFIGURATION.md
-│   ├── HARDWARE.md
-│   └── OPERATIONS.md
+│   ├── assets/
+│   │   ├── images/
+│   │   └── videos/
+│   ├── 01-architecture.md
+│   ├── 02-algorithm.md
+│   ├── 03-hardware.md
+│   ├── 04-configuration.md
+│   ├── 05-webserver.md
+│   ├── 06-operations.md
+│   ├── 07-peripherals.md
+│   ├── 08-data-persistence.md
+│   ├── 09-status-indicators.md
+│   ├── CHANGELOG.md
+│   ├── README.md
+│   └── ROADMAP.md
+├── managed_components/
 ├── scripts/
-│   └── ota_upload.py          # Utilidad flash OTA
+│   └── ota_upload.py
 ├── main/
-│   └── main.cpp               # Punto entrada, creación tareas
-└── README.md / README_EN.md   # Este archivo (ES/EN)
+│   └── main.cpp
+└── README.md / README_ES.md
 ```
 
 ## Changelog
 
-- **Stage C1/D1** (Actual): Soporte RTC (DS3231) y MicroSD (FATFS). Flash 16MB. Diagnóstico Web.
-- **Stage A3**: TrackletFSM con líneas configurables por segmentos, lógica debounce
-- **Stage A2**: TrackletTracker (historial 20 frames, matching compuesto, memoria proporcional)
-- **Stage A1**: Filtro Kalman por píxel, acumulador Chess, pipeline por etapas
-- **Stage A0**: MVP inicial
+- **v1.0.0-estable** (Actual): Organización por sesión, CSV rediseñado, exportación de configuración, descargas ZIP, gestión de clips, documentación reestructurada.
+- **v0.9.5-alpha**: Arquitectura dual-core, logging SD, OTA, modo USB network.
+- **v0.8.1-alpha**: TrackletFSM, líneas de conteo configurables, persistencia NVS.
 
 ## Licencia
 
@@ -174,14 +191,14 @@ Guía de operaciones: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - **Descarga vía Web**: Botón dedicado para bajar el historial completo en formato CSV.
 - **Sesión Trazable**: ID de sesión incremental para separar datos tras reinicios.
 
-Para más detalles, consulta la [Documentación de Persistencia](docs/DATA_PERSISTENCE.md).
+Para más detalles, consulta la [Documentación de Persistencia](docs/08-data-persistence.md).
 
 ### 🌐 Interfaz Web Avanzada
 - **Streaming en Tiempo Real**: Visualización térmica a 16 FPS mediante WebSockets.
 - **Protocolo Binario**: Optimizado para baja latencia en redes WiFi congestionadas.
 - **Panel de Control**: Configuración dinámica de líneas, sensibilidad y altura.
 
-Consulta la [Especificación del Servidor Web](docs/WEBSERVER_SPECS.md).
+Consulta la [Especificación del Servidor Web](docs/05-webserver.md).
 
 ---
 

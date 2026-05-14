@@ -1,6 +1,27 @@
 # CHANGELOG - Thermal Door Detector
 
-## [Alpha 0.8] - 2026-04-04 (Current)
+## [v1.0.0-estable] - 2026-05-13 (Current)
+### Added
+- **SD Session-based organization**: Logs and clips organized in `session_XXX/` subfolders.
+- **CSV Restructuring**: Separate `crossings.csv` (crossing events) and `clips.csv` (clip lifecycle) per session.
+- **Config Export**: Door lines, thresholds, zones, and sensor geometry exported to `config/session_XXX.json`.
+- **Client-side ZIP Downloads**: Pure JS ZIP generation (CRC32 + uncompressed) for session data, full backup, and all clips.
+- **Delete All Clips**: Endpoint `POST /api/clips/delete_all` to erase all `.thv` files across sessions.
+- **Enhanced Clip List**: API returns enriched metadata (session, duration, timestamp) recursing into session subdirectories.
+- **Per-session Clip Storage**: Thermal clips stored in `clips/session_XXX/` directories.
+
+### Changed
+- **Docs restructured**: `docs/` files reorganized with numeric prefix (`01-architecture.md`, `02-algorithm.md`, etc.).
+- **Agent instructions consolidated**: `AGENTES/` merged into `.agents/plans/`, `CLAUDE.md` removed (outdated).
+- **Branch cleanup**: Old feature branches removed, `main` promoted to primary, tagged `v1.0.0-estable`.
+
+### Fixed
+- **LogWriter stack overflow**: Task stack increased from 2048 to 4096 bytes.
+- **SD format specifiers**: Corrected `uint32_t`/`uint64_t` casts for picolibc compatibility.
+- **I2C path buffers**: Increased buffer sizes (`fpath[96]`, `sfpath[128]`) to prevent truncation with session paths.
+- **Unused variable warnings**: Suppressed with `(void)` casts to pass `-Werror`.
+
+## [Alpha 0.8] - 2026-04-04
 ### [Stage A3-B1] - Metric Refinement & USB Implementation
 #### Added
 - **USB Network Support**: TinyUSB (ECM/RNDIS) implementation for local access via cable, activated by long-pressing the BOOT button (2.0s).
@@ -67,4 +88,4 @@ All notable changes to this project will be documented in this file.
 - **NVS Control**: Calibration persistence.
 
 ---
-*To see the roadmap of future versions, see [docs/roadmap.md](docs/roadmap.md).*
+*To see the roadmap of future versions, see [ROADMAP.md](ROADMAP.md).*
