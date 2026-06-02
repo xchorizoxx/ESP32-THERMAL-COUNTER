@@ -15,7 +15,7 @@ public:
 private:
     void drawClock(uint16_t* fb, int w, const SystemInfoSnapshot& sys);
     void drawDate(uint16_t* fb, int w, const SystemInfoSnapshot& sys);
-    void drawSensorDots(uint16_t* fb, int w, int y, const SystemInfoSnapshot& sys);
+    void drawSensorDots(uint16_t* fb, int w, int y, const SystemInfoSnapshot& sys, const TftSnapshot& snap);
     void drawTemps(uint16_t* fb, int w, const SystemInfoSnapshot& sys);
     void drawUptime(uint16_t* fb, int w, int h, const SystemInfoSnapshot& sys);
 

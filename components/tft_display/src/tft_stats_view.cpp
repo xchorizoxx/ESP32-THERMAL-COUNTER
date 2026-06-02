@@ -143,7 +143,7 @@ void TftStatsView::drawBoldNumber(int x, int y, int num, uint16_t color, uint16_
 
 void TftStatsView::drawActivityHistogram(uint16_t* fb, int w, int h) {
     const int GR_Y0 = 0;
-    const int GR_H = 40;
+    const int GR_H = 46;
     const int MID_Y = GR_Y0 + GR_H / 2;
     const int X_OFFSET = 10;
 
@@ -163,8 +163,8 @@ void TftStatsView::drawActivityHistogram(uint16_t* fb, int w, int h) {
         int idx = (current_bin_idx_ + 1 + i) % NUM_BINS;
         int x = X_OFFSET + i * 5;
 
-        int h_in = (bins_[idx].count_in * 16) / max_val;
-        int h_out = (bins_[idx].count_out * 16) / max_val;
+        int h_in = (bins_[idx].count_in * 19) / max_val;
+        int h_out = (bins_[idx].count_out * 19) / max_val;
 
         if (h_in > 0) {
             fillRect(x, MID_Y - h_in, 4, h_in, COL_BLUE, fb, w);
@@ -181,41 +181,58 @@ void TftStatsView::drawActivityHistogram(uint16_t* fb, int w, int h) {
 }
 
 void TftStatsView::drawCounters(uint16_t* fb, int w, int h, uint16_t in, uint16_t out) {
-    const int y0 = 42;
-    const int half_w = w / 2;
+    // Draw modern dashboard flat cards for counters (y = 52 to 88)
+    const uint16_t COL_CARD_BG = RGB565(30, 30, 42); // Elegant dark gray-blue card bg
+    
+    fillRect(4, 52, 72, 36, COL_CARD_BG, fb, w);
+    fillRect(84, 52, 72, 36, COL_CARD_BG, fb, w);
 
-    drawSmallText(half_w / 2 - 24, y0, "ENTRADAS", COL_BLUE, fb, w);
-    drawSmallText(half_w + half_w / 2 - 20, y0, "SALIDAS", COL_GREEN, fb, w);
+    // Draw card borders
+    for (int x = 4; x < 76; x++) { putPixel(x, 52, COL_MIDLINE, fb, w); putPixel(x, 87, COL_MIDLINE, fb, w); }
+    for (int y = 52; y < 88; y++) { putPixel(4, y, COL_MIDLINE, fb, w); putPixel(75, y, COL_MIDLINE, fb, w); }
 
-    drawBoldNumber(half_w / 2, y0 + 12, in, COL_BLUE, fb, w);
-    drawBoldNumber(half_w + half_w / 2, y0 + 12, out, COL_GREEN, fb, w);
+    for (int x = 84; x < 156; x++) { putPixel(x, 52, COL_MIDLINE, fb, w); putPixel(x, 87, COL_MIDLINE, fb, w); }
+    for (int y = 52; y < 88; y++) { putPixel(84, y, COL_MIDLINE, fb, w); putPixel(155, y, COL_MIDLINE, fb, w); }
+
+    // Draw ENTRADAS / SALIDAS labels centered inside cards
+    drawSmallText(16, 56, "ENTRADAS", COL_BLUE, fb, w);
+    drawSmallText(99, 56, "SALIDAS", COL_GREEN, fb, w);
+
+    // Draw giant bold numbers
+    drawBoldNumber(40, 64, in, COL_BLUE, fb, w);
+    drawBoldNumber(120, 64, out, COL_GREEN, fb, w);
 }
 
 void TftStatsView::drawMetrics(uint16_t* fb, int w, int h, const TftSnapshot& snap) {
-    const int y0 = 96;
+    // Draw horizontal divider line at y = 96
+    for (int px = 0; px < w; px += 2) {
+        putPixel(px, 96, COL_MIDLINE, fb, w);
+    }
+
+    const int y0 = 104;
     char buf[16];
 
     int ocup = (int)snap.count_in - (int)snap.count_out;
     if (ocup < 0) ocup = 0;
 
     snprintf(buf, sizeof(buf), "OC:%d", ocup);
-    drawSmallText(2, y0, buf, COL_AMBER, fb, w);
+    drawSmallText(4, y0, buf, COL_AMBER, fb, w);
 
     snprintf(buf, sizeof(buf), "TR:%d", snap.num_tracks);
-    drawSmallText(36, y0, buf, COL_WHITE, fb, w);
+    drawSmallText(52, y0, buf, COL_WHITE, fb, w);
 
     if (snap.sensor_ok) {
         snprintf(buf, sizeof(buf), "%.1fC", snap.ambient_temp);
-        drawSmallText(66, y0, buf, COL_CYAN, fb, w);
+        drawSmallText(92, y0, buf, COL_CYAN, fb, w);
 
-        drawSmallText(98, y0, "/", COL_GRAY, fb, w);
+        drawSmallText(122, y0, "/", COL_GRAY, fb, w);
 
         snprintf(buf, sizeof(buf), "%.1fC", snap.sensor_temp);
-        drawSmallText(106, y0, buf, COL_AMBER, fb, w);
+        drawSmallText(130, y0, buf, COL_AMBER, fb, w);
     } else {
-        drawSmallText(66, y0, "--.-C", COL_CYAN, fb, w);
-        drawSmallText(98, y0, "/", COL_GRAY, fb, w);
-        drawSmallText(106, y0, "--.-C", COL_AMBER, fb, w);
+        drawSmallText(92, y0, "--.-C", COL_CYAN, fb, w);
+        drawSmallText(122, y0, "/", COL_GRAY, fb, w);
+        drawSmallText(130, y0, "--.-C", COL_AMBER, fb, w);
     }
 }
 

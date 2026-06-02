@@ -178,22 +178,6 @@ void TftInfoView::drawClock(uint16_t* fb, int w, const SystemInfoSnapshot& sys) 
     sec_str[0] = s1;
     sec_str[1] = s2;
     drawSmallString(74, 74, sec_str, COL_GRAY, fb, w);
-
-    // Top-left: ambient temperature / sensor temperature (without Ta / Ts labels)
-    char temp_str[16];
-    if (sys.sensor_ok) {
-        snprintf(temp_str, sizeof(temp_str), "%.1fC", sys.ambient_temp);
-        drawSmallString(2, 2, temp_str, COL_CYAN, fb, w);
-        
-        drawSmallString(36, 2, "/", COL_GRAY, fb, w);
-        
-        snprintf(temp_str, sizeof(temp_str), "%.1fC", sys.sensor_temp);
-        drawSmallString(44, 2, temp_str, COL_AMBER, fb, w);
-    } else {
-        drawSmallString(2, 2, "--.-C", COL_CYAN, fb, w);
-        drawSmallString(36, 2, "/", COL_GRAY, fb, w);
-        drawSmallString(44, 2, "--.-C", COL_AMBER, fb, w);
-    }
 }
 
 void TftInfoView::drawDate(uint16_t* fb, int w, const SystemInfoSnapshot& sys) {
@@ -205,53 +189,59 @@ void TftInfoView::drawDate(uint16_t* fb, int w, const SystemInfoSnapshot& sys) {
     drawSmallString(w - len - 2, 2, sys.date_str, COL_GRAY, fb, w);
 }
 
-void TftInfoView::drawSensorDots(uint16_t* fb, int w, int y, const SystemInfoSnapshot& sys) {
-    const int col_w = w / 4;
-    const int dot_centers[4] = { col_w / 2, col_w + col_w / 2, col_w * 2 + col_w / 2, col_w * 3 + col_w / 2 };
+void TftInfoView::drawSensorDots(uint16_t* fb, int w, int y, const SystemInfoSnapshot& sys, const TftSnapshot& snap) {
     char buf[16];
 
-    // MLX
-    if (sys.sensor_ok) {
-        drawDot(dot_centers[0], y + 4, 3, COL_GREEN, fb, w);
-        drawSmallString(dot_centers[0] - 18, y + 10, "MLX OK", COL_GREEN, fb, w);
-    } else {
-        drawDot(dot_centers[0], y + 4, 3, COL_RED, fb, w);
-        drawSmallString(dot_centers[0] - 18, y + 10, "MLX NO", COL_RED, fb, w);
-    }
+    // 6 columns centers: 13, 40, 67, 94, 121, 147
 
-    // RTC
-    if (sys.rtc_ok) {
-        drawDot(dot_centers[1], y + 4, 3, COL_GREEN, fb, w);
-        drawSmallString(dot_centers[1] - 18, y + 10, "RTC OK", COL_GREEN, fb, w);
-    } else {
-        drawDot(dot_centers[1], y + 4, 3, COL_RED, fb, w);
-        drawSmallString(dot_centers[1] - 18, y + 10, "RTC NO", COL_RED, fb, w);
-    }
+    // 1. OC (Ocupacion)
+    int ocup = (int)snap.count_in - (int)snap.count_out;
+    if (ocup < 0) ocup = 0;
+    snprintf(buf, sizeof(buf), "OC:%d", ocup);
+    drawSmallString(13 - ((int)strlen(buf) * 6) / 2, y + 4, buf, COL_AMBER, fb, w);
 
-    // SD
-    if (sys.sd_ok) {
-        drawDot(dot_centers[2], y + 4, 3, COL_GREEN, fb, w);
-        drawSmallString(dot_centers[2] - 15, y + 10, "SD OK", COL_GREEN, fb, w);
-    } else {
-        drawDot(dot_centers[2], y + 4, 3, COL_RED, fb, w);
-        drawSmallString(dot_centers[2] - 15, y + 10, "SD NO", COL_RED, fb, w);
-    }
+    // 2. TR (Tracks)
+    snprintf(buf, sizeof(buf), "TR:%d", snap.num_tracks);
+    drawSmallString(40 - ((int)strlen(buf) * 6) / 2, y + 4, buf, COL_WHITE, fb, w);
 
-    // WiFi
-    {
-        uint16_t wifi_col = sys.wifi_clients > 0 ? COL_GREEN : COL_RED;
-        drawDot(dot_centers[3], y + 4, 3, wifi_col, fb, w);
-        snprintf(buf, sizeof(buf), "WiFi %d", sys.wifi_clients);
-        int len = (int)strlen(buf);
-        drawSmallString(dot_centers[3] - (len * 6) / 2, y + 10, buf, wifi_col, fb, w);
-    }
+    // 3. MLX
+    uint16_t mlx_col = sys.sensor_ok ? COL_GREEN : COL_RED;
+    drawDot(67, y + 4, 3, mlx_col, fb, w);
+    drawSmallString(67 - 9, y + 10, "MLX", mlx_col, fb, w);
 
-    // Sensor temperature display has been moved to top-left corner
+    // 4. RTC
+    uint16_t rtc_col = sys.rtc_ok ? COL_GREEN : COL_RED;
+    drawDot(94, y + 4, 3, rtc_col, fb, w);
+    drawSmallString(94 - 9, y + 10, "RTC", rtc_col, fb, w);
+
+    // 5. SD
+    uint16_t sd_col = sys.sd_ok ? COL_GREEN : COL_RED;
+    drawDot(121, y + 4, 3, sd_col, fb, w);
+    drawSmallString(121 - 6, y + 10, "SD", sd_col, fb, w);
+
+    // 6. WiFi (WF)
+    uint16_t wifi_col = sys.wifi_clients > 0 ? COL_GREEN : COL_RED;
+    drawDot(147, y + 4, 3, wifi_col, fb, w);
+    snprintf(buf, sizeof(buf), "WF%d", sys.wifi_clients);
+    drawSmallString(147 - ((int)strlen(buf) * 6) / 2, y + 10, buf, wifi_col, fb, w);
 }
 
 void TftInfoView::drawTemps(uint16_t* fb, int w, const SystemInfoSnapshot& sys) {
-    (void)fb; (void)w; (void)sys;
-    // Temps are drawn inside drawSensorDots
+    char temp_amb_str[16];
+    char temp_sens_str[16];
+
+    if (sys.sensor_ok) {
+        snprintf(temp_amb_str, sizeof(temp_amb_str), "%.1fC", sys.ambient_temp);
+        snprintf(temp_sens_str, sizeof(temp_sens_str), "%.1fC", sys.sensor_temp);
+    } else {
+        snprintf(temp_amb_str, sizeof(temp_amb_str), "--.-C");
+        snprintf(temp_sens_str, sizeof(temp_sens_str), "--.-C");
+    }
+
+    // Coordinates to center: separator '/' in x = 77
+    drawSmallString(41, 88, temp_amb_str, COL_CYAN, fb, w);
+    drawSmallString(77, 88, "/", COL_GRAY, fb, w);
+    drawSmallString(89, 88, temp_sens_str, COL_AMBER, fb, w);
 }
 
 void TftInfoView::drawUptime(uint16_t* fb, int w, int h, const SystemInfoSnapshot& sys) {
@@ -283,14 +273,14 @@ void TftInfoView::onExit() {
 }
 
 void TftInfoView::render(const TftSnapshot& snap, uint16_t* fb, int w, int h) {
-    (void)snap;
     SystemInfoSnapshot sys = readSystemSnapshot();
 
     fillRect(0, 0, w, h, COL_DARK, fb, w);
 
     drawDate(fb, w, sys);
     drawClock(fb, w, sys);
-    drawSensorDots(fb, w, 105, sys);
+    drawSensorDots(fb, w, 105, sys, snap);
+    drawTemps(fb, w, sys);
     drawUptime(fb, w, h, sys);
 
     // Render RAM telemetry in percentage centered at y = 27
