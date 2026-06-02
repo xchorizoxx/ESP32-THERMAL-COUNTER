@@ -1,6 +1,8 @@
 #include "tft_info_view.hpp"
 #include "tft_config.hpp"
 #include "esp_log.h"
+#include "esp_system.h"
+#include "esp_heap_caps.h"
 #include <cstring>
 #include <math.h>
 
@@ -157,34 +159,41 @@ void TftInfoView::drawClock(uint16_t* fb, int w, const SystemInfoSnapshot& sys) 
     uint16_t clock_col_h = sys.rtc_ok ? COL_CYAN : COL_GRAY;
     uint16_t clock_col_m = sys.rtc_ok ? COL_AMBER : COL_GRAY;
 
-    drawBigDigit(40, 14, h1, clock_col_h, fb, w);
-    drawBigDigit(57, 14, h2, clock_col_h, fb, w);
+    drawBigDigit(40, 42, h1, clock_col_h, fb, w);
+    drawBigDigit(57, 42, h2, clock_col_h, fb, w);
 
     if (colon_on) {
-        drawDot(80, 25, 2, COL_WHITE, fb, w);
-        drawDot(80, 34, 2, COL_WHITE, fb, w);
+        drawDot(80, 53, 2, COL_WHITE, fb, w);
+        drawDot(80, 62, 2, COL_WHITE, fb, w);
     } else {
-        drawDot(80, 25, 2, COL_DIM_GRAY, fb, w);
-        drawDot(80, 34, 2, COL_DIM_GRAY, fb, w);
+        drawDot(80, 53, 2, COL_DIM_GRAY, fb, w);
+        drawDot(80, 62, 2, COL_DIM_GRAY, fb, w);
     }
 
-    drawBigDigit(88, 14, m1, clock_col_m, fb, w);
-    drawBigDigit(105, 14, m2, clock_col_m, fb, w);
+    drawBigDigit(88, 42, m1, clock_col_m, fb, w);
+    drawBigDigit(105, 42, m2, clock_col_m, fb, w);
 
     // Seconds below clock
     char sec_str[4] = {};
     sec_str[0] = s1;
     sec_str[1] = s2;
-    drawSmallString(74, 46, sec_str, COL_GRAY, fb, w);
+    drawSmallString(74, 74, sec_str, COL_GRAY, fb, w);
 
-    // Top-left: ambient temperature
-    char temp_str[12];
+    // Top-left: ambient temperature / sensor temperature (without Ta / Ts labels)
+    char temp_str[16];
     if (sys.sensor_ok) {
         snprintf(temp_str, sizeof(temp_str), "%.1fC", sys.ambient_temp);
+        drawSmallString(2, 2, temp_str, COL_CYAN, fb, w);
+        
+        drawSmallString(36, 2, "/", COL_GRAY, fb, w);
+        
+        snprintf(temp_str, sizeof(temp_str), "%.1fC", sys.sensor_temp);
+        drawSmallString(44, 2, temp_str, COL_AMBER, fb, w);
     } else {
-        snprintf(temp_str, sizeof(temp_str), "--.-C");
+        drawSmallString(2, 2, "--.-C", COL_CYAN, fb, w);
+        drawSmallString(36, 2, "/", COL_GRAY, fb, w);
+        drawSmallString(44, 2, "--.-C", COL_AMBER, fb, w);
     }
-    drawSmallString(2, 2, temp_str, COL_CYAN, fb, w);
 }
 
 void TftInfoView::drawDate(uint16_t* fb, int w, const SystemInfoSnapshot& sys) {
@@ -237,14 +246,7 @@ void TftInfoView::drawSensorDots(uint16_t* fb, int w, int y, const SystemInfoSna
         drawSmallString(dot_centers[3] - (len * 6) / 2, y + 10, buf, wifi_col, fb, w);
     }
 
-    // Sensor temperature centered below
-    if (sys.sensor_ok) {
-        snprintf(buf, sizeof(buf), "%.1f C", sys.sensor_temp);
-    } else {
-        snprintf(buf, sizeof(buf), "--.- C");
-    }
-    int tlen = (int)strlen(buf) * 6;
-    drawSmallString((w - tlen) / 2, y + 20, buf, COL_AMBER, fb, w);
+    // Sensor temperature display has been moved to top-left corner
 }
 
 void TftInfoView::drawTemps(uint16_t* fb, int w, const SystemInfoSnapshot& sys) {
@@ -254,20 +256,23 @@ void TftInfoView::drawTemps(uint16_t* fb, int w, const SystemInfoSnapshot& sys) 
 
 void TftInfoView::drawUptime(uint16_t* fb, int w, int h, const SystemInfoSnapshot& sys) {
     uint32_t sec = sys.uptime_sec;
-    char buf[24];
+    char val_buf[24];
 
     if (sec < 60) {
-        snprintf(buf, sizeof(buf), "%lus", (unsigned long)sec);
+        snprintf(val_buf, sizeof(val_buf), "%lus", (unsigned long)sec);
     } else if (sec < 3600) {
-        snprintf(buf, sizeof(buf), "%lum", (unsigned long)(sec / 60));
+        snprintf(val_buf, sizeof(val_buf), "%lum", (unsigned long)(sec / 60));
     } else {
         uint32_t hrs = sec / 3600;
         uint32_t mins = (sec % 3600) / 60;
-        snprintf(buf, sizeof(buf), "%luh %lum", (unsigned long)hrs, (unsigned long)mins);
+        snprintf(val_buf, sizeof(val_buf), "%luh %lum", (unsigned long)hrs, (unsigned long)mins);
     }
 
-    int len = (int)strlen(buf) * 6;
-    drawSmallString(w - len - 2, h - 12, buf, COL_GRAY, fb, w);
+    char full_buf[32];
+    snprintf(full_buf, sizeof(full_buf), "Uptime: %s", val_buf);
+
+    int len = (int)strlen(full_buf) * 6;
+    drawSmallString((w - len) / 2, 15, full_buf, COL_GRAY, fb, w);
 }
 
 void TftInfoView::onEnter() {
@@ -285,6 +290,15 @@ void TftInfoView::render(const TftSnapshot& snap, uint16_t* fb, int w, int h) {
 
     drawDate(fb, w, sys);
     drawClock(fb, w, sys);
-    drawSensorDots(fb, w, 76, sys);
+    drawSensorDots(fb, w, 105, sys);
     drawUptime(fb, w, h, sys);
+
+    // Render RAM telemetry in percentage centered at y = 27
+    uint32_t free_ram = esp_get_free_internal_heap_size();
+    uint32_t total_ram = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+    int ram_pct = (total_ram > 0) ? (int)((free_ram * 100) / total_ram) : 0;
+    char ram_buf[24];
+    snprintf(ram_buf, sizeof(ram_buf), "RAM: %d%%", ram_pct);
+    int ram_len = (int)strlen(ram_buf) * 6;
+    drawSmallString((w - ram_len) / 2, 27, ram_buf, COL_GRAY, fb, w);
 }

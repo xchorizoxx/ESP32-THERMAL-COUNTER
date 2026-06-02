@@ -13,7 +13,7 @@ static constexpr uint16_t RGB565(uint8_t r, uint8_t g, uint8_t b) {
     return (c >> 8) | (c << 8);
 }
 
-static const uint16_t COL_BLUE    = RGB565(59, 130, 246);   // #3b82f6 IN
+static const uint16_t COL_BLUE    = RGB565(15, 75, 200);   // Darker blue IN
 static const uint16_t COL_GREEN   = RGB565(16, 185, 129);   // #10b981 OUT
 static const uint16_t COL_AMBER   = RGB565(255, 179, 0);    // #ffb300 metrics
 static const uint16_t COL_CYAN    = RGB565(0, 212, 255);    // #00d4ff AMB
@@ -141,55 +141,43 @@ void TftStatsView::drawBoldNumber(int x, int y, int num, uint16_t color, uint16_
     }
 }
 
-void TftStatsView::drawSparkline(uint16_t* fb, int w, int h) {
-    const int SPARK_Y0 = 0;
-    const int SPARK_H = 40;
-    const int MID_Y = SPARK_Y0 + SPARK_H / 2;
-    const int AMP = 10;
-    const int X_SPACING = 6;
-    const int X_OFFSET = 8;
+void TftStatsView::drawActivityHistogram(uint16_t* fb, int w, int h) {
+    const int GR_Y0 = 0;
+    const int GR_H = 40;
+    const int MID_Y = GR_Y0 + GR_H / 2;
+    const int X_OFFSET = 10;
 
-    fillRect(0, SPARK_Y0, w, SPARK_H, COL_DARK, fb, w);
+    fillRect(0, GR_Y0, w, GR_H, COL_DARK, fb, w);
 
     for (int px = 0; px < w; px += 4) {
         putPixel(px, MID_Y, COL_MIDLINE, fb, w);
     }
 
-    if (spark_count_ == 0) {
-        drawSmallText(w / 2 - 20, MID_Y - 4, "sin datos", COL_GRAY, fb, w);
-        return;
+    int max_val = 3;
+    for (int i = 0; i < NUM_BINS; i++) {
+        if (bins_[i].count_in > max_val) max_val = bins_[i].count_in;
+        if (bins_[i].count_out > max_val) max_val = bins_[i].count_out;
     }
 
-    int first = spark_count_ > MAX_SPARK ? spark_count_ - MAX_SPARK : 0;
-    int count = spark_count_ < MAX_SPARK ? spark_count_ : MAX_SPARK;
+    for (int i = 0; i < NUM_BINS; i++) {
+        int idx = (current_bin_idx_ + 1 + i) % NUM_BINS;
+        int x = X_OFFSET + i * 5;
 
-    for (int i = 0; i < count; i++) {
-        int si = (first + i) % MAX_SPARK;
-        if (spark_data_[si] == 0) continue;
+        int h_in = (bins_[idx].count_in * 16) / max_val;
+        int h_out = (bins_[idx].count_out * 16) / max_val;
 
-        int x0 = X_OFFSET + i * X_SPACING;
-        int y0 = MID_Y + (spark_data_[si] > 0 ? -AMP : AMP);
-        uint16_t col = spark_data_[si] > 0 ? COL_BLUE : COL_GREEN;
-
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                putPixel(x0 + dx, y0 + dy, col, fb, w);
-            }
+        if (h_in > 0) {
+            fillRect(x, MID_Y - h_in, 4, h_in, COL_BLUE, fb, w);
         }
-
-        if (i > 0) {
-            int prev_si = (first + i - 1) % MAX_SPARK;
-            if (spark_data_[prev_si] != 0) {
-                int x1 = X_OFFSET + (i - 1) * X_SPACING;
-                int y1 = MID_Y + (spark_data_[prev_si] > 0 ? -AMP : AMP);
-                drawLine(x1, y1, x0, y0, col, fb, w);
-            }
+        if (h_out > 0) {
+            fillRect(x, MID_Y + 1, 4, h_out, COL_GREEN, fb, w);
         }
     }
 
-    char label[16];
-    snprintf(label, sizeof(label), "%d cruces", spark_count_);
-    drawSmallText(w - 60, 2, label, COL_GRAY, fb, w);
+    char label[20];
+    int total_session_crosses = (int)prev_count_in_ + (int)prev_count_out_;
+    snprintf(label, sizeof(label), "%d cruces", total_session_crosses);
+    drawSmallText(w - 66, 2, label, COL_GRAY, fb, w);
 }
 
 void TftStatsView::drawCounters(uint16_t* fb, int w, int h, uint16_t in, uint16_t out) {
@@ -217,14 +205,17 @@ void TftStatsView::drawMetrics(uint16_t* fb, int w, int h, const TftSnapshot& sn
     drawSmallText(36, y0, buf, COL_WHITE, fb, w);
 
     if (snap.sensor_ok) {
-        snprintf(buf, sizeof(buf), "Ta:%.1f", snap.ambient_temp);
-        drawSmallText(64, y0, buf, COL_CYAN, fb, w);
+        snprintf(buf, sizeof(buf), "%.1fC", snap.ambient_temp);
+        drawSmallText(66, y0, buf, COL_CYAN, fb, w);
 
-        snprintf(buf, sizeof(buf), "Ts:%.1f", snap.sensor_temp);
-        drawSmallText(110, y0, buf, COL_AMBER, fb, w);
+        drawSmallText(98, y0, "/", COL_GRAY, fb, w);
+
+        snprintf(buf, sizeof(buf), "%.1fC", snap.sensor_temp);
+        drawSmallText(106, y0, buf, COL_AMBER, fb, w);
     } else {
-        drawSmallText(64, y0, "Ta:---", COL_CYAN, fb, w);
-        drawSmallText(110, y0, "Ts:---", COL_AMBER, fb, w);
+        drawSmallText(66, y0, "--.-C", COL_CYAN, fb, w);
+        drawSmallText(98, y0, "/", COL_GRAY, fb, w);
+        drawSmallText(106, y0, "--.-C", COL_AMBER, fb, w);
     }
 }
 
@@ -296,95 +287,51 @@ void TftStatsView::render(const TftSnapshot& snap, uint16_t* fb, int w, int h) {
 
     uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 
-    // Process new crossing events to populate the local history log
-    if (snap.num_events > 0) {
-        for (int i = 0; i < snap.num_events; i++) {
-            const auto& ev = snap.events[i];
-            if (ev.timestamp_ms > last_processed_event_ts_) {
-                last_processed_event_ts_ = ev.timestamp_ms;
-
-                // Shift existing records down
-                last_records_[1] = last_records_[0];
-
-                // Format new record
-                auto& rec = last_records_[0];
-                rec.is_in = ev.is_in;
-                rec.temp = ev.temperature;
-                rec.count_in = ev.count_in;
-                rec.count_out = ev.count_out;
-
-                SystemInfoSnapshot sys = readSystemSnapshot();
-                if (sys.rtc_ok && ev.timestamp_ms > 1000000000ULL) {
-                    time_t seconds = ev.timestamp_ms / 1000;
-                    struct tm tm_info;
-                    localtime_r(&seconds, &tm_info);
-                    snprintf(rec.time_str, sizeof(rec.time_str), "%02d:%02d:%02d", tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec);
-                } else {
-                    // Fallback to relative time format based on ev.timestamp_ms
-                    uint32_t sec = ev.timestamp_ms / 1000;
-                    uint32_t hrs = sec / 3600;
-                    uint32_t mins = (sec % 3600) / 60;
-                    uint32_t secs = sec % 60;
-                    snprintf(rec.time_str, sizeof(rec.time_str), "%02d:%02d:%02d", (int)(hrs % 100), (int)mins, (int)secs);
-                }
-
-                if (num_records_ < 2) num_records_++;
-            }
+    // Advance time bins (10 seconds each)
+    if (last_bin_update_ms_ == 0) {
+        last_bin_update_ms_ = now_ms;
+    }
+    uint32_t elapsed = now_ms - last_bin_update_ms_;
+    if (elapsed >= 10000) {
+        int steps = elapsed / 10000;
+        for (int s = 0; s < steps; s++) {
+            current_bin_idx_ = (current_bin_idx_ + 1) % NUM_BINS;
+            bins_[current_bin_idx_] = {};
         }
+        last_bin_update_ms_ = now_ms - (elapsed % 10000);
     }
 
     if (prev_frame_id_ == 0) {
         prev_count_in_ = snap.count_in;
         prev_count_out_ = snap.count_out;
         prev_frame_id_ = snap.frame_id;
-        drawSparkline(fb, w, h);
+        drawActivityHistogram(fb, w, h);
         drawCounters(fb, w, h, snap.count_in, snap.count_out);
-        drawCrossingLog(fb, w, h);
         drawMetrics(fb, w, h, snap);
-        drawCrossingInfo(fb, w, h, now_ms);
         return;
     }
 
     if (snap.count_in < prev_count_in_ || snap.count_out < prev_count_out_) {
-        spark_count_ = 0;
-        cross_ts_count_ = 0;
-        cross_ts_idx_ = 0;
-        memset(spark_data_, 0, sizeof(spark_data_));
+        current_bin_idx_ = 0;
+        last_bin_update_ms_ = now_ms;
+        memset(bins_, 0, sizeof(bins_));
     }
 
     if (snap.frame_id != prev_frame_id_) {
         if (snap.count_in > prev_count_in_) {
             int diff = snap.count_in - prev_count_in_;
-            for (int i = 0; i < diff && i < 5; i++) {
-                spark_data_[spark_count_ % MAX_SPARK] = 1;
-                spark_count_++;
-                last_cross_was_in_ = true;
-                last_cross_ms_ = now_ms;
-                cross_timestamps_[cross_ts_idx_] = now_ms;
-                cross_ts_idx_ = (cross_ts_idx_ + 1) % 60;
-                if (cross_ts_count_ < 60) cross_ts_count_++;
-            }
+            bins_[current_bin_idx_].count_in += diff;
         }
         if (snap.count_out > prev_count_out_) {
             int diff = snap.count_out - prev_count_out_;
-            for (int i = 0; i < diff && i < 5; i++) {
-                spark_data_[spark_count_ % MAX_SPARK] = -1;
-                spark_count_++;
-                last_cross_was_in_ = false;
-                last_cross_ms_ = now_ms;
-                cross_timestamps_[cross_ts_idx_] = now_ms;
-                cross_ts_idx_ = (cross_ts_idx_ + 1) % 60;
-                if (cross_ts_count_ < 60) cross_ts_count_++;
-            }
+            bins_[current_bin_idx_].count_out += diff;
         }
         prev_count_in_ = snap.count_in;
         prev_count_out_ = snap.count_out;
         prev_frame_id_ = snap.frame_id;
     }
 
-    drawSparkline(fb, w, h);
+    drawActivityHistogram(fb, w, h);
     drawCounters(fb, w, h, snap.count_in, snap.count_out);
-    drawCrossingLog(fb, w, h);
     drawMetrics(fb, w, h, snap);
-    drawCrossingInfo(fb, w, h, now_ms);
 }

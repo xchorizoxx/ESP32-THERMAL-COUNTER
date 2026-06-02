@@ -249,8 +249,8 @@ function connectWebSocket() {
         setEl('lbl-ws', 'Conectado');
         setDot('dot-ws', 'green');
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-        // W3: Sync time immediately
-        sendCmd({ cmd: 'SET_TIME', unix_ms: Date.now() });
+        // W3: Sync time immediately using local time epoch
+        sendCmd({ cmd: 'SET_TIME', unix_ms: Date.now() - (new Date().getTimezoneOffset() * 60 * 1000) });
         // GET_CONFIG after a tick so SET_TIME is processed first
         setTimeout(() => sendCmd({ cmd: 'GET_CONFIG' }), 200);
     };

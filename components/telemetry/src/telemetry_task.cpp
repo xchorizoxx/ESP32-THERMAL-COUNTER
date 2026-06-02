@@ -11,6 +11,7 @@
 #include "http_server.hpp" 
 #include "esp_netif.h"     // [NEW] To check interface status
 #include <errno.h>         // [FIX] Required for errno usage in logs
+#include <ctime>
 #include "tft_snapshot.hpp"
 #include "tft_system_snapshot.hpp"
 #include "rtc_driver.hpp"
@@ -70,14 +71,42 @@ void TelemetryTask::run()
             last_sys_update_ms = now_ms_sys;
             SystemInfoSnapshot info = {};
 
-            info.rtc_ok = g_rtc.isAvailable();
-            if (info.rtc_ok) {
+            bool has_time = false;
+            if (g_rtc.isAvailable()) {
                 RTCDriver::DateTime dt;
                 if (g_rtc.getTime(dt) == ESP_OK) {
                     snprintf(info.time_str, sizeof(info.time_str), "%02d:%02d:%02d", dt.hour, dt.minute, dt.second);
                     snprintf(info.date_str, sizeof(info.date_str), "%02d/%02d/%02d", dt.day, dt.month, dt.year % 100);
+                    has_time = true;
                 }
             }
+
+            if (!has_time && HttpServer::isTimeValid()) {
+                uint64_t now_ms = HttpServer::getSystemTimeMs();
+                time_t seconds = now_ms / 1000;
+                struct tm tm_info;
+                localtime_r(&seconds, &tm_info);
+                
+                // Use intermediate buffers and clamp range to avoid compiler warning about string truncation (-Werror=format-truncation)
+                char t_buf[32];
+                char d_buf[32];
+                snprintf(t_buf, sizeof(t_buf), "%02d:%02d:%02d", 
+                         (int)((tm_info.tm_hour % 24 + 24) % 24), 
+                         (int)((tm_info.tm_min % 60 + 60) % 60), 
+                         (int)((tm_info.tm_sec % 60 + 60) % 60));
+                snprintf(d_buf, sizeof(d_buf), "%02d/%02d/%02d", 
+                         (int)((tm_info.tm_mday % 32 + 32) % 32), 
+                         (int)(((tm_info.tm_mon + 1) % 13 + 13) % 13), 
+                         (int)((tm_info.tm_year % 100 + 100) % 100));
+                
+                strncpy(info.time_str, t_buf, sizeof(info.time_str) - 1);
+                info.time_str[sizeof(info.time_str) - 1] = '\0';
+                strncpy(info.date_str, d_buf, sizeof(info.date_str) - 1);
+                info.date_str[sizeof(info.date_str) - 1] = '\0';
+                has_time = true;
+            }
+
+            info.rtc_ok = has_time;
 
             info.sd_ok = g_sd.isMounted();
             if (info.sd_ok) {

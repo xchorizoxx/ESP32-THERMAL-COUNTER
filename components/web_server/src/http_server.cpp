@@ -142,7 +142,15 @@ extern const uint8_t app_js_end[] asm("_binary_app_js_end");
  * @return 0 if no time reference has been set (browser hasn't sent SET_TIME
  * yet).
  */
-static uint64_t __attribute__((unused)) getSystemTimeMs() {
+bool HttpServer::isTimeValid() {
+  return s_time_valid;
+}
+
+uint8_t HttpServer::getTimeQuality() {
+  return s_time_quality;
+}
+
+uint64_t HttpServer::getSystemTimeMs() {
   if (!s_time_valid)
     return 0ULL;
   int64_t elapsed_us = esp_timer_get_time() - s_time_ref_timer_us;
@@ -153,7 +161,7 @@ static uint64_t __attribute__((unused)) getSystemTimeMs() {
 }
 
 static void getLogPathForToday(char *buf, size_t n) {
-  uint64_t ms = getSystemTimeMs();
+  uint64_t ms = HttpServer::getSystemTimeMs();
   if (ms == 0) {
     snprintf(buf, n, "logs/counts_session_%03u.csv", s_session_id);
   } else {

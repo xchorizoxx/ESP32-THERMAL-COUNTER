@@ -47,6 +47,11 @@ public:
      */
     static void stop();
 
+    // W3/Soft-Clock public API
+    static bool isTimeValid();
+    static uint8_t getTimeQuality();
+    static uint64_t getSystemTimeMs();
+
     /**
      * @brief Broadcast a binary frame to all connected WebSocket clients.
      *        Called from Core 1 pipeline dispatch at 16 Hz.

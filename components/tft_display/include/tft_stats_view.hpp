@@ -12,9 +12,14 @@ public:
     const char* name() const override { return "Stats"; }
 
 private:
-    static const int MAX_SPARK = 24;
-    int8_t spark_data_[MAX_SPARK] = {};  // +1 IN, -1 OUT, 0 empty
-    int spark_count_ = 0;
+    struct TimeBin {
+        uint8_t count_in = 0;
+        uint8_t count_out = 0;
+    };
+    static const int NUM_BINS = 28;
+    TimeBin bins_[NUM_BINS] = {};
+    int current_bin_idx_ = 0;
+    uint32_t last_bin_update_ms_ = 0;
 
     uint16_t prev_count_in_ = 0;
     uint16_t prev_count_out_ = 0;
@@ -38,7 +43,7 @@ private:
     int num_records_ = 0;
     uint64_t last_processed_event_ts_ = 0;
 
-    void drawSparkline(uint16_t* fb, int w, int h);
+    void drawActivityHistogram(uint16_t* fb, int w, int h);
     void drawCounters(uint16_t* fb, int w, int h, uint16_t in, uint16_t out);
     void drawMetrics(uint16_t* fb, int w, int h, const TftSnapshot& snap);
     void drawCrossingInfo(uint16_t* fb, int w, int h, uint32_t now_ms);

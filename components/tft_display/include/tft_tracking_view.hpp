@@ -21,6 +21,9 @@ private:
     void putPixel(int px, int py, uint16_t color, uint16_t* fb, int w, int h);
     void fillCircle(int cx, int cy, int r, uint16_t color, uint16_t* fb, int w, int h);
     void drawLineSeg(int x0, int y0, int x1, int y1, uint16_t color, uint16_t* fb, int w, int h);
+    void drawSmallChar(int x, int y, char c, uint16_t color, uint16_t* fb, int w);
+    void drawSmallString(int x, int y, const char* str, uint16_t color, uint16_t* fb, int w);
+    void fillRect(int x, int y, int rw, int rh, uint16_t color, uint16_t* fb, int w);
 
     static const char* TAG;
 };
