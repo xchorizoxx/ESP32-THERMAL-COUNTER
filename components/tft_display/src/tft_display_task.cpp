@@ -23,8 +23,10 @@ esp_err_t TftDisplayTask::init(TftDriver* driver) {
     button_.init();
 
     // Initialize view manager and register views
-    view_manager_.registerView(&heatmap_view_);  // View 0: thermal camera
-    // Future views: view_manager_.registerView(&stats_view_);
+    view_manager_.registerView(&heatmap_view_);   // View 0: thermal camera
+    view_manager_.registerView(&tracking_view_);  // View 1: tracking overlay
+    view_manager_.registerView(&stats_view_);     // View 2: stats
+    view_manager_.registerView(&info_view_);      // View 3: info
 
     ESP_LOGI(TAG, "TftDisplayTask initialized (target %d FPS, %d views)",
              TftConfig::TARGET_FPS, view_manager_.viewCount());

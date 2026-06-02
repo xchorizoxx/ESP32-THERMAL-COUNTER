@@ -10,7 +10,8 @@ portMUX_TYPE snapshot_mux = portMUX_INITIALIZER_UNLOCKED;
 
 void writeSnapshot(const ImagePayload& image,
                    const TelemetryPayload& telemetry,
-                   bool sensor_ok) {
+                   bool sensor_ok,
+                   const ThermalConfig::DoorLineConfig& door_lines) {
     portENTER_CRITICAL(&snapshot_mux);
     memcpy(&g_snapshot.pixels, &image.pixels, sizeof(image.pixels));
     g_snapshot.count_in    = telemetry.count_in;
@@ -20,6 +21,7 @@ void writeSnapshot(const ImagePayload& image,
     g_snapshot.ambient_temp = telemetry.ambient_temp;
     g_snapshot.sensor_ok   = sensor_ok;
     g_snapshot.frame_id    = telemetry.frame_id;
+    g_snapshot.door_lines  = door_lines;
     portEXIT_CRITICAL(&snapshot_mux);
 }
 

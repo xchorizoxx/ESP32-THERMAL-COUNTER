@@ -12,6 +12,13 @@
 #include "esp_netif.h"     // [NEW] To check interface status
 #include <errno.h>         // [FIX] Required for errno usage in logs
 #include "tft_snapshot.hpp"
+#include "tft_system_snapshot.hpp"
+#include "rtc_driver.hpp"
+#include "sd_manager.hpp"
+#include "esp_wifi.h"
+
+extern RTCDriver g_rtc;
+extern SDManager g_sd;
 
 static const char* TAG = "TELEMETRY";
 
@@ -50,11 +57,53 @@ void TelemetryTask::run()
     ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "Telemetry task started on Core %d", xPortGetCoreID());
 
     while (true) {
-        // WDT reset FIRST — before any potentially blocking I/O (like HTTP locks)
+        static float    last_ambient    = 0.0f;
+        static bool     last_sensor_ok  = false;
+        static uint32_t last_frame_id   = 0;
         esp_task_wdt_reset();
 
+        // --- System snapshot update every ~1s (independent of IPC packet rate) ---
+        static uint32_t last_sys_update_ms = 0;
+        uint32_t now_ms_sys = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        if (now_ms_sys - last_sys_update_ms >= 1000 || last_sys_update_ms == 0) {
+            last_sys_update_ms = now_ms_sys;
+            SystemInfoSnapshot info = {};
+
+            info.rtc_ok = g_rtc.isAvailable();
+            if (info.rtc_ok) {
+                RTCDriver::DateTime dt;
+                if (g_rtc.getTime(dt) == ESP_OK) {
+                    snprintf(info.time_str, sizeof(info.time_str), "%02d:%02d:%02d", dt.hour, dt.minute, dt.second);
+                    snprintf(info.date_str, sizeof(info.date_str), "%02d/%02d/%02d", dt.day, dt.month, dt.year % 100);
+                }
+            }
+
+            info.sd_ok = g_sd.isMounted();
+            if (info.sd_ok) {
+                uint64_t free_b = g_sd.getFreeSpaceBytes();
+                uint64_t total_b = g_sd.getTotalSpaceBytes();
+                info.sd_free_kb = (uint32_t)(free_b / 1024);
+                info.sd_total_kb = (uint32_t)(total_b / 1024);
+            }
+
+            {
+                wifi_sta_list_t sta_list;
+                memset(&sta_list, 0, sizeof(sta_list));
+                if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {
+                    info.wifi_clients = sta_list.num;
+                }
+            }
+
+            info.uptime_sec = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS / 1000);
+            info.ambient_temp = last_ambient;
+            info.sensor_temp  = last_ambient;
+            info.sensor_ok    = last_sensor_ok;
+            info.update_id    = last_frame_id;
+
+            writeSystemSnapshot(info);
+        }
+
         // Block until receiving a packet from the pipeline (Core 1)
-        // Timeout 100ms guarantees the WDT gets reset even if queue is empty
         BaseType_t received = xQueueReceive(ipcQueue_, &packet, pdMS_TO_TICKS(100));
         if (received != pdTRUE) {
             continue;
@@ -67,7 +116,19 @@ void TelemetryTask::run()
 
         // [NEW] Send via WebSocket to HTTP clients
         HttpServer::broadcastFrame(packet.image, packet.telemetry, packet.sensor_ok);
-        TftBridge::writeSnapshot(packet.image, packet.telemetry, packet.sensor_ok);
+
+        {
+            ThermalConfig::DoorLineConfig dl;
+            portENTER_CRITICAL(&ThermalConfig::door_lines_mux);
+            dl = ThermalConfig::door_lines;
+            portEXIT_CRITICAL(&ThermalConfig::door_lines_mux);
+            TftBridge::writeSnapshot(packet.image, packet.telemetry, packet.sensor_ok, dl);
+        }
+
+        // Store sensor data for system snapshot updates
+        last_ambient   = packet.telemetry.ambient_temp;
+        last_sensor_ok = packet.sensor_ok;
+        last_frame_id  = packet.telemetry.frame_id;
 
         // W4-CSV: Broadcast individual crossing events as JSON for precise logging
         for (int i = 0; i < packet.telemetry.num_events; i++) {
@@ -88,6 +149,7 @@ void TelemetryTask::run()
         if (++packet_count >= 320) {
             packet_count = 0;
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
+            (void)hwm;
             // ESP_LOGI(TAG, "Health: Stack HWM=%u B free | Heap=%u B free",
             //          (unsigned int)(hwm * sizeof(StackType_t)),
             //          (unsigned int)esp_get_free_heap_size());

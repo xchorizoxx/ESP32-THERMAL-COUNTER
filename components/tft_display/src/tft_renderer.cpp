@@ -83,7 +83,7 @@ void TftRenderer::init() {
         palette_[i] = rgb565_swap(r, g, b);
     }
 
-    ESP_LOGI(TAG, "Ironbow palette LUT initialized (256 entries, RGB565)");
+    ESP_LOGI(TAG, "Web palette LUT initialized (256 entries, RGB565)");
 }
 
 // ────────────────────────────────────────────────────────────

@@ -206,4 +206,5 @@ struct TftSnapshot {
     float    ambient_temp;      ///< Ambient temperature [deg C]
     bool     sensor_ok;         ///< true if sensor is healthy
     uint32_t frame_id;          ///< Frame sequence number (staleness detection)
+    ThermalConfig::DoorLineConfig door_lines; ///< Counting line configuration
 };
