@@ -14,8 +14,10 @@
 #include "freertos/queue.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
+#include "esp_attr.h"
 #include "esp_task_wdt.h"
 #include "esp_ota_ops.h"       // [OTA] To mark the app as valid after successful boot
+#include <cmath>
 
 // Custom components
 #include "thermal_config.hpp"
@@ -37,6 +39,9 @@
 #include "sd_manager.hpp"
 #include "thermal_recorder.hpp"
 #include "tft_driver.hpp"
+#include "tft_renderer.hpp"
+#include "tft_config.hpp"
+#include "tft_display_task.hpp"
 
 static const char* TAG = "MAIN";
 
@@ -53,15 +58,22 @@ static void periphWatchdogTask(void* arg)
     const TickType_t WATCHDOG_INTERVAL = pdMS_TO_TICKS(300000);
     while (true) {
         vTaskDelay(WATCHDOG_INTERVAL);
-        if (!g_sd.isMounted()) {
-            ESP_LOGW(TAG, "SD Card disconnected. Auto-reconnecting...");
+        
+        // Active health check for the SD card
+        if (!g_sd.checkHealth()) {
+            ESP_LOGW(TAG, "SD Card not active. Auto-reconnecting...");
+            g_sd.unmount();
             g_sd.init((gpio_num_t)ThermalConfig::SD_MOSI_PIN,
                       (gpio_num_t)ThermalConfig::SD_MISO_PIN,
                       (gpio_num_t)ThermalConfig::SD_SCK_PIN,
                       (gpio_num_t)ThermalConfig::SD_CS_PIN);
         }
+        
+        // Active health check for the RTC
         if (!g_rtc.isAvailable()) {
-            ESP_LOGW(TAG, "RTC disconnected. Auto-reconnecting...");
+            ESP_LOGW(TAG, "RTC not active. Auto-reconnecting...");
+            g_rtc.deinit();
+            g_rtc.powerCycle((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, (gpio_num_t)ThermalConfig::I2C1_GND_PIN);
             g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
                        (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
         }
@@ -125,25 +137,8 @@ extern "C" void app_main(void)
     // -------------------------------------------------------------------------
     // Step 2.2: Real Time Clock (DS3231 on I2C1)
     // -------------------------------------------------------------------------
-    // Set up GPIO Powering for RTC (VCC=15, GND=16)
-    gpio_config_t rtc_pwr_conf = {};
-    rtc_pwr_conf.intr_type = GPIO_INTR_DISABLE;
-    rtc_pwr_conf.mode = GPIO_MODE_OUTPUT;
-    rtc_pwr_conf.pin_bit_mask = (1ULL << ThermalConfig::I2C1_VCC_PIN) | (1ULL << ThermalConfig::I2C1_GND_PIN);
-    rtc_pwr_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    rtc_pwr_conf.pull_up_en = GPIO_PULLUP_DISABLE;
-    ESP_ERROR_CHECK(gpio_config(&rtc_pwr_conf));
-
     // Cycle power to RTC for a clean DS3231 oscillator restart
-    ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 0)); // VCC = LOW
-    ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_GND_PIN, 0)); // GND = LOW
-    vTaskDelay(pdMS_TO_TICKS(10));  // Ensure power cap fully discharges
-
-    ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, 1)); // VCC = HIGH 3.3V
-    // GND stays LOW
-
-    // Give the RTC chip 300ms to fully boot up and stabilize after power
-    vTaskDelay(pdMS_TO_TICKS(300));
+    g_rtc.powerCycle((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, (gpio_num_t)ThermalConfig::I2C1_GND_PIN);
 
     ret = g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
                      (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
@@ -182,20 +177,6 @@ extern "C" void app_main(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "FAILED to start SoftAP — aborting");
         return;
-    }
-
-    // -------------------------------------------------------------------------
-    // Step 3.5: TFT Display Driver
-    // -------------------------------------------------------------------------
-    {
-        static TftDriver tft;
-        esp_err_t tft_ret = tft.init();
-        if (tft_ret == ESP_OK) {
-            ESP_LOGI(TAG, "TFT Display initialized (ST7735S 160x128 landscape)");
-            tft.fillScreen(0x001F); // Solid blue test pattern
-        } else {
-            ESP_LOGW(TAG, "TFT Display UNAVAILABLE — system continues without display");
-        }
     }
 
     // -------------------------------------------------------------------------
@@ -327,6 +308,39 @@ extern "C" void app_main(void)
     // Step 7.6: Async Log Writer (dispatches blocking SD writes off IPC path)
     // -------------------------------------------------------------------------
     LogWriter::init();
+
+    // -------------------------------------------------------------------------
+    // Step 7.7: TFT Display Task (Core 0)
+    // -------------------------------------------------------------------------
+    {
+        static TftDriver g_tft_driver;
+        esp_err_t tft_ret = g_tft_driver.init();
+        if (tft_ret == ESP_OK) {
+            ESP_LOGI(TAG, "TFT Display initialized (ST7735S 160x128 landscape)");
+
+            static TftDisplayTask g_tft_task;
+            g_tft_task.init(&g_tft_driver);
+
+            static StaticTask_t tftTaskBuffer;
+            static StackType_t  tftStack[TftConfig::TASK_STACK_BYTES / sizeof(StackType_t)];
+
+            TaskHandle_t tftHandle = xTaskCreateStaticPinnedToCore(
+                TftDisplayTask::TaskWrapper,
+                "TftDisplay",
+                TftConfig::TASK_STACK_BYTES / sizeof(StackType_t),
+                &g_tft_task,
+                TftConfig::TASK_PRIORITY,
+                tftStack,
+                &tftTaskBuffer,
+                TftConfig::TASK_CORE
+            );
+            if (tftHandle == NULL) {
+                ESP_LOGE(TAG, "FAILED to create TftDisplay task");
+            }
+        } else {
+            ESP_LOGW(TAG, "TFT Display UNAVAILABLE — system continues without display");
+        }
+    }
 
     // -------------------------------------------------------------------------
     // Step 8: Telemetry (Core 0 - PRO_CPU)

@@ -6,4 +6,5 @@ idf_component_register(
     INCLUDE_DIRS "include"
     REQUIRES esp_wifi esp_netif esp_event nvs_flash lwip freertos
              thermal_pipeline web_server sd_manager
+    PRIV_REQUIRES tft_display
 )

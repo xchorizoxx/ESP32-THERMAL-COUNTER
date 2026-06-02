@@ -1,19 +1,22 @@
 #pragma once
+/**
+ * @file tft_heatmap_view.hpp
+ * @brief Heatmap view: renders live thermal data via bilinear interpolation.
+ */
 
 #include "tft_view.hpp"
-#include <stdint.h>
+#include "tft_renderer.hpp"
 
 class TftHeatmapView : public ITftView {
 public:
-    TftHeatmapView();
-    ~TftHeatmapView() override;
-
     void onEnter() override;
     void onExit() override;
     void render(const TftSnapshot& snap,
                 uint16_t* fb, int width, int height) override;
-    const char* name() const override;
+    const char* name() const override { return "Heatmap"; }
 
 private:
-    bool m_initialized;
+    TftRenderer renderer_;
+    bool initialized_ = false;
+    static const char* TAG;
 };

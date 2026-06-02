@@ -11,6 +11,7 @@
 #include "http_server.hpp" 
 #include "esp_netif.h"     // [NEW] To check interface status
 #include <errno.h>         // [FIX] Required for errno usage in logs
+#include "tft_snapshot.hpp"
 
 static const char* TAG = "TELEMETRY";
 
@@ -66,6 +67,7 @@ void TelemetryTask::run()
 
         // [NEW] Send via WebSocket to HTTP clients
         HttpServer::broadcastFrame(packet.image, packet.telemetry, packet.sensor_ok);
+        TftBridge::writeSnapshot(packet.image, packet.telemetry, packet.sensor_ok);
 
         // W4-CSV: Broadcast individual crossing events as JSON for precise logging
         for (int i = 0; i < packet.telemetry.num_events; i++) {

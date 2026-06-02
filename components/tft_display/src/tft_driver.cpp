@@ -297,10 +297,14 @@ void TftDriver::pushPixels(const uint16_t* fb) {
     sendCommand(0x2C); // RAMWR
 
     spi_transaction_t t = {};
-    t.length    = TftConfig::FB_SIZE_BYTES * 8; // 40960 bytes × 8 = 327680 bits
-    t.tx_buffer = fb;
-    t.user      = (void*)1; // DC = 1 (data)
-    spi_device_polling_transmit(spi_handle_, &t);
+    t.length = TftConfig::WIDTH * 2 * 8; // 160 pixels x 2 bytes x 8 bits
+    t.user   = (void*)1; // DC = 1 (data)
+
+    // Send row by row to avoid 40KB single DMA descriptor limits
+    for (int row = 0; row < TftConfig::HEIGHT; row++) {
+        t.tx_buffer = fb + row * TftConfig::WIDTH;
+        spi_device_polling_transmit(spi_handle_, &t);
+    }
 }
 
 // ────────────────────────────────────────────────────────────

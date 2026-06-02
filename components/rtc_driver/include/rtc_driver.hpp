@@ -65,6 +65,8 @@ public:
      * @brief Inicializa el bus I2C1 y añade el DS3231.
      */
     esp_err_t init(gpio_num_t sda, gpio_num_t scl);
+    void      deinit();
+    void      powerCycle(gpio_num_t vcc_pin, gpio_num_t gnd_pin);
 
     bool isAvailable() const { return available_.load(std::memory_order_relaxed); }
 

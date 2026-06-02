@@ -1,17 +1,34 @@
+/**
+ * @file tft_display_task.cpp
+ * @brief TFT display task: button polling -> snapshot read -> render -> SPI push @ 15 FPS.
+ */
+
 #include "tft_display_task.hpp"
+#include "tft_snapshot.hpp"
+#include "tft_config.hpp"
 #include "esp_log.h"
+#include "esp_attr.h"
+#include <cstring>
 
-static const char* TAG = "TFT_TASK";
+const char* TftDisplayTask::TAG = "TFT_TASK";
 
-TftDisplayTask::TftDisplayTask()
-    : m_initialized(false)
-    , m_taskStack(nullptr) {}
+esp_err_t TftDisplayTask::init(TftDriver* driver) {
+    if (!driver || !driver->isInitialized()) {
+        ESP_LOGW(TAG, "TFT driver not available — task will not render");
+        return ESP_ERR_INVALID_STATE;
+    }
+    driver_ = driver;
 
-TftDisplayTask::~TftDisplayTask() {}
+    // Initialize button
+    button_.init();
 
-bool TftDisplayTask::init() {
-    ESP_LOGW(TAG, "%s: not implemented (P0 skeleton)", __func__);
-    return false;
+    // Initialize view manager and register views
+    view_manager_.registerView(&heatmap_view_);  // View 0: thermal camera
+    // Future views: view_manager_.registerView(&stats_view_);
+
+    ESP_LOGI(TAG, "TftDisplayTask initialized (target %d FPS, %d views)",
+             TftConfig::TARGET_FPS, view_manager_.viewCount());
+    return ESP_OK;
 }
 
 void TftDisplayTask::TaskWrapper(void* pvParameters) {
@@ -21,8 +38,63 @@ void TftDisplayTask::TaskWrapper(void* pvParameters) {
 }
 
 void TftDisplayTask::run() {
-    ESP_LOGW(TAG, "%s: not implemented (P0 skeleton)", __func__);
+    ESP_LOGI(TAG, "Display task started on Core %d", xPortGetCoreID());
+
+    // Static framebuffer in DMA-capable SRAM (40 KB)
+    static DMA_ATTR uint16_t s_framebuffer[TftConfig::PIXEL_COUNT];
+
+    const TickType_t period = pdMS_TO_TICKS(TftConfig::FRAME_PERIOD_MS);
+    TickType_t lastWake = xTaskGetTickCount();
+
+    uint32_t last_frame_id = 0;
+    uint32_t frame_count = 0;
+
     while (true) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+
+        // Poll button (no ISR — polling at frame rate)
+        BootButton::Event btn = button_.poll(now_ms);
+        if (btn == BootButton::Event::SHORT_PRESS) {
+            view_manager_.nextView();
+        } else if (btn == BootButton::Event::LONG_PRESS) {
+            bool sleeping = view_manager_.toggleSleep();
+            if (sleeping) {
+                driver_->sleep();
+            } else {
+                driver_->wakeup();
+            }
+        }
+
+        // Skip rendering if sleeping
+        if (view_manager_.isSleeping()) {
+            vTaskDelayUntil(&lastWake, period);
+            continue;
+        }
+
+        // Read snapshot (spinlock copy, ~2 us)
+        TftSnapshot snap = TftBridge::readSnapshot();
+
+        // Render current view (skip if frame unchanged)
+        if (snap.frame_id != last_frame_id && driver_) {
+            last_frame_id = snap.frame_id;
+
+            ITftView* view = view_manager_.currentView();
+            if (view) {
+                view->render(snap, s_framebuffer,
+                            TftConfig::WIDTH, TftConfig::HEIGHT);
+                driver_->pushPixels(s_framebuffer);
+                frame_count++;
+            }
+        }
+
+        // Diagnostic every ~10 seconds (150 frames at 15 FPS)
+        if (frame_count > 0 && frame_count % 150 == 0) {
+            UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
+            ESP_LOGI(TAG, "Health: %lu frames rendered, stack HWM=%u bytes",
+                     (unsigned long)frame_count,
+                     (unsigned int)(hwm * sizeof(StackType_t)));
+        }
+
+        vTaskDelayUntil(&lastWake, period);
     }
 }

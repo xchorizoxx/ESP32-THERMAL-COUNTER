@@ -1,5 +1,6 @@
 #include "rtc_driver.hpp"
 #include "esp_log.h"
+#include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -11,12 +12,45 @@ RTCDriver::RTCDriver()
 }
 
 RTCDriver::~RTCDriver() {
+    deinit();
+}
+
+void RTCDriver::deinit() {
+    xSemaphoreTake(init_mutex_, portMAX_DELAY);
     if (dev_handle_) {
         i2c_master_bus_rm_device(dev_handle_);
+        dev_handle_ = nullptr;
     }
     if (bus_handle_) {
         i2c_del_master_bus(bus_handle_);
+        bus_handle_ = nullptr;
     }
+    available_.store(false, std::memory_order_relaxed);
+    xSemaphoreGive(init_mutex_);
+}
+
+void RTCDriver::powerCycle(gpio_num_t vcc_pin, gpio_num_t gnd_pin) {
+    ESP_LOGI(TAG, "Cycling RTC power (VCC=%d, GND=%d)...", vcc_pin, gnd_pin);
+    
+    gpio_config_t rtc_pwr_conf = {};
+    rtc_pwr_conf.intr_type = GPIO_INTR_DISABLE;
+    rtc_pwr_conf.mode = GPIO_MODE_OUTPUT;
+    rtc_pwr_conf.pin_bit_mask = (1ULL << vcc_pin) | (1ULL << gnd_pin);
+    rtc_pwr_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    rtc_pwr_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    gpio_config(&rtc_pwr_conf);
+
+    // Power down
+    gpio_set_level(vcc_pin, 0);
+    gpio_set_level(gnd_pin, 0);
+    vTaskDelay(pdMS_TO_TICKS(10)); // Allow power caps to fully discharge
+
+    // Power up
+    gpio_set_level(vcc_pin, 1);
+    // GND stays 0
+    
+    // Give DS3231 time to boot and stabilize
+    vTaskDelay(pdMS_TO_TICKS(300));
 }
 
 esp_err_t RTCDriver::init(gpio_num_t sda, gpio_num_t scl) {
@@ -89,13 +123,23 @@ esp_err_t RTCDriver::init(gpio_num_t sda, gpio_num_t scl) {
 
 esp_err_t RTCDriver::readReg(uint8_t reg, uint8_t* data, size_t len) const {
     if (!dev_handle_) return ESP_ERR_INVALID_STATE;
-    return i2c_master_transmit_receive(dev_handle_, &reg, 1, data, len, I2C_TIMEOUT);
+    esp_err_t err = i2c_master_transmit_receive(dev_handle_, &reg, 1, data, len, I2C_TIMEOUT);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2C read failed: %s. Marking RTC as unavailable.", esp_err_to_name(err));
+        const_cast<RTCDriver*>(this)->available_.store(false, std::memory_order_relaxed);
+    }
+    return err;
 }
 
 esp_err_t RTCDriver::writeReg(uint8_t reg, uint8_t val) {
     if (!dev_handle_) return ESP_ERR_INVALID_STATE;
     uint8_t buf[2] = { reg, val };
-    return i2c_master_transmit(dev_handle_, buf, 2, I2C_TIMEOUT);
+    esp_err_t err = i2c_master_transmit(dev_handle_, buf, 2, I2C_TIMEOUT);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2C write failed: %s. Marking RTC as unavailable.", esp_err_to_name(err));
+        available_.store(false, std::memory_order_relaxed);
+    }
+    return err;
 }
 
 esp_err_t RTCDriver::getTime(DateTime& dt) const {

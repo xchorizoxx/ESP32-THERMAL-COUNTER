@@ -24,9 +24,39 @@ SDManager::SDManager() : card_(nullptr), mounted_(false), mutex_(nullptr) {
 }
 
 SDManager::~SDManager() {
+    unmount();
+}
+
+void SDManager::unmount() {
+    lock();
     if (mounted_.load(std::memory_order_relaxed)) {
-        esp_vfs_fat_sdcard_unmount(MOUNT_POINT, card_);
+        ESP_LOGI(TAG, "Unmounting SD card...");
+        esp_err_t err = esp_vfs_fat_sdcard_unmount(MOUNT_POINT, card_);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to unmount SD card: %s", esp_err_to_name(err));
+        }
+        card_ = nullptr;
+        mounted_.store(false, std::memory_order_relaxed);
     }
+    unlock();
+}
+
+bool SDManager::checkHealth() {
+    if (!mounted_.load(std::memory_order_relaxed)) {
+        return false;
+    }
+    
+    FATFS* fs;
+    DWORD free_clust;
+    // We try to call f_getfree as a health check.
+    // If it fails with a media-related error, we mark the card as unmounted.
+    FRESULT res = f_getfree("0:", &free_clust, &fs);
+    if (res != FR_OK) {
+        ESP_LOGE(TAG, "SD Card health check failed: f_getfree returned %d. Unmounting.", (int)res);
+        unmount();
+        return false;
+    }
+    return true;
 }
 
 const char* SDManager::toFull(const char* rel_path) {
@@ -174,14 +204,21 @@ esp_err_t SDManager::writeFile(const char* rel_path, const uint8_t* data, size_t
     FILE* f = fopen(toFull(rel_path), append ? "ab" : "wb");
     if (!f) {
         unlock();
+        checkHealth();
         return ESP_FAIL;
     }
 
     size_t written = fwrite(data, 1, len, f);
     fclose(f);
     
+    if (written != len) {
+        unlock();
+        checkHealth();
+        return ESP_FAIL;
+    }
+    
     unlock();
-    return (written == len) ? ESP_OK : ESP_FAIL;
+    return ESP_OK;
 }
 
 esp_err_t SDManager::appendLine(const char* rel_path, const char* line) {
@@ -190,11 +227,19 @@ esp_err_t SDManager::appendLine(const char* rel_path, const char* line) {
     FILE* f = fopen(toFull(rel_path), "a");
     if (!f) {
         unlock();
+        checkHealth();
         return ESP_FAIL;
     }
     
-    fprintf(f, "%s\n", line);
+    int written = fprintf(f, "%s\n", line);
     fclose(f);
+    
+    if (written < 0) {
+        unlock();
+        checkHealth();
+        return ESP_FAIL;
+    }
+    
     unlock();
     return ESP_OK;
 }

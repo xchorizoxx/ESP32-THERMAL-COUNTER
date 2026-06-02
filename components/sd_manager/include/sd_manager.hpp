@@ -25,6 +25,8 @@ public:
      * @brief Inicializa SPI y monta la tarjeta SD.
      */
     esp_err_t init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sck, gpio_num_t cs);
+    void      unmount();
+    bool      checkHealth();
 
     bool     isMounted() const { return mounted_.load(std::memory_order_relaxed); }
     uint64_t getFreeSpaceBytes() const;

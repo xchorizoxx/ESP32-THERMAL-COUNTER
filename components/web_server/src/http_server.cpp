@@ -881,15 +881,18 @@ void HttpServer::handleWebSocketMessage(httpd_req_t *req,
     }
     ESP_LOGI(TAG, "RETRY_SENSOR requested");
   } else if (strcmp(cmdStr, "RETRY_RTC") == 0) {
+    ESP_LOGI(TAG, "RETRY_RTC requested — resetting and re-initializing RTC");
+    g_rtc.deinit();
+    g_rtc.powerCycle((gpio_num_t)ThermalConfig::I2C1_VCC_PIN, (gpio_num_t)ThermalConfig::I2C1_GND_PIN);
     g_rtc.init((gpio_num_t)ThermalConfig::I2C1_SDA_PIN,
                (gpio_num_t)ThermalConfig::I2C1_SCL_PIN);
-    ESP_LOGI(TAG, "RETRY_RTC requested");
   } else if (strcmp(cmdStr, "RETRY_SD") == 0) {
+    ESP_LOGI(TAG, "RETRY_SD requested — unmounting and re-initializing SD Card");
+    g_sd.unmount();
     g_sd.init((gpio_num_t)ThermalConfig::SD_MOSI_PIN,
               (gpio_num_t)ThermalConfig::SD_MISO_PIN,
               (gpio_num_t)ThermalConfig::SD_SCK_PIN,
               (gpio_num_t)ThermalConfig::SD_CS_PIN);
-    ESP_LOGI(TAG, "RETRY_SD requested");
 
   // -------------------------------------------------------------------------
   //  ERASE_NVS — Full NVS wipe + reboot
