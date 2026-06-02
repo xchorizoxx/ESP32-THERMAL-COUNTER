@@ -186,3 +186,24 @@ struct AppConfigCmd {
   ConfigCmdType type;
   float value;
 };
+
+// =========================================================================
+//  TFT Display Snapshot (TelemetryTask -> TftDisplayTask)
+// =========================================================================
+
+/**
+ * @brief Lightweight snapshot of thermal data for TFT rendering.
+ *
+ * Written by TelemetryTask under spinlock after each broadcastFrame().
+ * Read by TftDisplayTask at its own frame rate (15 FPS).
+ */
+struct TftSnapshot {
+    int16_t  pixels[ThermalConfig::TOTAL_PIXELS]; ///< Thermal image (temp x 100)
+    uint16_t count_in;          ///< Current IN counter
+    uint16_t count_out;         ///< Current OUT counter
+    uint8_t  num_tracks;        ///< Number of confirmed tracks
+    TrackInfo tracks[ThermalConfig::MAX_TRACKS]; ///< Track positions for overlay
+    float    ambient_temp;      ///< Ambient temperature [deg C]
+    bool     sensor_ok;         ///< true if sensor is healthy
+    uint32_t frame_id;          ///< Frame sequence number (staleness detection)
+};

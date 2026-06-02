@@ -141,6 +141,20 @@ constexpr int SD_SCK_PIN  = 12;
 constexpr int SD_CS_PIN   = 11;
 
 // =========================================================================
+//  TFT DISPLAY (ST7735S on SPI3)
+// =========================================================================
+constexpr int TFT_MOSI_PIN = 2;    // SDA on module
+constexpr int TFT_SCK_PIN  = 1;    // SCK on module
+constexpr int TFT_CS_PIN   = 42;   // CS on module
+constexpr int TFT_DC_PIN   = 41;   // A0 on module (Data/Command)
+constexpr int TFT_RST_PIN  = 40;   // RESET on module
+constexpr int TFT_BL_PIN   = 39;   // LED on module (backlight, active HIGH)
+
+constexpr int TFT_WIDTH    = 160;  // Landscape width
+constexpr int TFT_HEIGHT   = 128;  // Landscape height
+constexpr int TFT_SPI_FREQ_HZ = 26000000; // 26 MHz
+
+// =========================================================================
 //  UDP PROTOCOL — Packet Types
 // =========================================================================
 constexpr uint8_t UDP_PACKET_TELEMETRY = 0x01;

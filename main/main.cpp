@@ -36,6 +36,7 @@
 #include "rtc_driver.hpp"
 #include "sd_manager.hpp"
 #include "thermal_recorder.hpp"
+#include "tft_driver.hpp"
 
 static const char* TAG = "MAIN";
 
@@ -181,6 +182,20 @@ extern "C" void app_main(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "FAILED to start SoftAP — aborting");
         return;
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 3.5: TFT Display Driver
+    // -------------------------------------------------------------------------
+    {
+        static TftDriver tft;
+        esp_err_t tft_ret = tft.init();
+        if (tft_ret == ESP_OK) {
+            ESP_LOGI(TAG, "TFT Display initialized (ST7735S 160x128 landscape)");
+            tft.fillScreen(0x001F); // Solid blue test pattern
+        } else {
+            ESP_LOGW(TAG, "TFT Display UNAVAILABLE — system continues without display");
+        }
     }
 
     // -------------------------------------------------------------------------
