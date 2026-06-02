@@ -23,7 +23,7 @@ void TftHeatmapView::onExit() {
 void TftHeatmapView::render(const TftSnapshot& snap,
                              uint16_t* fb, int width, int height) {
     if (!snap.sensor_ok) {
-        // Render with available data (may be stale)
+        return;
     }
     renderer_.renderHeatmap(snap.pixels, fb, width, height);
 }

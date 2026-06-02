@@ -72,15 +72,26 @@ void TftDisplayTask::run() {
         }
 
         // Read snapshot (spinlock copy, ~2 us)
-        TftSnapshot snap = TftBridge::readSnapshot();
+        static TftSnapshot s_snap;
+        s_snap = TftBridge::readSnapshot();
+
+        static bool s_has_valid_frame = false;
+        if (s_snap.sensor_ok) {
+            s_has_valid_frame = true;
+        }
+
+        if (!s_snap.sensor_ok || !s_has_valid_frame) {
+            vTaskDelayUntil(&lastWake, period);
+            continue;
+        }
 
         // Render current view (skip if frame unchanged)
-        if (snap.frame_id != last_frame_id && driver_) {
-            last_frame_id = snap.frame_id;
+        if (s_snap.frame_id != last_frame_id && driver_) {
+            last_frame_id = s_snap.frame_id;
 
             ITftView* view = view_manager_.currentView();
             if (view) {
-                view->render(snap, s_framebuffer,
+                view->render(s_snap, s_framebuffer,
                             TftConfig::WIDTH, TftConfig::HEIGHT);
                 driver_->pushPixels(s_framebuffer);
                 frame_count++;

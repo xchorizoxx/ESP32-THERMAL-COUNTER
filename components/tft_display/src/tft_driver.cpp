@@ -300,10 +300,31 @@ void TftDriver::pushPixels(const uint16_t* fb) {
     t.length = TftConfig::WIDTH * 2 * 8; // 160 pixels x 2 bytes x 8 bits
     t.user   = (void*)1; // DC = 1 (data)
 
+    static int s_fail_count = 0;
+    bool frame_ok = true;
+
     // Send row by row to avoid 40KB single DMA descriptor limits
     for (int row = 0; row < TftConfig::HEIGHT; row++) {
         t.tx_buffer = fb + row * TftConfig::WIDTH;
-        spi_device_polling_transmit(spi_handle_, &t);
+        esp_err_t ret = spi_device_polling_transmit(spi_handle_, &t);
+        if (ret != ESP_OK) {
+            frame_ok = false;
+            ESP_LOGW(TAG, "SPI transmit fail at row %d: %s", row, esp_err_to_name(ret));
+            break; // Abort pushing the rest of this frame
+        }
+    }
+
+    if (frame_ok) {
+        s_fail_count = 0;
+    } else {
+        s_fail_count++;
+        ESP_LOGE(TAG, "Frame transmit failed. Consecutive failure count: %d", s_fail_count);
+        if (s_fail_count >= 3) {
+            ESP_LOGE(TAG, "3 consecutive SPI failures. Resetting hardware and reinitializing ST7735S...");
+            hardwareReset();
+            initSequence();
+            s_fail_count = 0;
+        }
     }
 }
 
