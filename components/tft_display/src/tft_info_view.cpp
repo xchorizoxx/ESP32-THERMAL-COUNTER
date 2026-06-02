@@ -131,46 +131,51 @@ void TftInfoView::drawClock(uint16_t* fb, int w, const SystemInfoSnapshot& sys) 
     uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
     bool colon_on = (now_ms % 1000) < 500;
 
-    // HH:MM with big digits
+    char h1, h2, m1, m2, s1, s2;
+
     if (!sys.rtc_ok || sys.time_str[0] == '\0') {
-        drawBigDigit(40, 14, '-', COL_CYAN, fb, w);
-        drawBigDigit(56, 14, '-', COL_CYAN, fb, w);
-        if (colon_on) {
-            drawDot(70, 25, 2, COL_WHITE, fb, w);
-            drawDot(70, 34, 2, COL_WHITE, fb, w);
-        }
-        drawBigDigit(88, 14, '-', COL_AMBER, fb, w);
-        drawBigDigit(104, 14, '-', COL_AMBER, fb, w);
-        drawSmallString(76, 46, "--", COL_GRAY, fb, w);
-        return;
+        // Fallback to uptime formatted as HH:MM:SS
+        uint32_t sec = sys.uptime_sec;
+        uint32_t hrs = sec / 3600;
+        uint32_t mins = (sec % 3600) / 60;
+        uint32_t secs = sec % 60;
+        
+        char up_buf[9];
+        snprintf(up_buf, sizeof(up_buf), "%02lu:%02lu:%02lu", (unsigned long)(hrs % 100), (unsigned long)mins, (unsigned long)secs);
+        h1 = up_buf[0]; h2 = up_buf[1];
+        m1 = up_buf[3]; m2 = up_buf[4];
+        s1 = up_buf[6]; s2 = up_buf[7];
+    } else {
+        h1 = sys.time_str[0];
+        h2 = sys.time_str[1];
+        m1 = sys.time_str[3];
+        m2 = sys.time_str[4];
+        s1 = sys.time_str[6];
+        s2 = sys.time_str[7];
     }
 
-    char h1 = sys.time_str[0];
-    char h2 = sys.time_str[1];
-    char m1 = sys.time_str[3];
-    char m2 = sys.time_str[4];
-    char s1 = sys.time_str[6];
-    char s2 = sys.time_str[7];
+    uint16_t clock_col_h = sys.rtc_ok ? COL_CYAN : COL_GRAY;
+    uint16_t clock_col_m = sys.rtc_ok ? COL_AMBER : COL_GRAY;
 
-    drawBigDigit(40, 14, h1, COL_CYAN, fb, w);
-    drawBigDigit(56, 14, h2, COL_CYAN, fb, w);
+    drawBigDigit(40, 14, h1, clock_col_h, fb, w);
+    drawBigDigit(57, 14, h2, clock_col_h, fb, w);
 
     if (colon_on) {
-        drawDot(70, 25, 2, COL_WHITE, fb, w);
-        drawDot(70, 34, 2, COL_WHITE, fb, w);
+        drawDot(80, 25, 2, COL_WHITE, fb, w);
+        drawDot(80, 34, 2, COL_WHITE, fb, w);
     } else {
-        drawDot(70, 25, 2, COL_DIM_GRAY, fb, w);
-        drawDot(70, 34, 2, COL_DIM_GRAY, fb, w);
+        drawDot(80, 25, 2, COL_DIM_GRAY, fb, w);
+        drawDot(80, 34, 2, COL_DIM_GRAY, fb, w);
     }
 
-    drawBigDigit(88, 14, m1, COL_AMBER, fb, w);
-    drawBigDigit(104, 14, m2, COL_AMBER, fb, w);
+    drawBigDigit(88, 14, m1, clock_col_m, fb, w);
+    drawBigDigit(105, 14, m2, clock_col_m, fb, w);
 
     // Seconds below clock
     char sec_str[4] = {};
     sec_str[0] = s1;
     sec_str[1] = s2;
-    drawSmallString(76, 46, sec_str, COL_GRAY, fb, w);
+    drawSmallString(74, 46, sec_str, COL_GRAY, fb, w);
 
     // Top-left: ambient temperature
     char temp_str[12];
@@ -194,34 +199,33 @@ void TftInfoView::drawDate(uint16_t* fb, int w, const SystemInfoSnapshot& sys) {
 void TftInfoView::drawSensorDots(uint16_t* fb, int w, int y, const SystemInfoSnapshot& sys) {
     const int col_w = w / 4;
     const int dot_centers[4] = { col_w / 2, col_w + col_w / 2, col_w * 2 + col_w / 2, col_w * 3 + col_w / 2 };
-    const int label_x[4] = { 4, col_w + 4, col_w * 2 + 4, col_w * 3 + 4 };
     char buf[16];
 
     // MLX
     if (sys.sensor_ok) {
         drawDot(dot_centers[0], y + 4, 3, COL_GREEN, fb, w);
-        drawSmallString(label_x[0], y + 10, "MLX OK", COL_GREEN, fb, w);
+        drawSmallString(dot_centers[0] - 18, y + 10, "MLX OK", COL_GREEN, fb, w);
     } else {
         drawDot(dot_centers[0], y + 4, 3, COL_RED, fb, w);
-        drawSmallString(label_x[0], y + 10, "MLX NO", COL_RED, fb, w);
+        drawSmallString(dot_centers[0] - 18, y + 10, "MLX NO", COL_RED, fb, w);
     }
 
     // RTC
     if (sys.rtc_ok) {
         drawDot(dot_centers[1], y + 4, 3, COL_GREEN, fb, w);
-        drawSmallString(label_x[1], y + 10, "RTC OK", COL_GREEN, fb, w);
+        drawSmallString(dot_centers[1] - 18, y + 10, "RTC OK", COL_GREEN, fb, w);
     } else {
         drawDot(dot_centers[1], y + 4, 3, COL_RED, fb, w);
-        drawSmallString(label_x[1], y + 10, "RTC NO", COL_RED, fb, w);
+        drawSmallString(dot_centers[1] - 18, y + 10, "RTC NO", COL_RED, fb, w);
     }
 
     // SD
     if (sys.sd_ok) {
         drawDot(dot_centers[2], y + 4, 3, COL_GREEN, fb, w);
-        drawSmallString(label_x[2], y + 10, "SD OK", COL_GREEN, fb, w);
+        drawSmallString(dot_centers[2] - 15, y + 10, "SD OK", COL_GREEN, fb, w);
     } else {
         drawDot(dot_centers[2], y + 4, 3, COL_RED, fb, w);
-        drawSmallString(label_x[2], y + 10, "SD NO", COL_RED, fb, w);
+        drawSmallString(dot_centers[2] - 15, y + 10, "SD NO", COL_RED, fb, w);
     }
 
     // WiFi
@@ -229,12 +233,13 @@ void TftInfoView::drawSensorDots(uint16_t* fb, int w, int y, const SystemInfoSna
         uint16_t wifi_col = sys.wifi_clients > 0 ? COL_GREEN : COL_RED;
         drawDot(dot_centers[3], y + 4, 3, wifi_col, fb, w);
         snprintf(buf, sizeof(buf), "WiFi %d", sys.wifi_clients);
-        drawSmallString(label_x[3], y + 10, buf, wifi_col, fb, w);
+        int len = (int)strlen(buf);
+        drawSmallString(dot_centers[3] - (len * 6) / 2, y + 10, buf, wifi_col, fb, w);
     }
 
     // Sensor temperature centered below
     if (sys.sensor_ok) {
-        snprintf(buf, sizeof(buf), "%.1f C", sys.ambient_temp);
+        snprintf(buf, sizeof(buf), "%.1f C", sys.sensor_temp);
     } else {
         snprintf(buf, sizeof(buf), "--.- C");
     }
@@ -280,6 +285,6 @@ void TftInfoView::render(const TftSnapshot& snap, uint16_t* fb, int w, int h) {
 
     drawDate(fb, w, sys);
     drawClock(fb, w, sys);
-    drawSensorDots(fb, w, 64, sys);
+    drawSensorDots(fb, w, 76, sys);
     drawUptime(fb, w, h, sys);
 }

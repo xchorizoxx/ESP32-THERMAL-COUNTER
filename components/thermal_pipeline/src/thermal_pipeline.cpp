@@ -273,12 +273,14 @@ void ThermalPipeline::runVisionPipeline()
     }
 
     // Pipeline diagnostic (every ~512 frames = ~16s at 32 Hz)
+    /*
     if (frame_id_ % 512 == 0) {
         ESP_LOG_COLOR(LOG_COLOR_CYAN, "PIPELINE",
                       "diagnostic: frame=%lu active=%d confirmed=%d events=%d",
                       (unsigned long)frame_id_, num_active_tracks_,
                       num_confirmed_tracks_, num_current_events_);
     }
+    */
 
     // --- Step 5: Masking ---
     MaskGenerator::generate(track_array_, num_confirmed_tracks_,
@@ -294,7 +296,17 @@ void ThermalPipeline::dispatchIpcPacket(bool sensor_ok)
     packet.sensor_ok              = sensor_ok;
     packet.telemetry.frame_id     = frame_id_;
     frame_id_ = (frame_id_ == UINT32_MAX) ? 1 : frame_id_ + 1;
-    packet.telemetry.ambient_temp = sensor_.getAmbientTemp();
+    // Compute background average temperature
+    float avg_bg_temp = 0.0f;
+    if (sensor_ok) {
+        float bg_sum = 0.0f;
+        for (int i = 0; i < ThermalConfig::TOTAL_PIXELS; i++) {
+            bg_sum += background_map_[i];
+        }
+        avg_bg_temp = bg_sum / ThermalConfig::TOTAL_PIXELS;
+    }
+    packet.telemetry.ambient_temp = avg_bg_temp;
+    packet.telemetry.sensor_temp  = sensor_.getAmbientTemp();
     packet.telemetry.count_in     = sat16(count_in_);
     packet.telemetry.count_out    = sat16(count_out_);
 

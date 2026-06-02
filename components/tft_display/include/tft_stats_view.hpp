@@ -27,10 +27,22 @@ private:
     bool last_cross_was_in_ = false;
     uint32_t last_cross_ms_ = 0;
 
+    struct CrossingRecord {
+        char time_str[9];
+        bool is_in;
+        float temp;
+        uint16_t count_in;
+        uint16_t count_out;
+    };
+    CrossingRecord last_records_[2] = {};
+    int num_records_ = 0;
+    uint64_t last_processed_event_ts_ = 0;
+
     void drawSparkline(uint16_t* fb, int w, int h);
     void drawCounters(uint16_t* fb, int w, int h, uint16_t in, uint16_t out);
     void drawMetrics(uint16_t* fb, int w, int h, const TftSnapshot& snap);
     void drawCrossingInfo(uint16_t* fb, int w, int h, uint32_t now_ms);
+    void drawCrossingLog(uint16_t* fb, int w, int h);
     void drawBoldNumber(int x, int y, int num, uint16_t color, uint16_t* fb, int w);
     void drawSmallText(int x, int y, const char* text, uint16_t color, uint16_t* fb, int w);
     void drawLine(int x0, int y0, int x1, int y1, uint16_t color, uint16_t* fb, int w);

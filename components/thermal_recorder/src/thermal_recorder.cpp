@@ -123,9 +123,11 @@ void ThermalRecorder::pushFrame(const float* pixels_degC,
     static uint32_t s_push_count = 0;
     s_push_count++;
     if ((s_push_count & 0x1FF) == 0) {
+        /*
         int fill = s_write_idx_.load(std::memory_order_relaxed) - s_read_idx_.load(std::memory_order_relaxed);
         LOG_COLOR(LOG_CYAN, TAG, "pushFrame: tracks=%d cross=%d fill=%d/%d",
                   num_tracks, cross_dir, fill, s_N_);
+        */
     }
 
     // Cap: suppress directional info when scene is too crowded (unreliable data)
@@ -210,9 +212,11 @@ void ThermalRecorder::writerTask(void* pv) {
         if ((s_writer_count & 0x1FF) == 0) {
             static const char* state_names[] = {"IDLE","RECORDING","COOLDOWN","CLOSING"};
             int fill = s_write_idx_.load(std::memory_order_acquire) - s_read_idx_.load(std::memory_order_relaxed);
+            /*
             LOG_COLOR(LOG_CYAN, TAG, "writer: state=%s tracks=%d cross=%d fill=%d/%d",
                       state_names[s_state_], (int)slot.track_count,
                       (int)slot.cross_dir, fill, s_N_);
+            */
         }
 
         uint32_t now = slot.timestamp_ms;

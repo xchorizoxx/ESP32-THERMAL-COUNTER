@@ -3,6 +3,8 @@
 #include "esp_log.h"
 #include <cstring>
 #include <math.h>
+#include <ctime>
+#include "tft_system_snapshot.hpp"
 
 const char* TftStatsView::TAG = "TFT_STATS";
 
@@ -202,33 +204,32 @@ void TftStatsView::drawCounters(uint16_t* fb, int w, int h, uint16_t in, uint16_
 }
 
 void TftStatsView::drawMetrics(uint16_t* fb, int w, int h, const TftSnapshot& snap) {
-    const int y0 = 76;
-    const int col_w = w / 4;
+    const int y0 = 96;
     char buf[16];
 
     int ocup = (int)snap.count_in - (int)snap.count_out;
     if (ocup < 0) ocup = 0;
 
-    snprintf(buf, sizeof(buf), "OCUP:%d", ocup);
+    snprintf(buf, sizeof(buf), "OC:%d", ocup);
     drawSmallText(2, y0, buf, COL_AMBER, fb, w);
 
-    snprintf(buf, sizeof(buf), "TRK:%d", snap.num_tracks);
-    drawSmallText(col_w + 2, y0, buf, COL_WHITE, fb, w);
+    snprintf(buf, sizeof(buf), "TR:%d", snap.num_tracks);
+    drawSmallText(36, y0, buf, COL_WHITE, fb, w);
 
     if (snap.sensor_ok) {
-        snprintf(buf, sizeof(buf), "AMB:%.1f", snap.ambient_temp);
-        drawSmallText(col_w * 2 + 2, y0, buf, COL_CYAN, fb, w);
+        snprintf(buf, sizeof(buf), "Ta:%.1f", snap.ambient_temp);
+        drawSmallText(64, y0, buf, COL_CYAN, fb, w);
 
-        snprintf(buf, sizeof(buf), "SEN:%.1f", snap.ambient_temp);
-        drawSmallText(col_w * 3 + 2, y0, buf, COL_AMBER, fb, w);
+        snprintf(buf, sizeof(buf), "Ts:%.1f", snap.sensor_temp);
+        drawSmallText(110, y0, buf, COL_AMBER, fb, w);
     } else {
-        drawSmallText(col_w * 2 + 2, y0, "AMB:---", COL_CYAN, fb, w);
-        drawSmallText(col_w * 3 + 2, y0, "SEN:---", COL_AMBER, fb, w);
+        drawSmallText(64, y0, "Ta:---", COL_CYAN, fb, w);
+        drawSmallText(110, y0, "Ts:---", COL_AMBER, fb, w);
     }
 }
 
 void TftStatsView::drawCrossingInfo(uint16_t* fb, int w, int h, uint32_t now_ms) {
-    const int y0 = 98;
+    const int y0 = 107;
     char buf[32];
 
     if (cross_ts_count_ > 0) {
@@ -255,6 +256,34 @@ void TftStatsView::drawCrossingInfo(uint16_t* fb, int w, int h, uint32_t now_ms)
     }
 }
 
+void TftStatsView::drawCrossingLog(uint16_t* fb, int w, int h) {
+    int y = 77;
+    int count = num_records_ < 2 ? num_records_ : 2;
+    for (int i = 0; i < count; i++) {
+        const auto& rec = last_records_[i];
+        
+        // Time
+        drawSmallText(4, y, rec.time_str, COL_GRAY, fb, w);
+        
+        // Direction
+        const char* dir_str = rec.is_in ? "IN " : "OUT";
+        uint16_t dir_col = rec.is_in ? COL_BLUE : COL_GREEN;
+        drawSmallText(60, y, dir_str, dir_col, fb, w);
+        
+        // Temperature
+        char temp_buf[12];
+        snprintf(temp_buf, sizeof(temp_buf), "%.1fC", rec.temp);
+        drawSmallText(90, y, temp_buf, COL_AMBER, fb, w);
+        
+        // Counters
+        char cnt_buf[16];
+        snprintf(cnt_buf, sizeof(cnt_buf), "%u/%u", rec.count_in, rec.count_out);
+        drawSmallText(130, y, cnt_buf, COL_WHITE, fb, w);
+        
+        y += 9;
+    }
+}
+
 void TftStatsView::onEnter() {
     ESP_LOGI(TAG, "Stats view active");
 }
@@ -267,12 +296,50 @@ void TftStatsView::render(const TftSnapshot& snap, uint16_t* fb, int w, int h) {
 
     uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 
+    // Process new crossing events to populate the local history log
+    if (snap.num_events > 0) {
+        for (int i = 0; i < snap.num_events; i++) {
+            const auto& ev = snap.events[i];
+            if (ev.timestamp_ms > last_processed_event_ts_) {
+                last_processed_event_ts_ = ev.timestamp_ms;
+
+                // Shift existing records down
+                last_records_[1] = last_records_[0];
+
+                // Format new record
+                auto& rec = last_records_[0];
+                rec.is_in = ev.is_in;
+                rec.temp = ev.temperature;
+                rec.count_in = ev.count_in;
+                rec.count_out = ev.count_out;
+
+                SystemInfoSnapshot sys = readSystemSnapshot();
+                if (sys.rtc_ok && ev.timestamp_ms > 1000000000ULL) {
+                    time_t seconds = ev.timestamp_ms / 1000;
+                    struct tm tm_info;
+                    localtime_r(&seconds, &tm_info);
+                    snprintf(rec.time_str, sizeof(rec.time_str), "%02d:%02d:%02d", tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec);
+                } else {
+                    // Fallback to relative time format based on ev.timestamp_ms
+                    uint32_t sec = ev.timestamp_ms / 1000;
+                    uint32_t hrs = sec / 3600;
+                    uint32_t mins = (sec % 3600) / 60;
+                    uint32_t secs = sec % 60;
+                    snprintf(rec.time_str, sizeof(rec.time_str), "%02d:%02d:%02d", (int)(hrs % 100), (int)mins, (int)secs);
+                }
+
+                if (num_records_ < 2) num_records_++;
+            }
+        }
+    }
+
     if (prev_frame_id_ == 0) {
         prev_count_in_ = snap.count_in;
         prev_count_out_ = snap.count_out;
         prev_frame_id_ = snap.frame_id;
         drawSparkline(fb, w, h);
         drawCounters(fb, w, h, snap.count_in, snap.count_out);
+        drawCrossingLog(fb, w, h);
         drawMetrics(fb, w, h, snap);
         drawCrossingInfo(fb, w, h, now_ms);
         return;
@@ -317,6 +384,7 @@ void TftStatsView::render(const TftSnapshot& snap, uint16_t* fb, int w, int h) {
 
     drawSparkline(fb, w, h);
     drawCounters(fb, w, h, snap.count_in, snap.count_out);
+    drawCrossingLog(fb, w, h);
     drawMetrics(fb, w, h, snap);
     drawCrossingInfo(fb, w, h, now_ms);
 }

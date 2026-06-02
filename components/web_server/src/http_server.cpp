@@ -196,9 +196,9 @@ static void saveCountersToNvs(int32_t session_count_in,
   nvs_close(h);
 
   if (err == ESP_OK) {
-    ESP_LOGI(TAG,
+    /* ESP_LOGI(TAG,
              "NVS: counters saved — session(in=%d out=%d) total(in=%d out=%d)",
-             session_count_in, session_count_out, total_in, total_out);
+             session_count_in, session_count_out, total_in, total_out); */
   } else {
     ESP_LOGW(TAG, "NVS: counter commit failed: %s", esp_err_to_name(err));
   }

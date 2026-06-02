@@ -138,6 +138,8 @@ struct __attribute__((packed)) TelemetryPayload {
   static constexpr int MAX_EVENTS_PER_FRAME = 5;
   uint8_t num_events;
   CrossingEvent events[MAX_EVENTS_PER_FRAME];
+
+  float sensor_temp; ///< Internal sensor temperature [deg C]
 };
 
 /**
@@ -204,6 +206,9 @@ struct TftSnapshot {
     uint8_t  num_tracks;        ///< Number of confirmed tracks
     TrackInfo tracks[ThermalConfig::MAX_TRACKS]; ///< Track positions for overlay
     float    ambient_temp;      ///< Ambient temperature [deg C]
+    float    sensor_temp;       ///< Sensor internal temperature [deg C]
+    uint8_t  num_events;        ///< Number of events in this frame
+    CrossingEvent events[TelemetryPayload::MAX_EVENTS_PER_FRAME]; ///< Crossing events
     bool     sensor_ok;         ///< true if sensor is healthy
     uint32_t frame_id;          ///< Frame sequence number (staleness detection)
     ThermalConfig::DoorLineConfig door_lines; ///< Counting line configuration

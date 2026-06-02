@@ -57,9 +57,10 @@ void TelemetryTask::run()
     ESP_LOG_COLOR(LOG_COLOR_MAGENTA, TAG, "Telemetry task started on Core %d", xPortGetCoreID());
 
     while (true) {
-        static float    last_ambient    = 0.0f;
-        static bool     last_sensor_ok  = false;
-        static uint32_t last_frame_id   = 0;
+        static float    last_ambient     = 0.0f;
+        static float    last_sensor_temp = 0.0f;
+        static bool     last_sensor_ok   = false;
+        static uint32_t last_frame_id    = 0;
         esp_task_wdt_reset();
 
         // --- System snapshot update every ~1s (independent of IPC packet rate) ---
@@ -96,7 +97,7 @@ void TelemetryTask::run()
 
             info.uptime_sec = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS / 1000);
             info.ambient_temp = last_ambient;
-            info.sensor_temp  = last_ambient;
+            info.sensor_temp  = last_sensor_temp;
             info.sensor_ok    = last_sensor_ok;
             info.update_id    = last_frame_id;
 
@@ -126,8 +127,9 @@ void TelemetryTask::run()
         }
 
         // Store sensor data for system snapshot updates
-        last_ambient   = packet.telemetry.ambient_temp;
-        last_sensor_ok = packet.sensor_ok;
+        last_ambient     = packet.telemetry.ambient_temp;
+        last_sensor_temp = packet.telemetry.sensor_temp;
+        last_sensor_ok   = packet.sensor_ok;
         last_frame_id  = packet.telemetry.frame_id;
 
         // W4-CSV: Broadcast individual crossing events as JSON for precise logging

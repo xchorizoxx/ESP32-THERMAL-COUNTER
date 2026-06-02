@@ -54,10 +54,12 @@ void TftDisplayTask::run() {
     while (true) {
         uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 
+        bool force_render = false;
         // Poll button (no ISR — polling at frame rate)
         BootButton::Event btn = button_.poll(now_ms);
         if (btn == BootButton::Event::SHORT_PRESS) {
             view_manager_.nextView();
+            force_render = true;
         } else if (btn == BootButton::Event::LONG_PRESS) {
             bool sleeping = view_manager_.toggleSleep();
             if (sleeping) {
@@ -82,13 +84,11 @@ void TftDisplayTask::run() {
             s_has_valid_frame = true;
         }
 
-        if (!s_snap.sensor_ok || !s_has_valid_frame) {
-            vTaskDelayUntil(&lastWake, period);
-            continue;
-        }
+        // Removed the early continue to avoid freezing the display task
+        // when the camera is disconnected. The individual views will handle it.
 
-        // Render current view (skip if frame unchanged)
-        if (s_snap.frame_id != last_frame_id && driver_) {
+        // Render current view (skip if frame unchanged, unless view just changed)
+        if ((s_snap.frame_id != last_frame_id || force_render) && driver_) {
             last_frame_id = s_snap.frame_id;
 
             ITftView* view = view_manager_.currentView();
@@ -103,9 +103,9 @@ void TftDisplayTask::run() {
         // Diagnostic every ~10 seconds (150 frames at 15 FPS)
         if (frame_count > 0 && frame_count % 150 == 0) {
             UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI(TAG, "Health: %lu frames rendered, stack HWM=%u bytes",
+            /* ESP_LOGI(TAG, "Health: %lu frames rendered, stack HWM=%u bytes",
                      (unsigned long)frame_count,
-                     (unsigned int)(hwm * sizeof(StackType_t)));
+                     (unsigned int)(hwm * sizeof(StackType_t))); */
         }
 
         vTaskDelayUntil(&lastWake, period);

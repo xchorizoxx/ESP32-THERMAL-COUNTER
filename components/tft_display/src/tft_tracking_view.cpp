@@ -13,11 +13,11 @@ static constexpr uint16_t overlay_rgb565(uint8_t r, uint8_t g, uint8_t b) {
 static const uint16_t COLOR_LINE_ENTRY = overlay_rgb565(0, 255, 136);
 static const uint16_t COLOR_LINE_EXIT  = overlay_rgb565(0, 212, 255);
 static const uint16_t COLOR_SEG_LINE   = overlay_rgb565(0, 255, 136);
-static const uint16_t COLOR_TRACK_HOT  = overlay_rgb565(255, 0, 0);
-static const uint16_t COLOR_TRACK_WARM = overlay_rgb565(255, 180, 0);
-static const uint16_t COLOR_TRACK_COLD = overlay_rgb565(0, 255, 0);
+static const uint16_t COLOR_TRACK_HOT  = overlay_rgb565(255, 0, 0);    // Rojo intenso
+static const uint16_t COLOR_TRACK_WARM = overlay_rgb565(180, 0, 0);    // Rojo oscuro
+static const uint16_t COLOR_TRACK_COLD = overlay_rgb565(110, 0, 0);    // Rojo muy oscuro
 
-static constexpr int TRACK_CIRCLE_R = 3;
+static constexpr int TRACK_CIRCLE_R = 7;
 
 void TftTrackingView::onEnter() {
     if (!initialized_) {

@@ -161,9 +161,9 @@ uint64_t SDManager::getFreeSpaceBytes() const {
     }
 
     uint64_t bytes = (uint64_t)free_clust * fs->csize * fs->ssize;
-    LOG_COLOR(LOG_CYAN, TAG, "f_getfree: free_clust=%lu csize=%u ssize=%u → free=%llu",
-              (unsigned long)free_clust, (unsigned)fs->csize,
-              (unsigned)fs->ssize, (unsigned long long)bytes);
+    // LOG_COLOR(LOG_CYAN, TAG, "f_getfree: free_clust=%lu csize=%u ssize=%u → free=%llu",
+    //           (unsigned long)free_clust, (unsigned)fs->csize,
+    //           (unsigned)fs->ssize, (unsigned long long)bytes);
     return bytes;
 }
 
@@ -172,10 +172,10 @@ uint64_t SDManager::getTotalSpaceBytes() const {
 
     // CSD capacity: for SDHC/SDXC it is in 512-byte blocks
     uint64_t bytes = (uint64_t)card_->csd.capacity * 512ULL;
-    LOG_COLOR(LOG_CYAN, TAG, "CSD total: capacity=%lu sector_size=%u → total=%llu",
-              (unsigned long)card_->csd.capacity,
-              (unsigned)card_->csd.sector_size,
-              (unsigned long long)bytes);
+    // LOG_COLOR(LOG_CYAN, TAG, "CSD total: capacity=%lu sector_size=%u → total=%llu",
+    //           (unsigned long)card_->csd.capacity,
+    //           (unsigned)card_->csd.sector_size,
+    //           (unsigned long long)bytes);
     return bytes;
 }
 

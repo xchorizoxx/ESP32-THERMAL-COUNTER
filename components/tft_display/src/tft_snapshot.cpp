@@ -19,6 +19,9 @@ void writeSnapshot(const ImagePayload& image,
     g_snapshot.num_tracks  = telemetry.num_tracks;
     memcpy(&g_snapshot.tracks, &telemetry.tracks, sizeof(telemetry.tracks));
     g_snapshot.ambient_temp = telemetry.ambient_temp;
+    g_snapshot.sensor_temp  = telemetry.sensor_temp;
+    g_snapshot.num_events   = telemetry.num_events;
+    memcpy(g_snapshot.events, telemetry.events, sizeof(telemetry.events));
     g_snapshot.sensor_ok   = sensor_ok;
     g_snapshot.frame_id    = telemetry.frame_id;
     g_snapshot.door_lines  = door_lines;
